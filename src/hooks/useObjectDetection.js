@@ -1,0 +1,283 @@
+import { useState, useEffect, useRef } from 'react';
+import { detectObjectsInVideo, getObjectDetector } from '../services/objectDetector';
+import { createPhoneTracker, PHONE_STATES } from '../services/phoneTracker';
+import { createPersonTracker, PERSON_STATES } from '../services/personTracker';
+import { createEventEngine } from '../services/eventEngine';
+
+/**
+ * Custom React hook orchestrating local browser object detection.
+ */
+export function useObjectDetection({
+  videoRef,
+  isCameraActive,
+  isVideoReady = false,
+  detectionIntervalMs = 500,
+  onObservationEvent = null,
+  onSpanCompletedEvent = null,
+}) {
+  const [phoneState, setPhoneState] = useState(PHONE_STATES.PHONE_ABSENT);
+  const [phoneConfidence, setPhoneConfidence] = useState(null);
+  
+  const [personState, setPersonState] = useState(PERSON_STATES.NO_PERSON);
+  const [personCount, setPersonCount] = useState(0);
+  const [personConfidence, setPersonConfidence] = useState(null);
+
+  const [modelStatus, setModelStatus] = useState('IDLE'); // 'IDLE' | 'LOADING' | 'READY' | 'ERROR'
+  const [error, setError] = useState(null);
+
+  // Keep callback references updated in refs
+  const onObservationEventRef = useRef(onObservationEvent);
+  useEffect(() => {
+    onObservationEventRef.current = onObservationEvent;
+  }, [onObservationEvent]);
+
+  const onSpanCompletedEventRef = useRef(onSpanCompletedEvent);
+  useEffect(() => {
+    onSpanCompletedEventRef.current = onSpanCompletedEvent;
+  }, [onSpanCompletedEvent]);
+
+  // Telemetry debug diagnostics state
+  const [debugStats, setDebugStats] = useState({
+    attempts: 0,
+    successes: 0,
+    errors: 0,
+    rawPeople: 0,
+    rawPhones: 0,
+    lastTimestamp: null,
+    lastError: null,
+  });
+
+  const statsRef = useRef({ attempts: 0, successes: 0, errors: 0 });
+
+  const phoneTrackerRef = useRef(null);
+  const personTrackerRef = useRef(null);
+  const eventEngineRef = useRef(null);
+
+  // Initialize event engine
+  if (!eventEngineRef.current) {
+    eventEngineRef.current = createEventEngine({
+      onSpanCompleted: (completedSpan) => {
+        if (onSpanCompletedEventRef.current) {
+          onSpanCompletedEventRef.current(completedSpan);
+        }
+      },
+    });
+  }
+
+  // Initialize phone tracker
+  if (!phoneTrackerRef.current) {
+    phoneTrackerRef.current = createPhoneTracker({
+      presentThreshold: 2,
+      absentThreshold: 3,
+      onStateChange: (evt) => {
+        setPhoneState(evt.type);
+        if (eventEngineRef.current) {
+          eventEngineRef.current.processObservation(evt);
+        }
+        if (onObservationEventRef.current) {
+          onObservationEventRef.current(evt);
+        }
+      },
+    });
+  }
+
+  // Initialize person tracker
+  if (!personTrackerRef.current) {
+    personTrackerRef.current = createPersonTracker({
+      stabilityThreshold: 2,
+      onStateChange: (evt) => {
+        setPersonState(evt.state);
+        setPersonCount(evt.count);
+        if (eventEngineRef.current) {
+          eventEngineRef.current.processObservation(evt);
+        }
+        if (onObservationEventRef.current) {
+          onObservationEventRef.current(evt);
+        }
+      },
+    });
+  }
+
+  // 1. Model Initialization Effect
+  useEffect(() => {
+    let isSubscribed = true;
+
+    if (isCameraActive && isVideoReady) {
+      console.log('[ObjectHook] initialization requested');
+
+      if (modelStatus === 'READY') {
+        console.log('[ObjectHook] detector already exists / READY');
+        return;
+      }
+
+      console.log('[ObjectHook] initialization started');
+      console.log('[ObjectHook] calling getObjectDetector()');
+      setModelStatus('LOADING');
+      setError(null);
+
+      const timeoutId = setTimeout(() => {
+        if (isSubscribed && modelStatus !== 'READY') {
+          console.error('[ObjectHook] initialization failed: timed out after 10s');
+          setModelStatus('ERROR');
+          setError('Object model initialization timed out after 10000ms');
+        }
+      }, 10000);
+
+      getObjectDetector()
+        .then((instance) => {
+          if (isSubscribed) {
+            clearTimeout(timeoutId);
+            console.log('[ObjectHook] getObjectDetector() returned');
+            console.log('[ObjectHook] detector instance exists:', Boolean(instance));
+            console.log('[ObjectHook] initialization completed');
+            setModelStatus('READY');
+            setError(null);
+          }
+        })
+        .catch((err) => {
+          if (isSubscribed) {
+            clearTimeout(timeoutId);
+            const errMsg = err.message || String(err);
+            console.error('[ObjectHook] initialization failed:', errMsg);
+            setModelStatus('ERROR');
+            setError(`Failed to initialize ObjectDetector: ${errMsg}`);
+            setDebugStats((prev) => ({ ...prev, lastError: errMsg }));
+          }
+        });
+
+      return () => {
+        isSubscribed = false;
+        clearTimeout(timeoutId);
+      };
+    } else {
+      setModelStatus('IDLE');
+      setError(null);
+      setPhoneState(PHONE_STATES.PHONE_ABSENT);
+      setPhoneConfidence(null);
+      setPersonState(PERSON_STATES.NO_PERSON);
+      setPersonCount(0);
+      setPersonConfidence(null);
+
+      statsRef.current = { attempts: 0, successes: 0, errors: 0 };
+      setDebugStats({
+        attempts: 0,
+        successes: 0,
+        errors: 0,
+        rawPeople: 0,
+        rawPhones: 0,
+        lastTimestamp: null,
+        lastError: null,
+      });
+
+      if (phoneTrackerRef.current) phoneTrackerRef.current.reset();
+      if (personTrackerRef.current) personTrackerRef.current.reset();
+      if (eventEngineRef.current) eventEngineRef.current.reset();
+    }
+  }, [isCameraActive, isVideoReady]);
+
+  // 2. Periodic Inference Loop Effect
+  useEffect(() => {
+    if (modelStatus !== 'READY' || !isCameraActive || !isVideoReady) {
+      return;
+    }
+
+    console.log('[ObjectHook] starting inference loop');
+    let isSubscribed = true;
+
+    const intervalId = setInterval(async () => {
+      const video = videoRef?.current;
+      if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0 || video.paused || video.ended) {
+        return;
+      }
+
+      statsRef.current.attempts += 1;
+      const currentAttempt = statsRef.current.attempts;
+      if (currentAttempt === 1 || currentAttempt % 20 === 0) {
+        console.log(`[ObjectHook] inference attempt #${currentAttempt}`);
+      }
+
+      try {
+        const detectedObjects = await detectObjectsInVideo(video);
+
+        if (isSubscribed) {
+          statsRef.current.successes += 1;
+
+          // Process phone tracker
+          const phoneRes = phoneTrackerRef.current.processObjects(detectedObjects);
+          setPhoneState((prev) => (prev !== phoneRes.currentState ? phoneRes.currentState : prev));
+          setPhoneConfidence((prev) => (prev !== phoneRes.confidence ? phoneRes.confidence : prev));
+
+          // Process person tracker
+          const personRes = personTrackerRef.current.processObjects(detectedObjects);
+          setPersonState((prev) => (prev !== personRes.currentState ? personRes.currentState : prev));
+          setPersonCount((prev) => (prev !== personRes.count ? personRes.count : prev));
+          setPersonConfidence((prev) => (prev !== personRes.confidence ? personRes.confidence : prev));
+
+          const peopleCount = detectedObjects.filter((o) => o.label === 'person').length;
+          const phoneCount = detectedObjects.filter((o) => o.label === 'cell phone').length;
+
+          if (currentAttempt === 1 || currentAttempt % 20 === 0) {
+            console.log(`[ObjectHook] raw people = ${peopleCount}, raw phones = ${phoneCount}`);
+          }
+
+          if (currentAttempt === 1 || currentAttempt % 4 === 0) {
+            setDebugStats({
+              attempts: statsRef.current.attempts,
+              successes: statsRef.current.successes,
+              errors: statsRef.current.errors,
+              rawPeople: peopleCount,
+              rawPhones: phoneCount,
+              lastTimestamp: Date.now(),
+              lastError: null,
+            });
+          }
+        }
+      } catch (err) {
+        statsRef.current.errors += 1;
+        console.error('[ObjectHook] frame processing error:', err);
+        if (isSubscribed) {
+          setDebugStats((prev) => ({
+            ...prev,
+            attempts: statsRef.current.attempts,
+            errors: statsRef.current.errors,
+            lastError: err.message || String(err),
+          }));
+        }
+      }
+    }, detectionIntervalMs);
+
+    return () => {
+      isSubscribed = false;
+      clearInterval(intervalId);
+    };
+  }, [modelStatus, isCameraActive, isVideoReady, videoRef, detectionIntervalMs]);
+
+  // Clean up resources on unmount
+  useEffect(() => {
+    return () => {
+      if (phoneTrackerRef.current) phoneTrackerRef.current.reset();
+      if (personTrackerRef.current) personTrackerRef.current.reset();
+      if (eventEngineRef.current) eventEngineRef.current.reset();
+    };
+  }, []);
+
+  const inferenceStatus = (modelStatus === 'READY' && isCameraActive && isVideoReady)
+    ? 'RUNNING'
+    : (modelStatus === 'READY' && isCameraActive ? 'WAITING FOR VIDEO' : 'STOPPED');
+
+  return {
+    phoneState,
+    isPhoneDetected: phoneState === PHONE_STATES.PHONE_PRESENT,
+    phoneConfidence,
+    personState,
+    personCount,
+    personConfidence,
+    modelStatus,
+    inferenceStatus,
+    isLoading: modelStatus === 'LOADING',
+    error,
+    debugStats,
+    eventEngine: eventEngineRef.current,
+  };
+}
+

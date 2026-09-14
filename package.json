@@ -1,0 +1,44 @@
+{
+  "name": "focus-lens",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node server/index.js",
+    "db:migrate": "node server/db/migrate.js",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
+    "test": "node --test server/__tests__/api.test.js server/__tests__/auth_and_authorization.test.js server/__tests__/forgot_password.test.js server/__tests__/profile_and_password.test.js server/__tests__/verification.test.js server/__tests__/identity_and_uniqueness.test.js"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^9.3.1",
+    "@fastify/cors": "^9.0.1",
+    "@fastify/rate-limit": "^9.1.0",
+    "@fastify/session": "^10.7.0",
+    "@mediapipe/tasks-vision": "^1.0.1",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "drizzle-orm": "^0.30.10",
+    "fastify": "^4.26.2",
+    "lucide-react": "^0.344.0",
+    "nodemailer": "^10.0.10",
+    "pg": "^8.11.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "resend": "^6.28.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.19",
+    "drizzle-kit": "^0.20.18",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.1",
+    "vite": "^5.1.6"
+  }
+}

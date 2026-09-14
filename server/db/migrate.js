@@ -1,0 +1,144 @@
+import pg from 'pg';
+import { config } from '../config/env.js';
+
+const INITIAL_DDL = `
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT UNIQUE,
+  name TEXT,
+  password_hash TEXT,
+  anonymous_id TEXT UNIQUE,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number TEXT;
+ALTER TABLE users ALTER COLUMN anonymous_id DROP NOT NULL;
+
+-- Populate null usernames for existing users deterministically
+UPDATE users 
+SET username = LOWER(COALESCE(
+  NULLIF(REGEXP_REPLACE(SPLIT_PART(email, '@', 1), '[^a-zA-Z0-9._]', '_', 'g'), ''),
+  'user_' || SUBSTRING(id::text, 1, 8)
+))
+WHERE username IS NULL OR username = '';
+
+-- Case-insensitive unique index for Username
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username));
+
+-- Case-insensitive unique index for Email
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email)) WHERE email IS NOT NULL AND email != '';
+
+-- Unique index for Phone Number (allowing NULL/empty)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_number_unique ON users (phone_number) WHERE phone_number IS NOT NULL AND phone_number != '';
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  selected_activity TEXT NOT NULL,
+  planned_duration_ms INTEGER NOT NULL,
+  actual_duration_ms INTEGER DEFAULT 0,
+  paused_duration_ms INTEGER DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  ended_at TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS activity_segments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  activity_type TEXT NOT NULL,
+  start_time_ms BIGINT NOT NULL,
+  end_time_ms BIGINT NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  evidence_score REAL NOT NULL,
+  confidence_type TEXT NOT NULL DEFAULT 'heuristic',
+  contributing_signals JSONB DEFAULT '[]'::jsonb,
+  explanation JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'activity_segments' AND column_name = 'confidencetype'
+  ) THEN
+    ALTER TABLE activity_segments RENAME COLUMN confidencetype TO confidence_type;
+  END IF;
+END $$;
+
+ALTER TABLE activity_segments ADD COLUMN IF NOT EXISTS confidence_type TEXT NOT NULL DEFAULT 'heuristic';
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_started ON sessions(user_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_segments_session_start ON activity_segments(session_id, start_time_ms);
+`;
+
+export async function runMigrations() {
+  console.log('[DB Migrate] Connecting to PostgreSQL at target DATABASE_URL...');
+
+  let dbUrl;
+  try {
+    dbUrl = new URL(config.databaseUrl);
+  } catch (err) {
+    console.warn('[DB Migrate Warning] Could not parse DATABASE_URL with standard URL class, using raw connection string.');
+  }
+
+  const targetClient = new pg.Client({ connectionString: config.databaseUrl });
+  try {
+    await targetClient.connect();
+    console.log('[DB Migrate] Successfully connected to target database. Applying DDL schema...');
+    await targetClient.query(INITIAL_DDL);
+    console.log('[DB Migrate] Schema migration complete! Tables ready: users, sessions, activity_segments.');
+    await targetClient.end().catch(() => {});
+    return;
+  } catch (err) {
+    await targetClient.end().catch(() => {});
+
+    if (err.code === '3D000' && dbUrl) {
+      const dbName = dbUrl.pathname.slice(1) || 'focuslens';
+      dbUrl.pathname = '/postgres';
+      const rootClient = new pg.Client({ connectionString: dbUrl.toString() });
+
+      try {
+        await rootClient.connect();
+        console.log(`[DB Migrate] Database "${dbName}" does not exist. Creating...`);
+        await rootClient.query(`CREATE DATABASE "${dbName}"`);
+        console.log(`[DB Migrate] Database "${dbName}" created successfully.`);
+        await rootClient.end().catch(() => {});
+
+        const retryClient = new pg.Client({ connectionString: config.databaseUrl });
+        await retryClient.connect();
+        await retryClient.query(INITIAL_DDL);
+        await retryClient.end().catch(() => {});
+        console.log('[DB Migrate] Schema migration complete! Tables ready: users, sessions, activity_segments.');
+        return;
+      } catch (rootErr) {
+        await rootClient.end().catch(() => {});
+        console.warn(`[DB Migrate Warning] Root database creation attempt failed:`, rootErr.message);
+      }
+    }
+
+    console.warn('[DB Migrate Warning] Migration connection could not reach PostgreSQL instance:', err.message);
+  }
+}
+
+if (process.argv[1]?.includes('migrate.js')) {
+  runMigrations()
+    .then(() => {
+      console.log('[DB Migrate] Migration task completed.');
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error('[DB Migrate] Execution failed:', err);
+      process.exit(1);
+    });
+}
