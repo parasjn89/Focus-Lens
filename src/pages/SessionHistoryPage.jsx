@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { History, Calendar, Clock, CheckCircle2, AlertCircle, RefreshCw, ChevronRight, HardDrive, Database } from 'lucide-react';
+import { History, Calendar, Clock, CheckCircle2, AlertCircle, RefreshCw, ChevronRight, HardDrive, Database, Target } from 'lucide-react';
 import { fetchSessionsHistory } from '../api/sessionApi';
 import { syncPendingSessions } from '../api/syncManager';
 
@@ -131,6 +131,7 @@ export function SessionHistoryPage({ onSelectSession, onNewSession }) {
               const actualSecs = session.actualDurationMs ? Math.round(session.actualDurationMs / 1000) : 0;
               const plannedMins = session.plannedDurationMs ? Math.round(session.plannedDurationMs / 60000) : 25;
               const isLocal = session.isLocal || session.id.startsWith('local_');
+              const hasGoal = session.goalType && session.goalType !== 'NONE' && session.goalText;
 
               return (
                 <div
@@ -140,14 +141,23 @@ export function SessionHistoryPage({ onSelectSession, onNewSession }) {
                 >
                   <div className="flex items-start space-x-4">
                     <div className="w-11 h-11 rounded-xl bg-slate-800 flex items-center justify-center text-slate-300 shrink-0 group-hover:scale-105 group-hover:bg-brand-600/20 group-hover:text-brand-400 transition-all">
-                      <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                      {hasGoal ? (
+                        <Target className="w-6 h-6 text-brand-400" />
+                      ) : (
+                        <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                      )}
                     </div>
 
                     <div>
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                         <h3 className="text-base font-bold text-white group-hover:text-brand-300 transition-colors">
-                          {session.selectedActivity || 'Focus Session'}
+                          {hasGoal ? session.goalText : (session.selectedActivity || 'Focus Session')}
                         </h3>
+                        {hasGoal && session.selectedActivity && (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                            {session.selectedActivity}
+                          </span>
+                        )}
                         {isLocal ? (
                           <span className="inline-flex items-center space-x-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20" title="Saved locally in browser">
                             <HardDrive className="w-3 h-3" />
@@ -159,6 +169,11 @@ export function SessionHistoryPage({ onSelectSession, onNewSession }) {
                             <span>PostgreSQL</span>
                           </span>
                         )}
+                        {session.status === 'COMPLETED' && (session.qualifyingFocusSeconds > 0 || session.focusPoints > 0) && (
+                          <span className="inline-flex items-center space-x-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20" title="Qualifying focus session towards focus streaks">
+                            <span>Focus Day ✓</span>
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-400">
@@ -168,8 +183,30 @@ export function SessionHistoryPage({ onSelectSession, onNewSession }) {
                         </div>
                         <div className="flex items-center space-x-1.5">
                           <Clock className="w-3.5 h-3.5 text-slate-500" />
-                          <span>Duration: {formatDuration(actualSecs)} (Target: {plannedMins}m)</span>
+                          <span>Duration: {formatDuration(actualSecs)}</span>
                         </div>
+                        {session.focusPoints !== undefined && (
+                          <div className="flex items-center space-x-1 font-mono text-emerald-400 font-medium">
+                            <span>+{session.focusPoints} pts</span>
+                          </div>
+                        )}
+                        {hasGoal && (
+                          <div className="flex items-center space-x-1 font-mono text-brand-300 font-semibold">
+                            <span>
+                              {session.goalType === 'COUNT' ? (
+                                `${session.goalProgress || 0} / ${session.targetValue} ${session.targetUnit || ''} progress`
+                              ) : (
+                                `${session.goalProgress || 0}% goal progress`
+                              )}
+                            </span>
+                            {session.goalCompleted && <span className="text-emerald-400 ml-1">✓</span>}
+                          </div>
+                        )}
+                        {session.deepWork?.longestBlockText && !hasGoal && (
+                          <div className="flex items-center space-x-1 font-mono text-slate-300">
+                            <span>Longest Block: <strong className="text-white">{session.deepWork.longestBlockText}</strong></span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

@@ -49,7 +49,9 @@ export function classifyMultimodalActivity(cameraSignals = {}, screenSignals = {
     isCameraActive = false,
     isFacePresent = false,
     isPhonePresent = false,
-    personCount = 0,
+    personCount = 0, // Real physical person count
+    rawPersonCount = 0,
+    personOnPhoneCount = 0,
     headOrientation = 'UNKNOWN',
   } = cameraSignals;
 
@@ -70,6 +72,13 @@ export function classifyMultimodalActivity(cameraSignals = {}, screenSignals = {
   // Priority 1: Phone Activity
   if (isCameraActive && isPhonePresent) {
     const explanation = ['Phone detected in camera view'];
+    const contributingSignals = ['PHONE_PRESENT', `HEAD_${headOrientation}`];
+
+    if (personOnPhoneCount > 0) {
+      contributingSignals.push('PERSON_ON_PHONE_SCREEN');
+      explanation.push('On-screen person detection filtered from physical person count');
+    }
+
     if (headOrientation === 'DOWN') {
       explanation.push('Head oriented downward toward phone');
     }
@@ -78,12 +87,12 @@ export function classifyMultimodalActivity(cameraSignals = {}, screenSignals = {
       label: ACTIVITY_LABELS.PHONE_ACTIVITY,
       evidenceScore: headOrientation === 'DOWN' ? 0.95 : 0.90,
       confidenceType: 'heuristic',
-      contributingSignals: ['PHONE_PRESENT', `HEAD_${headOrientation}`],
+      contributingSignals,
       explanation,
     };
   }
 
-  // Priority 2: Multiple People
+  // Priority 2: Multiple People (strictly requires >= 2 real physical people)
   if (isCameraActive && personCount >= 2) {
     return {
       type: ACTIVITY_TYPES.MULTIPLE_PEOPLE,
@@ -91,7 +100,7 @@ export function classifyMultimodalActivity(cameraSignals = {}, screenSignals = {
       evidenceScore: 0.92,
       confidenceType: 'heuristic',
       contributingSignals: ['MULTIPLE_PEOPLE', `COUNT_${personCount}`],
-      explanation: ['More than one person detected in camera view'],
+      explanation: ['More than one physical person detected in camera view'],
     };
   }
 

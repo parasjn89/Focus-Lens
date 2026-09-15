@@ -20,6 +20,11 @@ export const db = drizzle(pool, { schema });
 export async function checkDbConnection() {
   try {
     const client = await pool.connect();
+    try {
+      await client.query('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS focus_points INTEGER DEFAULT 0 NOT NULL;');
+    } catch (e) {
+      // Ignore if table not yet created
+    }
     client.release();
     return true;
   } catch (err) {

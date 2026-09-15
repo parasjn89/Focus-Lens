@@ -1,3 +1,5 @@
+import { filterObjectsAndClassifyScreenPeople } from './spatialFilter.js';
+
 export const PERSON_STATES = {
   NO_PERSON: 'NO_PERSON',
   ONE_PERSON: 'ONE_PERSON',
@@ -16,7 +18,7 @@ export function getPersonStateFromCount(count) {
 }
 
 /**
- * Creates a person tracker with count smoothing.
+ * Creates a person tracker with count smoothing and phone-screen person filtering.
  * 
  * @param {Object} options
  * @param {number} [options.stabilityThreshold=2] - Consecutive frames required to update stable count state
@@ -28,16 +30,22 @@ export function createPersonTracker({
 } = {}) {
   let currentState = PERSON_STATES.NO_PERSON;
   let currentStableCount = 0;
+  let currentRawCount = 0;
+  let currentPhoneScreenPersonCount = 0;
   let pendingCount = 0;
   let pendingCountConsecutive = 0;
 
   return {
     getCurrentState: () => currentState,
     getStableCount: () => currentStableCount,
+    getRawCount: () => currentRawCount,
+    getPhoneScreenPersonCount: () => currentPhoneScreenPersonCount,
 
     reset: () => {
       currentState = PERSON_STATES.NO_PERSON;
       currentStableCount = 0;
+      currentRawCount = 0;
+      currentPhoneScreenPersonCount = 0;
       pendingCount = 0;
       pendingCountConsecutive = 0;
     },
@@ -48,22 +56,31 @@ export function createPersonTracker({
      * @param {number} [timestamp=Date.now()]
      */
     processObjects: (detectedObjects = [], timestamp = Date.now()) => {
-      const personDetections = detectedObjects.filter((obj) => obj.label === 'person');
-      const rawCount = personDetections.length;
-      const maxConfidence = rawCount > 0
-        ? Math.max(...personDetections.map((d) => d.confidence))
-        : null;
+      // Apply spatial containment filter to distinguish physical people from on-screen people
+      const spatialRes = filterObjectsAndClassifyScreenPeople(detectedObjects);
+      
+      const realPersonDetections = spatialRes.realPersonDetections;
+      const realCount = spatialRes.realPersonCount;
+      const rawCount = spatialRes.rawPersonCount;
+      const personOnPhoneCount = spatialRes.personOnPhoneCount;
+
+      currentRawCount = rawCount;
+      currentPhoneScreenPersonCount = personOnPhoneCount;
+
+      const maxConfidence = realCount > 0
+        ? Math.max(...realPersonDetections.map((d) => d.confidence))
+        : (spatialRes.allPersonDetections.length > 0 ? Math.max(...spatialRes.allPersonDetections.map(d => d.confidence)) : null);
 
       let event = null;
 
-      if (rawCount === pendingCount) {
+      if (realCount === pendingCount) {
         pendingCountConsecutive++;
       } else {
-        pendingCount = rawCount;
+        pendingCount = realCount;
         pendingCountConsecutive = 1;
       }
 
-      // Check if pending count has stabilized over stabilityThreshold frames
+      // Check if pending real person count has stabilized over stabilityThreshold frames
       if (pendingCountConsecutive >= stabilityThreshold && currentStableCount !== pendingCount) {
         currentStableCount = pendingCount;
         const newState = getPersonStateFromCount(currentStableCount);
@@ -74,6 +91,8 @@ export function createPersonTracker({
           type: 'PERSON_COUNT',
           state: currentState,
           count: currentStableCount,
+          rawCount,
+          personOnPhoneCount,
           confidence: maxConfidence || 0.9,
           timestamp,
           stateChanged,
@@ -87,9 +106,14 @@ export function createPersonTracker({
       return {
         currentState,
         count: currentStableCount,
+        rawCount,
+        personOnPhoneCount,
+        isPersonOnPhoneScreen: personOnPhoneCount > 0,
         confidence: currentStableCount > 0 ? maxConfidence : null,
         event,
+        spatialRes,
       };
     },
   };
 }
+

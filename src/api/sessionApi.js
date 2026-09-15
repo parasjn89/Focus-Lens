@@ -64,7 +64,7 @@ export function clearPendingSyncQueue(idsToRemove = []) {
 /**
  * API: Start a new Focus Session with backend or local fallback
  */
-export async function startSession({ plannedDurationMs, selectedActivity }) {
+export async function startSession({ plannedDurationMs, selectedActivity, goalText = null, goalType = 'NONE', targetValue = null, targetUnit = null }) {
   const anonymousId = getAnonymousUserId();
 
   try {
@@ -75,6 +75,10 @@ export async function startSession({ plannedDurationMs, selectedActivity }) {
         selectedActivity,
         startedAt: new Date().toISOString(),
         anonymousId,
+        goalText,
+        goalType,
+        targetValue,
+        targetUnit,
       }),
     });
 
@@ -96,6 +100,12 @@ export async function startSession({ plannedDurationMs, selectedActivity }) {
     actualDurationMs: 0,
     pausedDurationMs: 0,
     status: 'ACTIVE',
+    goalText,
+    goalType,
+    targetValue,
+    targetUnit,
+    goalProgress: 0,
+    goalCompleted: false,
     startedAt: new Date().toISOString(),
     synced: false,
     anonymousId,
@@ -151,15 +161,54 @@ export async function saveSessionSegments(sessionId, segments = []) {
 }
 
 /**
- * API: Finalize a session (update actual duration, paused duration, status)
+ * API: Update session parameters e.g. goal progress
  */
-export async function finalizeSession(sessionId, { actualDurationMs, pausedDurationMs, status = 'COMPLETED' }) {
+export async function updateSession(sessionId, updates = {}) {
+  if (!sessionId.startsWith('local_')) {
+    try {
+      const res = await apiFetch(`/api/sessions/${sessionId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+
+      return {
+        session: res.session,
+        statistics: res.statistics,
+        isOfflineFallback: false,
+      };
+    } catch (err) {
+      console.warn('[Session API] Failed to update session on backend, fallback to local update:', err.message);
+    }
+  }
+
+  const localList = getLocalSessions();
+  let updatedSession = null;
+
+  const updatedList = localList.map(s => {
+    if (s.id === sessionId) {
+      updatedSession = { ...s, ...updates, synced: false };
+      return updatedSession;
+    }
+    return s;
+  });
+
+  saveLocalSessions(updatedList);
+  return { session: updatedSession, isOfflineFallback: true };
+}
+
+/**
+ * API: Finalize a session (update actual duration, paused duration, status, goal progress)
+ */
+export async function finalizeSession(sessionId, { actualDurationMs, pausedDurationMs, status = 'COMPLETED', goalProgress, goalCompleted }) {
   const payload = {
     actualDurationMs,
     pausedDurationMs,
     endedAt: new Date().toISOString(),
     status,
   };
+
+  if (goalProgress !== undefined) payload.goalProgress = goalProgress;
+  if (goalCompleted !== undefined) payload.goalCompleted = goalCompleted;
 
   if (!sessionId.startsWith('local_')) {
     try {

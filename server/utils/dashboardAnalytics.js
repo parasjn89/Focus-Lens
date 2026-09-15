@@ -1,5 +1,7 @@
 import { dbStore } from '../db/store.js';
 import { calculateSessionAnalytics } from './analytics.js';
+import { getFocusLevel, calculateFocusPointsFromDurations } from './focusPoints.js';
+import { formatDurationText } from '../../src/utils/deepWork.js';
 
 export async function getPersonalDashboardData(userId) {
   const now = new Date();
@@ -13,31 +15,69 @@ export async function getPersonalDashboardData(userId) {
   // Start of current month
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
 
-  // Fetch all user's sessions from the start of the month onwards
-  const monthSessions = await dbStore.getSessionsByUserId(userId, {
-    limit: 500,
-    from: startOfMonth.toISOString(),
-  });
-
-  // Also fetch all user's recent sessions for history list
-  const recentSessions = await dbStore.getSessionsByUserId(userId, {
-    limit: 10,
-  });
+  // Fetch all user's sessions to compute exact user-isolated all-time Focus Points and Personal Best
+  const allUserSessions = await dbStore.getSessionsByUserId(userId, { limit: 2000 });
 
   // Pre-load segments for each session
   const sessionSegmentMap = new Map();
-  const sessionIds = Array.from(new Set([...monthSessions.map(s => s.id), ...recentSessions.map(s => s.id)]));
-
-  for (const sId of sessionIds) {
-    const segs = await dbStore.getSegmentsBySessionId(sId);
-    sessionSegmentMap.set(sId, segs);
+  for (const s of allUserSessions) {
+    const segs = await dbStore.getSegmentsBySessionId(s.id);
+    sessionSegmentMap.set(s.id, segs);
   }
 
+  let totalFocusPoints = 0;
+  let todayFocusPoints = 0;
+  let weeklyFocusPoints = 0;
+
+  // Personal Best Calculation across completed user sessions
+  let personalBestDeepWorkSec = 0;
+  let personalBestSessionId = null;
+
+  let todayLongestDeepWorkSec = 0;
+  let weeklyLongestDeepWorkSec = 0;
+
+  allUserSessions.forEach(s => {
+    const sessionSegs = sessionSegmentMap.get(s.id) || [];
+    const stats = calculateSessionAnalytics(s, sessionSegs);
+    const sessionPoints = stats.focusPoints || 0;
+
+    totalFocusPoints += sessionPoints;
+    const st = new Date(s.startedAt);
+    if (st >= startOfToday) {
+      todayFocusPoints += sessionPoints;
+    }
+    if (st >= sevenDaysAgo) {
+      weeklyFocusPoints += sessionPoints;
+    }
+
+    const longestBlockInSessionSec = stats.deepWork?.longestBlockSec || 0;
+    if (longestBlockInSessionSec > personalBestDeepWorkSec) {
+      personalBestDeepWorkSec = longestBlockInSessionSec;
+      personalBestSessionId = s.id;
+    }
+
+    if (st >= startOfToday && longestBlockInSessionSec > todayLongestDeepWorkSec) {
+      todayLongestDeepWorkSec = longestBlockInSessionSec;
+    }
+
+    if (st >= sevenDaysAgo && longestBlockInSessionSec > weeklyLongestDeepWorkSec) {
+      weeklyLongestDeepWorkSec = longestBlockInSessionSec;
+    }
+  });
+
+  const levelInfo = getFocusLevel(totalFocusPoints);
+
+  // Filter Month Sessions
+  const monthSessions = allUserSessions.filter(s => new Date(s.startedAt) >= startOfMonth);
+
+  // Filter Recent Sessions
+  const recentSessions = allUserSessions.slice(0, 10);
+
   // Filter Today Sessions
-  const todaySessions = monthSessions.filter(s => new Date(s.startedAt) >= startOfToday);
+  const todaySessions = allUserSessions.filter(s => new Date(s.startedAt) >= startOfToday);
 
   // Filter Weekly Sessions (last 7 days)
-  const weeklySessions = monthSessions.filter(s => new Date(s.startedAt) >= sevenDaysAgo);
+  const weeklySessions = allUserSessions.filter(s => new Date(s.startedAt) >= sevenDaysAgo);
 
   // Helper to aggregate session analytics metrics
   function aggregateMetrics(sessionList) {
@@ -49,6 +89,7 @@ export async function getPersonalDashboardData(userId) {
     let totalSpeechSec = 0;
     let totalUnknownSec = 0;
     let longestStreakSec = 0;
+    let periodFocusPoints = 0;
 
     sessionList.forEach(session => {
       const actualSec = Math.round((session.actualDurationMs || session.plannedDurationMs || 0) / 1000);
@@ -63,6 +104,7 @@ export async function getPersonalDashboardData(userId) {
       totalAwaySec += stats.durationsInSeconds.AWAY_OR_NOT_VISIBLE || 0;
       totalSpeechSec += stats.durationsInSeconds.SPEECH_LIKE || 0;
       totalUnknownSec += stats.durationsInSeconds.UNKNOWN || 0;
+      periodFocusPoints += stats.focusPoints || 0;
 
       if (stats.insights.longestStudyStreakSec > longestStreakSec) {
         longestStreakSec = stats.insights.longestStudyStreakSec;
@@ -85,6 +127,7 @@ export async function getPersonalDashboardData(userId) {
       avgDurationSec,
       longestStreakSec,
       studyPercentage,
+      focusPoints: periodFocusPoints,
     };
   }
 
@@ -110,10 +153,37 @@ export async function getPersonalDashboardData(userId) {
       activeSeconds: dayStats.totalActiveSec,
       studyLikeSeconds: dayStats.totalStudyLikeSec + dayStats.totalCodingSec,
       sessionCount: daySessions.length,
+      focusPoints: dayStats.focusPoints,
     });
   }
 
+  // Goal Metrics Calculation across authenticated user's sessions
+  const goalSessionsList = allUserSessions.filter(s => s.goalType && s.goalType !== 'NONE' && s.goalText);
+  const goalSessionsCount = goalSessionsList.length;
+  const goalsCompletedCount = goalSessionsList.filter(s => Boolean(s.goalCompleted)).length;
+  const goalCompletionRate = goalSessionsCount > 0 ? Math.round((goalsCompletedCount / goalSessionsCount) * 100) : 0;
+
   return {
+    focusPoints: {
+      total: totalFocusPoints,
+      today: todayFocusPoints,
+      weekly: weeklyFocusPoints,
+      levelInfo,
+    },
+    deepWork: {
+      personalBestSec: personalBestDeepWorkSec,
+      personalBestText: formatDurationText(personalBestDeepWorkSec),
+      personalBestSessionId,
+      todayLongestSec: todayLongestDeepWorkSec,
+      todayLongestText: formatDurationText(todayLongestDeepWorkSec),
+      weeklyLongestSec: weeklyLongestDeepWorkSec,
+      weeklyLongestText: formatDurationText(weeklyLongestDeepWorkSec),
+    },
+    goals: {
+      totalGoalSessions: goalSessionsCount,
+      goalsCompleted: goalsCompletedCount,
+      completionRate: goalCompletionRate,
+    },
     today: aggregateMetrics(todaySessions),
     weekly: {
       metrics: aggregateMetrics(weeklySessions),
@@ -128,9 +198,13 @@ export async function getPersonalDashboardData(userId) {
       const stats = calculateSessionAnalytics(s, sessionSegs);
       return {
         ...s,
+        focusPoints: stats.focusPoints,
+        qualifyingSeconds: stats.qualifyingSeconds,
         percentages: stats.percentages,
         durationsInSeconds: stats.durationsInSeconds,
+        deepWork: stats.deepWork,
       };
     }),
   };
 }
+

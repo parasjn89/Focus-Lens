@@ -21,6 +21,9 @@ export function useActivityAnalyzer({
   isFacePresent = false,
   isPhonePresent = false,
   personCount = 0,
+  rawPersonCount = 0,
+  personOnPhoneCount = 0,
+  isPersonOnPhoneScreen = false,
   headOrientation = 'UNKNOWN',
   isScreenActive = false,
   screenActivity = 'UNKNOWN',
@@ -67,6 +70,9 @@ export function useActivityAnalyzer({
         isFacePresent,
         isPhonePresent,
         personCount,
+        rawPersonCount,
+        personOnPhoneCount,
+        isPersonOnPhoneScreen,
         headOrientation,
       };
 
@@ -116,7 +122,7 @@ export function useActivityAnalyzer({
       });
     }
   }, [
-    isCameraActive, isFacePresent, isPhonePresent, personCount, headOrientation,
+    isCameraActive, isFacePresent, isPhonePresent, personCount, rawPersonCount, personOnPhoneCount, isPersonOnPhoneScreen, headOrientation,
     isScreenActive, screenActivity, screenConfidence, screenSourceType,
     isMicrophoneActive, speechState, isSpeechDetected, audioLevel
   ]);

@@ -64,7 +64,7 @@ export function getObjectDetector() {
           modelAssetPath: MODEL_ASSET_PATH,
           delegate: 'GPU'
         },
-        scoreThreshold: 0.3,
+        scoreThreshold: 0.22,
         runningMode: 'VIDEO'
       };
 

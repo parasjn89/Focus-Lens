@@ -17,8 +17,10 @@ export function getAnonymousUserId() {
  */
 export async function apiFetch(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
+  const isWriteMethod = ['POST', 'PUT', 'PATCH'].includes((options.method || 'GET').toUpperCase());
+  const body = options.body !== undefined ? options.body : (isWriteMethod ? '{}' : undefined);
   const headers = {
-    'Content-Type': 'application/json',
+    ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     ...(options.headers || {}),
   };
 
@@ -30,6 +32,7 @@ export async function apiFetch(endpoint, options = {}) {
       credentials: 'include', // Pass HTTP-only session cookies
       ...options,
       headers,
+      ...(body !== undefined ? { body } : {}),
       signal: controller.signal,
     });
 

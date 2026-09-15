@@ -39,7 +39,7 @@ export function LandingPage({ onStartSetup }) {
       
       {/* 1. HERO SECTION */}
       <ScrollStackSection zIndex={10} bgClass="bg-[#10151A]">
-        <section id="product" className="relative pt-32 pb-20 px-6 lg:px-8 max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-12">
+        <section id="product" className="relative pt-24 pb-12 px-6 lg:px-8 max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-8">
           {/* Left Content */}
           <div 
             ref={heroRef} 
@@ -151,7 +151,7 @@ export function LandingPage({ onStartSetup }) {
 
       {/* 4. AI DETECTION SECTION */}
       <ScrollStackSection zIndex={40} bgClass="bg-[#10151A]">
-        <section id="features" ref={aiRef} className="max-w-7xl mx-auto px-6 py-24 flex flex-col lg:flex-row items-center gap-16">
+        <section id="features" ref={aiRef} className="max-w-7xl mx-auto px-6 py-12 flex flex-col lg:flex-row items-center gap-10">
           <div className={`flex-1 transition-all duration-1000 transform ${aiVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-12'}`}>
             <h2 className="text-3xl lg:text-4xl font-bold text-white mb-6 leading-tight">
               AI That Understands <br/> Your Study Sessions
@@ -206,7 +206,7 @@ export function LandingPage({ onStartSetup }) {
 
       {/* 5. ANALYTICS SECTION */}
       <ScrollStackSection zIndex={50} bgClass="bg-[#10151A]">
-        <section ref={analyticsRef} className="max-w-5xl mx-auto px-6 py-24">
+        <section ref={analyticsRef} className="max-w-5xl mx-auto px-6 py-10">
           <div className={`text-center mb-16 transition-all duration-1000 transform ${analyticsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             <h2 className="text-3xl font-bold text-white mb-4">Actionable Analytics</h2>
             <p className="text-brand-gray text-lg max-w-2xl mx-auto">Turn your focus into measurable progress with minimal, easy-to-understand reports.</p>
@@ -249,7 +249,7 @@ export function LandingPage({ onStartSetup }) {
 
       {/* 6. PRIVACY SECTION - BENTO GRID */}
       <ScrollStackSection zIndex={60} bgClass="bg-[#10151A]">
-        <section id="privacy" ref={privacyRef} className="py-32 relative overflow-hidden">
+        <section id="privacy" ref={privacyRef} className="py-14 relative overflow-hidden">
           {/* Background glow for depth */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-brand-sand/5 blur-[120px] rounded-full pointer-events-none -z-10"></div>
           
@@ -321,7 +321,7 @@ export function LandingPage({ onStartSetup }) {
 
       {/* 7. FINAL CTA */}
       <ScrollStackSection zIndex={70} bgClass="bg-[#10151A]" isLast={true}>
-        <section ref={ctaRef} className="max-w-4xl mx-auto px-6 py-32 text-center">
+        <section ref={ctaRef} className="max-w-4xl mx-auto px-6 py-20 text-center">
           <div className={`transition-all duration-1000 transform ${ctaVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             <h2 className="text-4xl font-bold text-white mb-6">Ready to understand your focus?</h2>
             <p className="text-brand-beige/80 text-lg mb-10 max-w-xl mx-auto">Start your first session and turn your focus into measurable progress.</p>

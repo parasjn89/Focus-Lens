@@ -21,7 +21,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
     setError(null);
 
     const cleanUsername = username.trim().replace(/^@/, '');
-    if (!cleanUsername || !name || !email || !password || !confirmPassword) {
+    if (!cleanUsername || !name || !password || !confirmPassword) {
       setError('Please fill in all required fields.');
       return;
     }
@@ -33,6 +33,11 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
 
     if (!/^[a-zA-Z0-9._]+$/.test(cleanUsername)) {
       setError('Username can only contain letters, numbers, underscores, and periods.');
+      return;
+    }
+
+    if (verificationMethod === 'EMAIL' && !email.trim()) {
+      setError('Email address is required when Email Verification is selected.');
       return;
     }
 
@@ -53,7 +58,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
 
     setIsSubmitting(true);
     try {
-      await register(cleanUsername, name, email, password, verificationMethod, phoneNumber);
+      await register(cleanUsername, name, email.trim() || null, password, verificationMethod, phoneNumber.trim() || null);
       if (onRegisterSuccess) onRegisterSuccess('verify');
       else onNavigate('verify');
     } catch (err) {
@@ -84,7 +89,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
-              <span>Username (Unique Handle)</span>
+              <span>Username (Unique Handle) *</span>
               <span className="text-[10px] text-slate-400 font-normal">Must be unique</span>
             </label>
             <div className="relative">
@@ -97,14 +102,14 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="parasjain"
-                className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm text-white placeholder-slate-500 outline-none transition-all"
+                className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm text-white placeholder-slate-500 outline-none transition-all font-mono"
               />
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Full Name
+              Full Name *
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
@@ -121,29 +126,11 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
             </div>
           </div>
 
+          {/* Verification Method Choice */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Email Address
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                <Mail className="w-4 h-4" />
-              </div>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="alex@example.com"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm text-white placeholder-slate-500 outline-none transition-all"
-              />
-            </div>
-          </div>
-
-          {/* Verification Method Selector */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-2">
-              Verification Method Choice (Choose One)
+            <label className="block text-xs font-semibold text-slate-300 mb-2 flex items-center justify-between">
+              <span>Verification Choice *</span>
+              <span className="text-[10px] text-slate-400 font-normal">Choose Email OR Phone</span>
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label
@@ -162,7 +149,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
                   className="sr-only"
                 />
                 <Mail className={`w-5 h-5 mb-1 ${verificationMethod === 'EMAIL' ? 'text-brand-400' : 'text-slate-500'}`} />
-                <span className="text-xs font-medium">Email Inbox</span>
+                <span className="text-xs font-medium">Email Verification</span>
                 <span className="text-[10px] text-slate-500 mt-0.5">Verify via code in email</span>
               </label>
 
@@ -183,32 +170,52 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
                 />
                 <Phone className={`w-5 h-5 mb-1 ${verificationMethod === 'PHONE' ? 'text-indigo-400' : 'text-slate-500'}`} />
                 <span className="text-xs font-medium">Phone SMS</span>
-                <span className="text-[10px] text-slate-500 mt-0.5">Verify via code in SMS</span>
+                <span className="text-[10px] text-slate-500 mt-0.5">Verify via SMS code</span>
               </label>
             </div>
           </div>
 
-          {/* Conditional Phone Input */}
-          {verificationMethod === 'PHONE' && (
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Phone Number (for SMS OTP)
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                  <Phone className="w-4 h-4" />
-                </div>
-                <input
-                  type="tel"
-                  required
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  placeholder="+15551234567"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm text-white placeholder-slate-500 outline-none transition-all"
-                />
+          {/* Email Field */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
+              <span>Email Address {verificationMethod === 'EMAIL' ? '*' : '(Optional)'}</span>
+              {verificationMethod === 'PHONE' && <span className="text-[10px] text-slate-500 font-normal">Can add later</span>}
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                <Mail className="w-4 h-4" />
               </div>
+              <input
+                type="email"
+                required={verificationMethod === 'EMAIL'}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="alex@example.com"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm text-white placeholder-slate-500 outline-none transition-all"
+              />
             </div>
-          )}
+          </div>
+
+          {/* Phone Field */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
+              <span>Phone Number {verificationMethod === 'PHONE' ? '*' : '(Optional)'}</span>
+              {verificationMethod === 'EMAIL' && <span className="text-[10px] text-slate-500 font-normal">Can add later</span>}
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                <Phone className="w-4 h-4" />
+              </div>
+              <input
+                type="tel"
+                required={verificationMethod === 'PHONE'}
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="+15551234567 or +919876543210"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm text-white placeholder-slate-500 outline-none transition-all"
+              />
+            </div>
+          </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">

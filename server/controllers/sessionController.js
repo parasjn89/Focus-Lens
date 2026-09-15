@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { dbStore } from '../db/store.js';
 import { calculateSessionAnalytics } from '../utils/analytics.js';
+import { generateFocusCoachAnalysis } from '../utils/focusCoachEngine.js';
+import { generateConsistencyAnalysis } from '../utils/consistencyEngine.js';
+import { generateAdaptiveSessionRecommendation } from '../utils/adaptiveSessionEngine.js';
 
 // Request Validation Schemas using Zod
 export const CreateSessionSchema = z.object({
@@ -8,6 +11,61 @@ export const CreateSessionSchema = z.object({
   selectedActivity: z.string().min(1, 'selectedActivity is required'),
   startedAt: z.string().optional(),
   anonymousId: z.string().optional().default('anon_default_user'),
+  goalText: z.string().max(120, 'Goal text cannot exceed 120 characters').transform(s => (typeof s === 'string' ? s.trim() : null)).optional().nullable(),
+  goalType: z.enum(['NONE', 'TIME', 'COUNT']).optional().default('NONE'),
+  targetValue: z.number().positive('Target value must be positive').optional().nullable(),
+  targetUnit: z.string().max(40, 'Target unit cannot exceed 40 characters').transform(s => (typeof s === 'string' ? s.trim() : null)).optional().nullable(),
+}).superRefine((data, ctx) => {
+  const type = data.goalType || 'NONE';
+  const text = data.goalText ? data.goalText.trim() : '';
+
+  if (type !== 'NONE') {
+    if (!text) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['goalText'],
+        message: 'Goal text is required when a goal target is specified',
+      });
+    }
+
+    if (type === 'TIME') {
+      if (data.targetValue == null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['targetValue'],
+          message: 'Target focus time in minutes is required for TIME goals',
+        });
+      } else if (data.targetValue < 1 || data.targetValue > 600) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['targetValue'],
+          message: 'Target focus time must be between 1 and 600 minutes',
+        });
+      }
+    }
+
+    if (type === 'COUNT') {
+      if (data.targetValue == null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['targetValue'],
+          message: 'Target count is required for COUNT goals',
+        });
+      } else if (!Number.isInteger(data.targetValue)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['targetValue'],
+          message: 'Target count must be a whole integer',
+        });
+      } else if (data.targetValue < 1 || data.targetValue > 1000) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['targetValue'],
+          message: 'Target count must be between 1 and 1000',
+        });
+      }
+    }
+  }
 });
 
 export const SaveSegmentsSchema = z.object({
@@ -30,6 +88,8 @@ export const UpdateSessionSchema = z.object({
   pausedDurationMs: z.number().int().nonnegative().optional(),
   endedAt: z.string().optional(),
   status: z.enum(['ACTIVE', 'COMPLETED', 'CANCELLED']).optional().default('COMPLETED'),
+  goalProgress: z.number().nonnegative('goalProgress cannot be negative').optional(),
+  goalCompleted: z.boolean().optional(),
 });
 
 /**
@@ -51,11 +111,29 @@ export async function createSession(request, reply) {
     const body = CreateSessionSchema.parse(request.body);
     const userId = resolveUserId(request);
 
+    const goalType = body.goalType || 'NONE';
+    const goalText = (body.goalText && body.goalText.trim()) ? body.goalText.trim() : null;
+    let targetValue = body.targetValue ?? null;
+    let targetUnit = (body.targetUnit && body.targetUnit.trim()) ? body.targetUnit.trim() : null;
+
+    if (goalType === 'NONE') {
+      targetValue = null;
+      targetUnit = null;
+    } else if (goalType === 'TIME' && !targetUnit) {
+      targetUnit = 'minutes';
+    }
+
     const session = await dbStore.createSession({
       userId,
       selectedActivity: body.selectedActivity,
       plannedDurationMs: body.plannedDurationMs,
       startedAt: body.startedAt,
+      goalText,
+      goalType,
+      targetValue,
+      targetUnit,
+      goalProgress: 0,
+      goalCompleted: false,
     });
 
     return reply.status(201).send({
@@ -184,9 +262,8 @@ export async function updateSession(request, reply) {
     const userId = resolveUserId(request);
     const body = UpdateSessionSchema.parse(request.body);
 
-    const updated = await dbStore.updateSession(id, userId, body);
-
-    if (!updated) {
+    const existing = await dbStore.getSessionByIdAndUser(id, userId);
+    if (!existing) {
       return reply.status(404).send({
         statusCode: 404,
         error: 'Not Found',
@@ -194,7 +271,35 @@ export async function updateSession(request, reply) {
       });
     }
 
+    const updates = { ...body };
     const segments = await dbStore.getSegmentsBySessionId(id);
+
+    // Goal Progress Logic
+    if (existing.goalType === 'TIME') {
+      let qualifyingSec = 0;
+      segments.forEach(seg => {
+        const type = (seg.activityType || '').toUpperCase();
+        if (type === 'STUDY_LIKE' || type === 'CODING' || type === 'DOCUMENT_ACTIVITY') {
+          qualifyingSec += Math.max(0, Math.round((seg.durationMs || 0) / 1000));
+        }
+      });
+      const qualifyingMins = Math.floor(qualifyingSec / 60);
+      const progressPercent = existing.targetValue ? Math.min(100, Math.round((qualifyingMins / existing.targetValue) * 100)) : 0;
+      updates.goalProgress = progressPercent;
+      updates.goalCompleted = existing.targetValue ? qualifyingMins >= existing.targetValue : false;
+    } else if (existing.goalType === 'COUNT') {
+      if (body.goalProgress !== undefined) {
+        const rawProgress = Math.max(0, body.goalProgress);
+        const progress = existing.targetValue ? Math.min(existing.targetValue, rawProgress) : rawProgress;
+        updates.goalProgress = progress;
+        updates.goalCompleted = existing.targetValue ? progress >= existing.targetValue : false;
+      } else if (body.goalCompleted !== undefined) {
+        updates.goalCompleted = body.goalCompleted;
+      }
+    }
+
+    const updated = await dbStore.updateSession(id, userId, updates);
+
     const statistics = calculateSessionAnalytics(updated, segments);
 
     return reply.send({
@@ -247,3 +352,93 @@ export async function deleteSession(request, reply) {
     });
   }
 }
+
+// Handler: GET /api/analytics/focus-coach
+export async function getFocusCoachAnalytics(request, reply) {
+  try {
+    const userId = resolveUserId(request);
+    const sessionsList = await dbStore.getSessionsByUserId(userId, { limit: 2000 });
+
+    const sessionSegmentMap = new Map();
+    for (const s of sessionsList) {
+      const segments = await dbStore.getSegmentsBySessionId(s.id);
+      sessionSegmentMap.set(s.id, segments);
+    }
+
+    const analysis = generateFocusCoachAnalysis(sessionsList, sessionSegmentMap);
+
+    if (analysis.insufficientData) {
+      return reply.send({
+        insufficientData: true,
+        generatedFromSessions: analysis.generatedFromSessions,
+        minimumRequired: 3,
+        message: analysis.message,
+      });
+    }
+
+    return reply.send({
+      insufficientData: false,
+      observation: analysis.primary.observation,
+      recommendation: analysis.primary.recommendation,
+      reason: analysis.primary.reason,
+      category: analysis.primary.category,
+      strength: analysis.primary.confidence,
+      secondary: analysis.secondary,
+      suggestedSession: analysis.suggestedSession,
+      generatedFromSessions: analysis.generatedFromSessions,
+    });
+  } catch (err) {
+    request.log.error(err);
+    return reply.status(500).send({
+      statusCode: 500,
+      error: 'Database Error',
+      message: 'Failed to compute Focus Coach analytics.',
+    });
+  }
+}
+
+// Handler: GET /api/analytics/consistency
+export async function getConsistencyAnalytics(request, reply) {
+  try {
+    const userId = resolveUserId(request);
+    const offsetHeader = request.headers['x-timezone-offset'];
+    const offsetMinutes = offsetHeader ? parseInt(offsetHeader, 10) : 0;
+    const sessionsList = await dbStore.getSessionsByUserId(userId, { limit: 2000 });
+
+    const sessionSegmentMap = new Map();
+    for (const s of sessionsList) {
+      const segments = await dbStore.getSegmentsBySessionId(s.id);
+      sessionSegmentMap.set(s.id, segments);
+    }
+
+    const consistencyData = generateConsistencyAnalysis(sessionsList, sessionSegmentMap, {
+      timezoneOffsetMinutes: isNaN(offsetMinutes) ? 0 : offsetMinutes,
+    });
+
+    return reply.send(consistencyData);
+  } catch (err) {
+    request.log.error(err);
+    return reply.status(500).send({
+      statusCode: 500,
+      error: 'Database Error',
+      message: 'Failed to compute Consistency analytics.',
+    });
+  }
+}
+
+// Handler: GET /api/analytics/recommended-session
+export async function getRecommendedSession(request, reply) {
+  try {
+    const userId = resolveUserId(request);
+    const recommendationResult = await generateAdaptiveSessionRecommendation(userId);
+    return reply.send(recommendationResult);
+  } catch (err) {
+    request.log.error(err);
+    return reply.status(500).send({
+      statusCode: 500,
+      error: 'Database Error',
+      message: 'Failed to compute Adaptive Session Recommendation.',
+    });
+  }
+}
+

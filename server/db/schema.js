@@ -1,15 +1,15 @@
-import { pgTable, uuid, text, integer, bigint, real, jsonb, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, bigint, real, boolean, jsonb, timestamp, index } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Users table (supporting email + password auth & legacy anonymous identity)
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   username: text('username').unique(),
-  email: text('email').unique(),
+  email: text('email'),
   name: text('name'),
   passwordHash: text('password_hash'),
   anonymousId: text('anonymous_id').unique(),
-  phoneNumber: text('phone_number').unique(),
+  phoneNumber: text('phone_number'),
   preferredVerificationMethod: text('preferred_verification_method').default('EMAIL'),
   verificationStatus: text('verification_status').default('UNVERIFIED'),
   emailVerifiedAt: timestamp('email_verified_at'),
@@ -31,6 +31,17 @@ export const sessions = pgTable('sessions', {
   actualDurationMs: integer('actual_duration_ms').default(0),
   pausedDurationMs: integer('paused_duration_ms').default(0),
   status: text('status').default('ACTIVE').notNull(), // ACTIVE, COMPLETED, CANCELLED
+  focusPoints: integer('focus_points').default(0).notNull(),
+  goalText: text('goal_text'),
+  goalType: text('goal_type').default('NONE'), // NONE, TIME, COUNT
+  targetValue: real('target_value'),
+  targetUnit: text('target_unit'),
+  goalCompleted: boolean('goal_completed').default(false),
+  goalProgress: real('goal_progress').default(0),
+  intention: text('intention'),
+  workedWell: text('worked_well'),
+  gotInTheWay: text('got_in_the_way'),
+  notes: text('notes'),
   startedAt: timestamp('started_at').defaultNow().notNull(),
   endedAt: timestamp('ended_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -56,6 +67,19 @@ export const activitySegments = pgTable('activity_segments', {
   idxSegmentsSessionStart: index('idx_segments_session_start').on(table.sessionId, table.startTimeMs),
 }));
 
+// Weekly Review Notes table
+export const weeklyReviewNotes = pgTable('weekly_review_notes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  weekStartDate: text('week_start_date').notNull(), // 'YYYY-MM-DD'
+  workedWell: text('worked_well'),
+  madeItHard: text('made_it_hard'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  idxWeeklyNotesUserWeek: index('idx_weekly_notes_user_week').on(table.userId, table.weekStartDate),
+}));
+
 // Password Resets table
 export const passwordResets = pgTable('password_resets', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -76,6 +100,7 @@ export const passwordResets = pgTable('password_resets', {
 export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
   passwordResets: many(passwordResets),
+  weeklyReviewNotes: many(weeklyReviewNotes),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one, many }) => ({
@@ -84,6 +109,13 @@ export const sessionsRelations = relations(sessions, ({ one, many }) => ({
     references: [users.id],
   }),
   segments: many(activitySegments),
+}));
+
+export const weeklyReviewNotesRelations = relations(weeklyReviewNotes, ({ one }) => ({
+  user: one(users, {
+    fields: [weeklyReviewNotes.userId],
+    references: [users.id],
+  }),
 }));
 
 export const activitySegmentsRelations = relations(activitySegments, ({ one }) => ({
@@ -99,4 +131,5 @@ export const passwordResetsRelations = relations(passwordResets, ({ one }) => ({
     references: [users.id],
   }),
 }));
+
 

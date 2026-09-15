@@ -114,8 +114,11 @@ export function AuthProvider({ children }) {
     return res;
   };
 
-  const sendEmailVerification = async () => {
-    return await apiFetch('/api/auth/send-email-verification', { method: 'POST' });
+  const sendEmailVerification = async (email) => {
+    return await apiFetch('/api/auth/send-email-verification', {
+      method: 'POST',
+      body: JSON.stringify(email ? { email } : {}),
+    });
   };
 
   const verifyEmail = async (code) => {

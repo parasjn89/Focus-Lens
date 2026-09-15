@@ -1,6 +1,6 @@
 import { eq, desc, gte, lte, and } from 'drizzle-orm';
 import { db, checkDbConnection } from './client.js';
-import { users, sessions, activitySegments, passwordResets } from './schema.js';
+import { users, sessions, activitySegments, passwordResets, weeklyReviewNotes } from './schema.js';
 import crypto from 'crypto';
 
 // In-Memory Fallback Stores (used if PostgreSQL service is offline)
@@ -8,6 +8,7 @@ const memoryUsers = new Map();
 const memorySessions = new Map();
 const memorySegments = [];
 const memoryPasswordResets = new Map();
+const memoryWeeklyNotes = new Map();
 
 export const dbStore = {
   // USER OPERATIONS
@@ -160,6 +161,28 @@ export const dbStore = {
       }
       if (name !== undefined) u.name = name;
       u.updatedAt = new Date();
+      return u;
+    }
+    return null;
+  },
+
+  async updateUserContact(userId, { email, phoneNumber, emailVerifiedAt, phoneVerifiedAt, verificationStatus }) {
+    const isConnected = await checkDbConnection();
+    const updates = { updatedAt: new Date() };
+    if (email !== undefined) updates.email = email ? email.toLowerCase().trim() : null;
+    if (phoneNumber !== undefined) updates.phoneNumber = phoneNumber || null;
+    if (emailVerifiedAt !== undefined) updates.emailVerifiedAt = emailVerifiedAt;
+    if (phoneVerifiedAt !== undefined) updates.phoneVerifiedAt = phoneVerifiedAt;
+    if (verificationStatus !== undefined) updates.verificationStatus = verificationStatus;
+
+    if (isConnected) {
+      const [updated] = await db.update(users).set(updates).where(eq(users.id, userId)).returning();
+      return updated || null;
+    }
+
+    const u = memoryUsers.get(userId);
+    if (u) {
+      Object.assign(u, updates);
       return u;
     }
     return null;
@@ -343,15 +366,27 @@ export const dbStore = {
   },
 
   // SESSION OPERATIONS
-  async createSession({ userId, selectedActivity, plannedDurationMs, startedAt }) {
+  async createSession({ id, userId, selectedActivity, plannedDurationMs, startedAt, status = 'ACTIVE', goalText = null, goalType = 'NONE', targetValue = null, targetUnit = null, goalProgress = 0, goalCompleted = false, intention = null }) {
     const isConnected = await checkDbConnection();
     if (isConnected) {
       const [newSession] = await db.insert(sessions).values({
+        ...(id ? { id } : {}),
         userId,
         selectedActivity,
         plannedDurationMs,
         startedAt: startedAt ? new Date(startedAt) : new Date(),
-        status: 'ACTIVE',
+        status: status || 'ACTIVE',
+        focusPoints: 0,
+        goalText,
+        goalType,
+        targetValue,
+        targetUnit,
+        goalProgress,
+        goalCompleted,
+        intention: intention || null,
+        workedWell: null,
+        gotInTheWay: null,
+        notes: null,
       }).returning();
       return newSession;
     }
@@ -364,6 +399,17 @@ export const dbStore = {
       actualDurationMs: 0,
       pausedDurationMs: 0,
       status: 'ACTIVE',
+      focusPoints: 0,
+      goalText,
+      goalType,
+      targetValue,
+      targetUnit,
+      goalProgress,
+      goalCompleted,
+      intention: intention || null,
+      workedWell: null,
+      gotInTheWay: null,
+      notes: null,
       startedAt: startedAt ? new Date(startedAt) : new Date(),
       endedAt: null,
       createdAt: new Date(),
@@ -431,12 +477,27 @@ export const dbStore = {
       createdAt: new Date(),
     }));
 
+    let saved = [];
     if (isConnected) {
-      return await db.insert(activitySegments).values(segmentValues).returning();
+      saved = await db.insert(activitySegments).values(segmentValues).returning();
+    } else {
+      memorySegments.push(...segmentValues);
+      saved = segmentValues;
     }
 
-    memorySegments.push(...segmentValues);
-    return segmentValues;
+    // Recalculate focusPoints for the session based on all saved segments
+    const allSegments = await this.getSegmentsBySessionId(sessionId);
+    let qualifyingSec = 0;
+    allSegments.forEach(seg => {
+      const type = (seg.activityType || '').toUpperCase();
+      if (type === 'STUDY_LIKE' || type === 'CODING' || type === 'DOCUMENT_ACTIVITY') {
+        qualifyingSec += Math.max(0, Math.round((seg.durationMs || 0) / 1000));
+      }
+    });
+    const calculatedPoints = Math.floor(qualifyingSec / 60);
+    await this.updateSession(sessionId, userId, { focusPoints: calculatedPoints });
+
+    return saved;
   },
 
   async getSegmentsBySessionId(sessionId) {
@@ -589,5 +650,113 @@ export const dbStore = {
     }
     return 0;
   },
+
+  // WEEKLY REVIEW NOTES OPERATIONS
+  async getWeeklyReviewNote(userId, weekStartDate) {
+    if (!userId || !weekStartDate) return null;
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      const rows = await db.select()
+        .from(weeklyReviewNotes)
+        .where(and(eq(weeklyReviewNotes.userId, userId), eq(weeklyReviewNotes.weekStartDate, weekStartDate)))
+        .limit(1);
+      return rows[0] || null;
+    }
+
+    const key = `${userId}:${weekStartDate}`;
+    return memoryWeeklyNotes.get(key) || null;
+  },
+
+  async upsertWeeklyReviewNote(userId, weekStartDate, { workedWell = null, madeItHard = null }) {
+    if (!userId || !weekStartDate) return null;
+    const isConnected = await checkDbConnection();
+    const now = new Date();
+
+    if (isConnected) {
+      const existing = await this.getWeeklyReviewNote(userId, weekStartDate);
+      if (existing) {
+        const [updated] = await db.update(weeklyReviewNotes)
+          .set({ workedWell, madeItHard, updatedAt: now })
+          .where(eq(weeklyReviewNotes.id, existing.id))
+          .returning();
+        return updated;
+      }
+      const [inserted] = await db.insert(weeklyReviewNotes)
+        .values({ userId, weekStartDate, workedWell, madeItHard })
+        .returning();
+      return inserted;
+    }
+
+    const key = `${userId}:${weekStartDate}`;
+    const existing = memoryWeeklyNotes.get(key);
+    if (existing) {
+      existing.workedWell = workedWell;
+      existing.madeItHard = madeItHard;
+      existing.updatedAt = now;
+      return existing;
+    }
+
+    const newNote = {
+      id: crypto.randomUUID(),
+      userId,
+      weekStartDate,
+      workedWell,
+      madeItHard,
+      createdAt: now,
+      updatedAt: now,
+    };
+    memoryWeeklyNotes.set(key, newNote);
+    return newNote;
+  },
+
+  // JOURNAL OPERATIONS
+  async updateSessionJournal(id, userId, { intention, workedWell, gotInTheWay, notes }) {
+    const session = await this.getSessionByIdAndUser(id, userId);
+    if (!session) return null;
+
+    const updates = {};
+    if (intention !== undefined) updates.intention = intention;
+    if (workedWell !== undefined) updates.workedWell = workedWell;
+    if (gotInTheWay !== undefined) updates.gotInTheWay = gotInTheWay;
+    if (notes !== undefined) updates.notes = notes;
+    updates.updatedAt = new Date();
+
+    return await this.updateSession(id, userId, updates);
+  },
+
+  async getJournalSessions(userId, { limit = 20, offset = 0, filter = 'all' } = {}) {
+    const isConnected = await checkDbConnection();
+    let allUserSessions = [];
+
+    if (isConnected) {
+      allUserSessions = await db.select()
+        .from(sessions)
+        .where(and(eq(sessions.userId, userId), eq(sessions.status, 'COMPLETED')))
+        .orderBy(desc(sessions.startedAt));
+    } else {
+      allUserSessions = Array.from(memorySessions.values())
+        .filter(s => s.userId === userId && s.status === 'COMPLETED')
+        .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+    }
+
+    let filtered = allUserSessions;
+    if (filter === 'goals') {
+      filtered = allUserSessions.filter(s => s.goalType && s.goalType !== 'NONE' && s.goalText);
+    } else if (filter === 'reflections') {
+      filtered = allUserSessions.filter(s => s.workedWell || s.gotInTheWay || s.notes);
+    }
+
+    const totalCount = filtered.length;
+    const paginatedSessions = filtered.slice(offset, offset + limit);
+
+    return {
+      sessions: paginatedSessions,
+      totalCount,
+      page: Math.floor(offset / limit) + 1,
+      totalPages: Math.ceil(totalCount / limit) || 1,
+      hasMore: offset + limit < totalCount,
+    };
+  },
 };
+
 

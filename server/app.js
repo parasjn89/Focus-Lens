@@ -9,6 +9,8 @@ import { healthRoutes } from './routes/healthRoutes.js';
 import { authRoutes } from './routes/authRoutes.js';
 import { sessionRoutes } from './routes/sessionRoutes.js';
 import { dashboardRoutes } from './routes/dashboardRoutes.js';
+import { weeklyReviewRoutes } from './routes/weeklyReviewRoutes.js';
+import { journalRoutes } from './routes/journalRoutes.js';
 
 export function buildApp(options = {}) {
   const app = Fastify({
@@ -23,7 +25,7 @@ export function buildApp(options = {}) {
 
   app.register(cors, {
     origin: allowedOrigins,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
   });
 
@@ -68,6 +70,8 @@ export function buildApp(options = {}) {
   app.register(authRoutes);
   app.register(sessionRoutes);
   app.register(dashboardRoutes);
+  app.register(weeklyReviewRoutes);
+  app.register(journalRoutes);
 
   // Global Error Handler
   app.setErrorHandler((error, request, reply) => {
