@@ -1,5 +1,5 @@
 import React from 'react';
-import { Eye, ShieldCheck, LayoutDashboard, User, LogIn } from 'lucide-react';
+import { Eye, ShieldCheck, LayoutDashboard, User, LogIn, Compass, Flame, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export function Navbar({ currentView, onNavigate, activeSession }) {
@@ -64,6 +64,48 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                   >
                     <LayoutDashboard className="w-3.5 h-3.5" />
                     <span>Dashboard</span>
+                  </button>
+                )}
+
+                {currentView !== 'active' && (
+                  <button
+                    onClick={() => onNavigate('recommendations')}
+                    className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                      currentView === 'recommendations'
+                        ? 'bg-emerald-600 text-white border-emerald-500'
+                        : 'text-slate-300 hover:text-white border-slate-800 hover:bg-slate-900'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Recommend</span>
+                  </button>
+                )}
+
+                {currentView !== 'active' && (
+                  <button
+                    onClick={() => onNavigate('consistency')}
+                    className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                      currentView === 'consistency'
+                        ? 'bg-amber-600 text-white border-amber-500'
+                        : 'text-slate-300 hover:text-white border-slate-800 hover:bg-slate-900'
+                    }`}
+                  >
+                    <Flame className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Consistency</span>
+                  </button>
+                )}
+
+                {currentView !== 'active' && (
+                  <button
+                    onClick={() => onNavigate('coach')}
+                    className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                      currentView === 'coach'
+                        ? 'bg-indigo-600 text-white border-indigo-500'
+                        : 'text-slate-300 hover:text-white border-slate-800 hover:bg-slate-900'
+                    }`}
+                  >
+                    <Compass className="w-3.5 h-3.5 text-brand-400" />
+                    <span>Focus Coach</span>
                   </button>
                 )}
 

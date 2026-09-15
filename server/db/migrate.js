@@ -19,7 +19,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number TEXT;
-ALTER TABLE users ALTER COLUMN anonymous_id DROP NOT NULL;
+ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
+ALTER TABLE users ALTER COLUMN phone_number DROP NOT NULL;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_phone_number_key;
 
 -- Populate null usernames for existing users deterministically
 UPDATE users 
@@ -32,7 +35,7 @@ WHERE username IS NULL OR username = '';
 -- Case-insensitive unique index for Username
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username));
 
--- Case-insensitive unique index for Email
+-- Case-insensitive unique index for Email (allowing NULL/empty)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email)) WHERE email IS NOT NULL AND email != '';
 
 -- Unique index for Phone Number (allowing NULL/empty)
@@ -78,8 +81,31 @@ END $$;
 
 ALTER TABLE activity_segments ADD COLUMN IF NOT EXISTS confidence_type TEXT NOT NULL DEFAULT 'heuristic';
 
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS goal_text TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS goal_type TEXT DEFAULT 'NONE';
+ALTER TABLE sessions ALTER COLUMN goal_type DROP NOT NULL;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS target_value NUMERIC;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS target_unit TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS goal_completed BOOLEAN;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS goal_progress NUMERIC NOT NULL DEFAULT 0;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS intention TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS worked_well TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS got_in_the_way TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS notes TEXT;
+
+CREATE TABLE IF NOT EXISTS weekly_review_notes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  week_start_date TEXT NOT NULL,
+  worked_well TEXT,
+  made_it_hard TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user_started ON sessions(user_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_segments_session_start ON activity_segments(session_id, start_time_ms);
+CREATE INDEX IF NOT EXISTS idx_weekly_notes_user_week ON weekly_review_notes(user_id, week_start_date);
 `;
 
 export async function runMigrations() {

@@ -89,12 +89,42 @@ export function validatePasswordPolicy(password, userContext = {}) {
 
 // Zod Validation Schemas
 export const RegisterSchema = z.object({
-  username: z.string().min(3, 'Username must be at least 3 characters long').max(30, 'Username must be at most 30 characters long').regex(/^[a-zA-Z0-9._]+$/, 'Username can only contain letters, numbers, underscores, and periods.').trim(),
+  username: z
+    .string()
+    .min(3, 'Username must be at least 3 characters long')
+    .max(30, 'Username must be at most 30 characters long')
+    .regex(/^[a-zA-Z0-9._]+$/, 'Username can only contain letters, numbers, underscores, and periods.')
+    .trim(),
   name: z.string().min(2, 'Name must be at least 2 characters long').trim(),
-  email: z.string().email('Please enter a valid email address').toLowerCase().trim(),
+  email: z.string().optional().nullable().transform(val => (val && typeof val === 'string' && val.trim()) ? val.trim().toLowerCase() : null),
   password: z.string().min(12, 'Password must be at least 12 characters long'),
   verificationMethod: z.enum(['EMAIL', 'PHONE']).optional().default('EMAIL'),
-  phoneNumber: z.string().optional(),
+  phoneNumber: z.string().optional().nullable().transform(val => (val && typeof val === 'string' && val.trim()) ? val.trim() : null),
+}).superRefine((data, ctx) => {
+  if (data.email) {
+    const emailCheck = z.string().email('Please enter a valid email address').safeParse(data.email);
+    if (!emailCheck.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Please enter a valid email address.',
+        path: ['email'],
+      });
+    }
+  }
+  if (data.verificationMethod === 'EMAIL' && !data.email) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Email address is required when Email Verification is selected.',
+      path: ['email'],
+    });
+  }
+  if (data.verificationMethod === 'PHONE' && !data.phoneNumber) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Phone number is required when Phone Verification is selected.',
+      path: ['phoneNumber'],
+    });
+  }
 });
 
 export const LoginSchema = z.object({
@@ -103,7 +133,7 @@ export const LoginSchema = z.object({
   username: z.string().optional(),
   password: z.string().min(1, 'Password is required'),
 }).refine(data => (data.identifier && data.identifier.trim()) || (data.email && data.email.trim()) || (data.username && data.username.trim()), {
-  message: 'Please enter your email address or username.',
+  message: 'Please enter your email address, phone number, or username.',
   path: ['email'],
 });
 
@@ -135,34 +165,27 @@ export async function register(request, reply) {
       });
     }
 
-    const existingEmail = await dbStore.getUserByEmail(body.email);
-    if (existingEmail) {
-      return reply.status(400).send({
-        statusCode: 400,
-        error: 'Bad Request',
-        message: 'An account with this email address already exists. Please sign in.',
-      });
+    if (body.email) {
+      const existingEmail = await dbStore.getUserByEmail(body.email);
+      if (existingEmail) {
+        return reply.status(400).send({
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'An account with this email address already exists. Please sign in.',
+        });
+      }
     }
 
     let normalizedPhone = null;
-    if (body.verificationMethod === 'PHONE' || body.phoneNumber) {
-      if (body.verificationMethod === 'PHONE' && !body.phoneNumber) {
+    if (body.phoneNumber) {
+      normalizedPhone = normalizePhoneNumber(body.phoneNumber);
+      const existingPhoneUser = await dbStore.getUserByPhoneNumber(normalizedPhone);
+      if (existingPhoneUser) {
         return reply.status(400).send({
           statusCode: 400,
-          error: 'Validation Error',
-          message: 'Phone number is required when Phone Verification is selected.',
+          error: 'Bad Request',
+          message: 'An account with this phone number already exists. Please sign in.',
         });
-      }
-      if (body.phoneNumber) {
-        normalizedPhone = normalizePhoneNumber(body.phoneNumber);
-        const existingPhoneUser = await dbStore.getUserByPhoneNumber(normalizedPhone);
-        if (existingPhoneUser) {
-          return reply.status(400).send({
-            statusCode: 400,
-            error: 'Bad Request',
-            message: 'An account with this phone number already exists. Please sign in.',
-          });
-        }
       }
     }
 
@@ -180,10 +203,10 @@ export async function register(request, reply) {
 
     const newUser = await dbStore.createUser({
       username: body.username,
-      email: body.email,
+      email: body.email || null,
       name: body.name,
       passwordHash,
-      phoneNumber: normalizedPhone,
+      phoneNumber: normalizedPhone || null,
       preferredVerificationMethod: body.verificationMethod,
       verificationStatus: 'UNVERIFIED',
     });
@@ -465,11 +488,26 @@ export async function sendEmailVerification(request, reply) {
       return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'User not found.' });
     }
 
-    if (user.verificationStatus === 'VERIFIED' && user.emailVerifiedAt) {
-      return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Email is already verified.' });
+    const emailInput = (request.body && request.body.email) ? request.body.email.trim().toLowerCase() : user.email;
+    if (!emailInput) {
+      return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Email address is required.' });
     }
 
-    if (user.verificationResendAvailableAt && new Date() < new Date(user.verificationResendAvailableAt)) {
+    const emailCheck = z.string().email().safeParse(emailInput);
+    if (!emailCheck.success) {
+      return reply.status(400).send({ statusCode: 400, error: 'Validation Error', message: 'Please enter a valid email address.' });
+    }
+
+    const existingEmailUser = await dbStore.getUserByEmail(emailInput);
+    if (existingEmailUser && existingEmailUser.id !== user.id) {
+      return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'An account with this email address already exists. Please sign in.' });
+    }
+
+    if (emailInput !== user.email) {
+      await dbStore.updateUserContact(user.id, { email: emailInput, emailVerifiedAt: null });
+    }
+
+    if (emailInput === user.email && user.verificationResendAvailableAt && new Date() < new Date(user.verificationResendAvailableAt)) {
       const waitSeconds = Math.ceil((new Date(user.verificationResendAvailableAt) - new Date()) / 1000);
       return reply.status(429).send({
         statusCode: 429,
@@ -484,10 +522,11 @@ export async function sendEmailVerification(request, reply) {
     const resendAvailableAt = new Date(Date.now() + 60 * 1000);
 
     await dbStore.setVerificationChallenge(user.id, { tokenHash, expiresAt, resendAvailableAt });
-    await sendEmailVerificationChallenge({ email: user.email, otp, name: user.name });
+    await sendEmailVerificationChallenge({ email: emailInput, otp, name: user.name });
 
     return reply.send({
       success: true,
+      email: emailInput,
       message: 'Verification code sent to your email.',
     });
   } catch (err) {
@@ -567,7 +606,7 @@ export async function sendPhoneVerification(request, reply) {
       return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'User not found.' });
     }
 
-    if (user.verificationResendAvailableAt && new Date() < new Date(user.verificationResendAvailableAt)) {
+    if (normalizedPhone === user.phoneNumber && user.verificationResendAvailableAt && new Date() < new Date(user.verificationResendAvailableAt)) {
       const waitSeconds = Math.ceil((new Date(user.verificationResendAvailableAt) - new Date()) / 1000);
       return reply.status(429).send({
         statusCode: 429,
@@ -581,7 +620,7 @@ export async function sendPhoneVerification(request, reply) {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     const resendAvailableAt = new Date(Date.now() + 60 * 1000);
 
-    await dbStore.updateUserProfile(user.id, { phoneNumber: normalizedPhone });
+    await dbStore.updateUserContact(user.id, { phoneNumber: normalizedPhone, phoneVerifiedAt: null });
     await dbStore.setVerificationChallenge(user.id, { tokenHash, expiresAt, resendAvailableAt });
     await sendSmsOtpChallenge({ phoneNumber: normalizedPhone, otp });
 
@@ -814,8 +853,8 @@ export async function deleteAccount(request, reply) {
 
 // Zod Schemas for Password Reset
 export const ForgotPasswordSchema = z.object({
-  method: z.enum(['EMAIL', 'PHONE']),
-  identifier: z.string().min(1, 'Email address or phone number is required'),
+  method: z.enum(['EMAIL', 'PHONE', 'AUTO']).optional().default('AUTO'),
+  identifier: z.string().min(1, 'Email address, phone number, or username is required'),
 });
 
 export const VerifyResetTokenSchema = z.object({
@@ -845,29 +884,58 @@ export async function forgotPassword(request, reply) {
       message: "If an account exists, a verification code has been sent.",
     };
 
+    const rawId = body.identifier.trim();
+    const cleanHandle = rawId.replace(/^@/, '');
+
     let user = null;
     let normalizedPhone = null;
 
-    if (body.method === 'EMAIL') {
-      user = await dbStore.getUserByEmail(body.identifier);
-    } else if (body.method === 'PHONE') {
-      try {
-        normalizedPhone = normalizePhoneNumber(body.identifier);
-        user = await dbStore.getUserByPhoneNumber(normalizedPhone);
-      } catch (err) {
-        return reply.send(genericResponse);
+    if (rawId.startsWith('@')) {
+      user = await dbStore.getUserByUsername(cleanHandle);
+    } else {
+      user = await dbStore.getUserByEmail(rawId);
+      if (!user) {
+        try {
+          normalizedPhone = normalizePhoneNumber(rawId);
+          user = await dbStore.getUserByPhoneNumber(normalizedPhone);
+        } catch (e) {}
+      }
+      if (!user) {
+        user = await dbStore.getUserByUsername(rawId);
       }
     }
 
     // ACCOUNT ENUMERATION PROTECTION:
-    // If user does not exist, return generic response without leaking account status
     if (!user) {
       await new Promise(r => setTimeout(r, 50));
       return reply.send(genericResponse);
     }
 
+    // Determine actual reset method based on user's available contact methods
+    let resetType = body.method;
+    if (resetType === 'AUTO' || !resetType) {
+      if (user.phoneNumber && body.method === 'PHONE') {
+        resetType = 'PHONE';
+      } else if (user.email && !user.phoneNumber) {
+        resetType = 'EMAIL';
+      } else if (user.phoneNumber && !user.email) {
+        resetType = 'PHONE';
+      } else if (user.email) {
+        resetType = 'EMAIL';
+      } else if (user.phoneNumber) {
+        resetType = 'PHONE';
+      }
+    }
+
+    if (resetType === 'EMAIL' && !user.email && user.phoneNumber) {
+      resetType = 'PHONE';
+    }
+    if (resetType === 'PHONE' && !user.phoneNumber && user.email) {
+      resetType = 'EMAIL';
+    }
+
     // Check rate limit on existing reset requests
-    const existingReset = await dbStore.getActivePasswordResetByUser(user.id, body.method);
+    const existingReset = await dbStore.getActivePasswordResetByUser(user.id, resetType);
     if (existingReset && existingReset.resendAvailableAt && new Date() < new Date(existingReset.resendAvailableAt)) {
       const waitSeconds = Math.ceil((new Date(existingReset.resendAvailableAt) - new Date()) / 1000);
       return reply.status(429).send({
@@ -884,13 +952,13 @@ export async function forgotPassword(request, reply) {
 
     await dbStore.createPasswordReset({
       userId: user.id,
-      resetType: body.method,
+      resetType,
       tokenHash,
       expiresAt,
       resendAvailableAt,
     });
 
-    if (body.method === 'EMAIL') {
+    if (resetType === 'EMAIL' && user.email) {
       const emailResult = await sendEmailPasswordResetOtp({
         email: user.email,
         otp,
@@ -899,17 +967,21 @@ export async function forgotPassword(request, reply) {
       if (emailResult && !emailResult.success) {
         request.log.error(`[Email Delivery Failure] Failed to deliver password reset email to ${user.email}: ${emailResult.error}`);
       }
-    } else {
+    } else if (user.phoneNumber) {
+      const targetPhone = normalizedPhone || user.phoneNumber;
       const smsResult = await sendSmsPasswordResetOtp({
-        phoneNumber: normalizedPhone || user.phoneNumber,
+        phoneNumber: targetPhone,
         otp,
       });
       if (smsResult && !smsResult.success) {
-        request.log.error(`[SMS Delivery Failure] Failed to deliver password reset SMS to ${normalizedPhone || user.phoneNumber}: ${smsResult.error}`);
+        request.log.error(`[SMS Delivery Failure] Failed to deliver password reset SMS to ${targetPhone}: ${smsResult.error}`);
       }
     }
 
-    return reply.send(genericResponse);
+    return reply.send({
+      ...genericResponse,
+      resetType,
+    });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return reply.status(400).send({

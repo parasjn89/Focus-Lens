@@ -1,3 +1,6 @@
+import { calculateFocusPointsFromDurations } from './focusPoints.js';
+import { calculateDeepWorkBlocks } from '../../src/utils/deepWork.js';
+
 export function calculateSessionAnalytics(session, segments = []) {
   const actualDurationMs = session.actualDurationMs || session.plannedDurationMs || 0;
   const totalActiveSeconds = Math.max(1, Math.round(actualDurationMs / 1000));
@@ -33,7 +36,7 @@ export function calculateSessionAnalytics(session, segments = []) {
   let lastType = null;
 
   segments.forEach((seg) => {
-    const type = seg.activityType || 'UNKNOWN';
+    const type = seg.activityType || seg.type || 'UNKNOWN';
     const durSec = Math.max(0, Math.round((seg.durationMs || 0) / 1000));
 
     if (durationsInSeconds[type] !== undefined) {
@@ -51,7 +54,7 @@ export function calculateSessionAnalytics(session, segments = []) {
       lastType = type;
     }
 
-    if ((type === 'STUDY_LIKE' || type === 'CODING') && currentStreakSec > longestStreakSec) {
+    if ((type === 'STUDY_LIKE' || type === 'CODING' || type === 'DOCUMENT_ACTIVITY') && currentStreakSec > longestStreakSec) {
       longestStreakSec = currentStreakSec;
     }
   });
@@ -61,14 +64,21 @@ export function calculateSessionAnalytics(session, segments = []) {
     percentages[key] = Math.round((durationsInSeconds[key] / totalActiveSeconds) * 100);
   });
 
-  const focusScore = Math.min(100, Math.max(0, (percentages.STUDY_LIKE || 0) + (percentages.CODING || 0)));
+  const focusScore = Math.min(100, Math.max(0, (percentages.STUDY_LIKE || 0) + (percentages.CODING || 0) + (percentages.DOCUMENT_ACTIVITY || 0)));
+
+  const pointsData = calculateFocusPointsFromDurations(durationsInSeconds);
+  const deepWorkData = calculateDeepWorkBlocks(segments, session);
 
   return {
     focusScore,
+    focusPoints: pointsData.focusPoints,
+    qualifyingSeconds: pointsData.qualifyingSeconds,
+    qualifyingMinutes: pointsData.qualifyingMinutes,
     totalActiveSeconds,
     durationsInSeconds,
     percentages,
     segmentCounts,
+    deepWork: deepWorkData,
     insights: {
       longestStudyStreakSec: longestStreakSec,
       totalPhoneSec: durationsInSeconds.PHONE_ACTIVITY,
@@ -81,3 +91,4 @@ export function calculateSessionAnalytics(session, segments = []) {
     },
   };
 }
+

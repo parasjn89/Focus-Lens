@@ -13,14 +13,18 @@ import { PersonalDashboardPage } from './pages/PersonalDashboardPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { VerificationPage } from './pages/VerificationPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { FocusCoachPage } from './pages/FocusCoachPage';
+import { ConsistencyPage } from './pages/ConsistencyPage';
+import { RecommendationsPage } from './pages/RecommendationsPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { startSession, saveSessionSegments, finalizeSession } from './api/sessionApi';
 import { initBackgroundSync } from './api/syncManager';
 
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
-  // Navigation state: 'landing' | 'setup' | 'active' | 'report' | 'history' | 'login' | 'register' | 'dashboard' | 'profile' | 'verify' | 'forgot-password'
+  // Navigation state: 'landing' | 'setup' | 'active' | 'report' | 'history' | 'login' | 'register' | 'dashboard' | 'profile' | 'verify' | 'forgot-password' | 'coach' | 'consistency'
   const [currentView, setCurrentView] = useState('landing');
+  const [prefilledSetupConfig, setPrefilledSetupConfig] = useState(null);
 
   // Session configuration & persistent record state
   const [sessionConfig, setSessionConfig] = useState({
@@ -49,12 +53,27 @@ function AppContent() {
 
   // Handle protected route navigation
   const handleNavigate = (view) => {
-    const protectedViews = ['dashboard', 'profile', 'history', 'verify'];
+    const protectedViews = ['dashboard', 'profile', 'history', 'verify', 'coach', 'consistency', 'recommendations'];
     if (protectedViews.includes(view) && !isAuthenticated && !isLoading) {
       setCurrentView('login');
       return;
     }
     setCurrentView(view);
+  };
+
+  const handleStartRecommendedSession = (suggestedSession) => {
+    if (!suggestedSession) {
+      handleNavigate('setup');
+      return;
+    }
+    setPrefilledSetupConfig({
+      durationMinutes: suggestedSession.durationMinutes || 25,
+      goalText: suggestedSession.goalText || '',
+      goalType: suggestedSession.goalType || 'NONE',
+      targetValue: suggestedSession.targetValue || null,
+      targetUnit: suggestedSession.targetUnit || '',
+    });
+    handleNavigate('setup');
   };
 
   // Countdown Timer Hook Effect
@@ -80,11 +99,22 @@ function AppContent() {
   }, [isTimerRunning, isTimerPaused]);
 
   // Handler to initialize a new focus session
-  const handleStartSession = async ({ activity, durationMinutes, initialStreams }) => {
+  const handleStartSession = async ({ activity, durationMinutes, goalText = null, goalType = 'NONE', targetValue = null, targetUnit = null, initialStreams }) => {
     const totalSecs = durationMinutes * 60;
     const plannedDurationMs = totalSecs * 1000;
 
-    setSessionConfig({ activity, durationMinutes, initialStreams });
+    const newConfig = {
+      activity,
+      durationMinutes,
+      goalText,
+      goalType,
+      targetValue,
+      targetUnit,
+      goalProgress: 0,
+      goalCompleted: false,
+      initialStreams,
+    };
+    setSessionConfig(newConfig);
     setRemainingSeconds(totalSecs);
     setIsTimerRunning(true);
     setIsTimerPaused(false);
@@ -94,7 +124,7 @@ function AppContent() {
       {
         time: '00:00',
         label: 'Session Initialized',
-        description: `Target Activity: ${activity} (${durationMinutes} mins)`,
+        description: `Target Activity: ${activity} (${durationMinutes} mins)${goalText ? ` • Goal: ${goalText}` : ''}`,
       },
       {
         time: '00:01',
@@ -108,6 +138,10 @@ function AppContent() {
       const { session, isOfflineFallback } = await startSession({
         plannedDurationMs,
         selectedActivity: activity,
+        goalText,
+        goalType,
+        targetValue,
+        targetUnit,
       });
       setActiveBackendSession(session);
 
@@ -157,6 +191,30 @@ function AppContent() {
     const actualSecondsSpent = scheduledSeconds - remainingSeconds;
     const actualDurationMs = (actualSecondsSpent > 0 ? actualSecondsSpent : scheduledSeconds) * 1000;
 
+    let finalGoalProgress = activeBackendSession?.goalProgress ?? (sessionConfig.goalProgress || 0);
+    let finalGoalCompleted = activeBackendSession?.goalCompleted ?? (sessionConfig.goalCompleted || false);
+
+    // Save activity segments & finalize backend session
+    if (activeBackendSession && activeBackendSession.id) {
+      try {
+        await saveSessionSegments(activeBackendSession.id, activeSessionSegments);
+        const finalized = await finalizeSession(activeBackendSession.id, {
+          actualDurationMs,
+          pausedDurationMs: 0,
+          status: 'COMPLETED',
+          goalProgress: finalGoalProgress,
+          goalCompleted: finalGoalCompleted,
+        });
+
+        if (finalized?.session) {
+          finalGoalProgress = finalized.session.goalProgress ?? finalGoalProgress;
+          finalGoalCompleted = finalized.session.goalCompleted ?? finalGoalCompleted;
+        }
+      } catch (err) {
+        console.warn('Failed to persist session completion metadata:', err);
+      }
+    }
+
     const summaryReport = {
       activity: sessionConfig.activity,
       targetMinutes: sessionConfig.durationMinutes,
@@ -164,21 +222,13 @@ function AppContent() {
       activitySegments: activeSessionSegments,
       isAutoCompleted,
       completedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      goalText: sessionConfig.goalText,
+      goalType: sessionConfig.goalType,
+      targetValue: sessionConfig.targetValue,
+      targetUnit: sessionConfig.targetUnit,
+      goalProgress: finalGoalProgress,
+      goalCompleted: finalGoalCompleted,
     };
-
-    // Save activity segments & finalize backend session
-    if (activeBackendSession && activeBackendSession.id) {
-      try {
-        await saveSessionSegments(activeBackendSession.id, activeSessionSegments);
-        await finalizeSession(activeBackendSession.id, {
-          actualDurationMs,
-          pausedDurationMs: 0,
-          status: 'COMPLETED',
-        });
-      } catch (err) {
-        console.warn('Failed to persist session completion metadata:', err);
-      }
-    }
 
     setReportData(summaryReport);
     setCurrentView('report');
@@ -223,6 +273,7 @@ function AppContent() {
 
         {currentView === 'setup' && (
           <SessionSetupPage
+            initialConfig={prefilledSetupConfig}
             onStartSession={handleStartSession}
             onCancel={() => handleNavigate('landing')}
           />
@@ -247,6 +298,29 @@ function AppContent() {
             reportData={reportData}
             onNewSession={() => handleNavigate('setup')}
             onHome={() => handleNavigate('landing')}
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {currentView === 'coach' && (
+          <FocusCoachPage
+            onStartRecommendedSession={handleStartRecommendedSession}
+            onNewSession={() => handleNavigate('setup')}
+          />
+        )}
+
+        {currentView === 'consistency' && (
+          <ConsistencyPage
+            onNewSession={() => handleNavigate('setup')}
+          />
+        )}
+
+        {currentView === 'recommendations' && (
+          <RecommendationsPage
+            onStartRecommendedSession={handleStartRecommendedSession}
+            onCustomizeRecommendation={handleStartRecommendedSession}
+            onNavigate={handleNavigate}
+            onNewSession={() => handleNavigate('setup')}
           />
         )}
 
@@ -279,6 +353,7 @@ function AppContent() {
           <PersonalDashboardPage
             onSelectSession={handleSelectHistoricalSession}
             onNewSession={() => handleNavigate('setup')}
+            onNavigate={handleNavigate}
           />
         )}
 

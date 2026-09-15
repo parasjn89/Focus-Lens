@@ -19,7 +19,10 @@ export function useObjectDetection({
   const [phoneConfidence, setPhoneConfidence] = useState(null);
   
   const [personState, setPersonState] = useState(PERSON_STATES.NO_PERSON);
-  const [personCount, setPersonCount] = useState(0);
+  const [personCount, setPersonCount] = useState(0); // Real physical person count
+  const [rawPersonCount, setRawPersonCount] = useState(0);
+  const [personOnPhoneCount, setPersonOnPhoneCount] = useState(0);
+  const [isPersonOnPhoneScreen, setIsPersonOnPhoneScreen] = useState(false);
   const [personConfidence, setPersonConfidence] = useState(null);
 
   const [modelStatus, setModelStatus] = useState('IDLE'); // 'IDLE' | 'LOADING' | 'READY' | 'ERROR'
@@ -42,6 +45,8 @@ export function useObjectDetection({
     successes: 0,
     errors: 0,
     rawPeople: 0,
+    realPeople: 0,
+    onPhonePeople: 0,
     rawPhones: 0,
     lastTimestamp: null,
     lastError: null,
@@ -156,6 +161,9 @@ export function useObjectDetection({
       setPhoneConfidence(null);
       setPersonState(PERSON_STATES.NO_PERSON);
       setPersonCount(0);
+      setRawPersonCount(0);
+      setPersonOnPhoneCount(0);
+      setIsPersonOnPhoneScreen(false);
       setPersonConfidence(null);
 
       statsRef.current = { attempts: 0, successes: 0, errors: 0 };
@@ -164,6 +172,8 @@ export function useObjectDetection({
         successes: 0,
         errors: 0,
         rawPeople: 0,
+        realPeople: 0,
+        onPhonePeople: 0,
         rawPhones: 0,
         lastTimestamp: null,
         lastError: null,
@@ -207,17 +217,22 @@ export function useObjectDetection({
           setPhoneState((prev) => (prev !== phoneRes.currentState ? phoneRes.currentState : prev));
           setPhoneConfidence((prev) => (prev !== phoneRes.confidence ? phoneRes.confidence : prev));
 
-          // Process person tracker
+          // Process person tracker (includes spatial filtering)
           const personRes = personTrackerRef.current.processObjects(detectedObjects);
           setPersonState((prev) => (prev !== personRes.currentState ? personRes.currentState : prev));
           setPersonCount((prev) => (prev !== personRes.count ? personRes.count : prev));
+          setRawPersonCount((prev) => (prev !== personRes.rawCount ? personRes.rawCount : prev));
+          setPersonOnPhoneCount((prev) => (prev !== personRes.personOnPhoneCount ? personRes.personOnPhoneCount : prev));
+          setIsPersonOnPhoneScreen((prev) => (prev !== personRes.isPersonOnPhoneScreen ? personRes.isPersonOnPhoneScreen : prev));
           setPersonConfidence((prev) => (prev !== personRes.confidence ? personRes.confidence : prev));
 
-          const peopleCount = detectedObjects.filter((o) => o.label === 'person').length;
+          const rawPeople = personRes.rawCount || 0;
+          const realPeople = personRes.count || 0;
+          const onPhonePeople = personRes.personOnPhoneCount || 0;
           const phoneCount = detectedObjects.filter((o) => o.label === 'cell phone').length;
 
           if (currentAttempt === 1 || currentAttempt % 20 === 0) {
-            console.log(`[ObjectHook] raw people = ${peopleCount}, raw phones = ${phoneCount}`);
+            console.log(`[ObjectHook] raw people = ${rawPeople}, real people = ${realPeople}, on-phone people = ${onPhonePeople}, raw phones = ${phoneCount}`);
           }
 
           if (currentAttempt === 1 || currentAttempt % 4 === 0) {
@@ -225,7 +240,9 @@ export function useObjectDetection({
               attempts: statsRef.current.attempts,
               successes: statsRef.current.successes,
               errors: statsRef.current.errors,
-              rawPeople: peopleCount,
+              rawPeople,
+              realPeople,
+              onPhonePeople,
               rawPhones: phoneCount,
               lastTimestamp: Date.now(),
               lastError: null,
@@ -270,7 +287,10 @@ export function useObjectDetection({
     isPhoneDetected: phoneState === PHONE_STATES.PHONE_PRESENT,
     phoneConfidence,
     personState,
-    personCount,
+    personCount, // Real physical person count
+    rawPersonCount,
+    personOnPhoneCount,
+    isPersonOnPhoneScreen,
     personConfidence,
     modelStatus,
     inferenceStatus,

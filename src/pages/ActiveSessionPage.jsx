@@ -322,6 +322,73 @@ export function ActiveSessionPage({
         </div>
       </div>
 
+      {/* Compact Current Goal Card */}
+      {sessionInfo?.goalText && (
+        <div className="p-5 rounded-2xl bg-slate-900/90 border border-brand-500/30 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center space-x-3">
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+              <Target className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block">CURRENT GOAL</span>
+              <h3 className="text-base font-extrabold text-white">{sessionInfo.goalText}</h3>
+              {sessionInfo.goalType === 'TIME' && (
+                <p className="text-xs text-slate-400 mt-0.5 font-mono">
+                  Target: {sessionInfo.targetValue} min focus
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Goal Progress Display & Controls */}
+          {sessionInfo.goalType === 'COUNT' && (
+            <div className="flex items-center space-x-3 self-end sm:self-auto bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+              <span className="text-xs text-slate-400 font-medium">Progress:</span>
+              <div className="flex items-center space-x-2 font-mono font-bold text-sm text-white">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = Math.max(0, (sessionInfo.goalProgress || 0) - 1);
+                    sessionInfo.goalProgress = next;
+                    sessionInfo.goalCompleted = sessionInfo.targetValue ? next >= sessionInfo.targetValue : false;
+                    if (onAddEventLog) onAddEventLog('Goal Progress Updated', `Progress set to ${next}/${sessionInfo.targetValue}`);
+                  }}
+                  className="w-7 h-7 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 flex items-center justify-center font-bold text-base transition-colors"
+                  title="Decrease Completed Count"
+                >
+                  -
+                </button>
+                <span className="text-emerald-400 px-1 font-mono text-base">
+                  {sessionInfo.goalProgress || 0} / {sessionInfo.targetValue || 1}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = Math.min(sessionInfo.targetValue || 1000, (sessionInfo.goalProgress || 0) + 1);
+                    sessionInfo.goalProgress = next;
+                    sessionInfo.goalCompleted = sessionInfo.targetValue ? next >= sessionInfo.targetValue : false;
+                    if (onAddEventLog) onAddEventLog('Goal Progress Updated', `Progress set to ${next}/${sessionInfo.targetValue}`);
+                  }}
+                  className="w-7 h-7 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 flex items-center justify-center font-bold text-base transition-colors"
+                  title="Increase Completed Count"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          )}
+
+          {sessionInfo.goalType === 'TIME' && (
+            <div className="text-right bg-slate-950 p-2.5 rounded-xl border border-slate-800 self-end sm:self-auto">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">Target Progress</span>
+              <span className="text-sm font-mono font-bold text-emerald-400">
+                {Math.floor((totalSeconds - remainingSeconds) / 60)} / {sessionInfo.targetValue} min
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Main Hero Timer Display Container */}
       <div className="glass-panel p-8 sm:p-12 rounded-3xl border border-slate-800 text-center relative overflow-hidden flex flex-col items-center justify-center">
         {/* Glow halo behind timer */}

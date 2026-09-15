@@ -337,8 +337,18 @@ export function AIMonitoringCard({
             </div>
 
             <div className="flex justify-between">
-              <span>People result (raw):</span>
-              <span className="font-bold text-indigo-300">{objectDebugStats.rawPeople ?? 0} person(s)</span>
+              <span>People (Physical Real):</span>
+              <span className="font-bold text-emerald-400">{objectDebugStats.realPeople ?? 0} person(s)</span>
+            </div>
+
+            <div className="flex justify-between">
+              <span>People (On Phone Screen):</span>
+              <span className="font-bold text-amber-300">{objectDebugStats.onPhonePeople ?? 0} person(s)</span>
+            </div>
+
+            <div className="flex justify-between">
+              <span>People (Raw Detections):</span>
+              <span className="text-slate-400">{objectDebugStats.rawPeople ?? 0} total</span>
             </div>
 
             <div className="flex justify-between">

@@ -265,50 +265,70 @@ export function ProfilePage({ onNavigate }) {
             </div>
           </form>
 
-          {/* Email Address Read-Only Notice */}
-          <div className="pt-2">
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email Address</label>
-            <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400">
-              <span className="font-mono text-slate-300">{user?.email}</span>
-              <span className="inline-flex items-center space-x-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-                <Info className="w-3 h-3 text-slate-400" />
-                <span>Verification required to change</span>
-              </span>
-            </div>
-          </div>
+          {/* Contact Details & Verification Status */}
+          <div className="pt-2 space-y-3">
+            {/* Email Card */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email Address</label>
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400">
+                {user?.email ? (
+                  <span className="font-mono text-slate-300">{user.email}</span>
+                ) : (
+                  <span className="text-slate-500 italic">No email linked (Optional)</span>
+                )}
 
-          {/* Account Verification Status Section */}
-          <div className="pt-4 border-t border-slate-800/60">
-            <div className="flex items-center justify-between p-4 rounded-xl bg-slate-950 border border-slate-800">
-              <div className="space-y-1">
-                <div className="flex items-center space-x-2 text-xs font-semibold text-white">
-                  <ShieldCheck className="w-4 h-4 text-brand-400" />
-                  <span>Account Verification Status</span>
-                  {user?.verificationStatus === 'VERIFIED' ? (
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
-                      ✓ Verified
+                {user?.email ? (
+                  user?.emailVerifiedAt ? (
+                    <span className="inline-flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                      ✓ Email Verified
                     </span>
                   ) : (
-                    <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold">
+                    <span className="inline-flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">
                       ⚠ Unverified
                     </span>
-                  )}
-                </div>
-                <div className="text-[11px] text-slate-400">
-                  Preferred Method: <span className="font-semibold text-slate-300">{user?.preferredVerificationMethod || 'EMAIL'}</span>
-                  {user?.phoneNumber && ` • Phone: ${user.phoneNumber}`}
-                </div>
+                  )
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('verify')}
+                    className="text-[11px] font-semibold text-brand-400 hover:text-brand-300"
+                  >
+                    + Add Email Address
+                  </button>
+                )}
               </div>
+            </div>
 
-              {user?.verificationStatus !== 'VERIFIED' && (
-                <button
-                  type="button"
-                  onClick={() => onNavigate('verify')}
-                  className="px-3.5 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold shadow-md transition-all shrink-0"
-                >
-                  Verify Now
-                </button>
-              )}
+            {/* Phone Card */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Phone Number</label>
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400">
+                {user?.phoneNumber ? (
+                  <span className="font-mono text-slate-300">{user.phoneNumber}</span>
+                ) : (
+                  <span className="text-slate-500 italic">No phone linked (Optional)</span>
+                )}
+
+                {user?.phoneNumber ? (
+                  user?.phoneVerifiedAt ? (
+                    <span className="inline-flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                      ✓ Phone Verified
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                      ⚠ Unverified
+                    </span>
+                  )
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('verify')}
+                    className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300"
+                  >
+                    + Add Phone Number
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
