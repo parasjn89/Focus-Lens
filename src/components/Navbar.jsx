@@ -1,14 +1,27 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Eye, ShieldCheck, LayoutDashboard, User, LogIn, Compass, Flame, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export function Navbar({ currentView, onNavigate, activeSession }) {
   const { user, isAuthenticated } = useAuth();
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 10);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+    <div className={`fixed inset-x-0 z-50 transition-all duration-500 flex justify-center px-4 pointer-events-none ${isScrolled ? 'top-4' : 'top-6'}`}>
+      <header className={`w-full max-w-5xl transition-all duration-500 rounded-full pointer-events-auto ${
+        isScrolled 
+          ? 'border border-white/10 bg-navy-950/60 backdrop-blur-2xl shadow-xl shadow-black/30' 
+          : 'bg-transparent border border-transparent'
+      }`}>
+        <div className="flex items-center justify-between h-16 px-6">
           {/* Logo and Brand */}
           <div 
             onClick={() => onNavigate('landing')}
@@ -21,16 +34,7 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
               <span className="text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-indigo-200">
                 FocusLens
               </span>
-              <span className="hidden sm:inline-block ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20">
-                Open Source
-              </span>
             </div>
-          </div>
-
-          {/* Center Info / Privacy Pill */}
-          <div className="hidden md:flex items-center space-x-2 px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 text-xs text-slate-300">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>100% On-Device Privacy Guaranteed</span>
           </div>
 
           {/* Navigation Actions */}
@@ -171,7 +175,7 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
             )}
           </div>
         </div>
-      </div>
-    </header>
+      </header>
+    </div>
   );
 }

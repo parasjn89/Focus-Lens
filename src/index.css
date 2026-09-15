@@ -4,17 +4,18 @@
 
 @layer base {
   body {
-    background-color: #0b0f17;
+    background-color: #10232A; /* brand-navy */
     color: #f1f5f9;
   }
 }
 
 /* Custom Glassmorphism Card Style */
 .glass-panel {
-  background: rgba(21, 30, 46, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(61, 77, 85, 0.4); /* brand-slate with opacity */
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(211, 195, 185, 0.1); /* brand-beige */
+  box-shadow: 0 8px 32px 0 rgba(22, 22, 22, 0.3); /* brand-black */
 }
 
 .glass-panel-hover {
@@ -22,12 +23,13 @@
 }
 
 .glass-panel-hover:hover {
-  background: rgba(30, 41, 59, 0.8);
-  border-color: rgba(99, 102, 241, 0.3);
+  background: rgba(42, 48, 71, 0.8);
+  border-color: rgba(59, 130, 246, 0.4);
   transform: translateY(-2px);
+  box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.4), 0 0 15px rgba(59, 130, 246, 0.2);
 }
 
 /* Glowing timer digits */
 .timer-glow {
-  text-shadow: 0 0 25px rgba(99, 102, 241, 0.5), 0 0 50px rgba(99, 102, 241, 0.2);
+  text-shadow: 0 0 25px rgba(59, 130, 246, 0.5), 0 0 50px rgba(59, 130, 246, 0.2);
 }

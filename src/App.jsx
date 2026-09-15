@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
+import { LandingNavbar } from './components/LandingNavbar';
+import { Sidebar } from './components/Sidebar';
+import { Topbar } from './components/Topbar';
 import { Footer } from './components/Footer';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LandingPage } from './pages/LandingPage';
@@ -256,17 +259,31 @@ function AppContent() {
     setCurrentView('report');
   };
 
-  return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-brand-500 selection:text-white">
-      {/* Navigation Header */}
-      <Navbar
-        currentView={currentView}
-        onNavigate={handleNavigate}
-        activeSession={isTimerRunning}
-      />
+  const isAppView = isAuthenticated && !['landing', 'login', 'register', 'verify', 'forgot-password', 'active'].includes(currentView);
 
-      {/* Main View Router */}
-      <main className="flex-1">
+  return (
+    <div className={`min-h-screen flex bg-navy-900 text-slate-100 selection:bg-brand-500 selection:text-white font-sans ${isAppView ? 'overflow-hidden' : ''}`}>
+      
+      {isAppView && (
+        <Sidebar currentView={currentView} onNavigate={handleNavigate} />
+      )}
+
+      <div className={`flex-1 flex flex-col ${isAppView ? 'h-screen overflow-hidden relative' : 'min-h-screen'}`}>
+        {/* Topbar for App Views, Navbar for Public/Active Views */}
+        {isAppView ? (
+          <Topbar currentView={currentView} />
+        ) : currentView === 'landing' ? (
+          <LandingNavbar onNavigate={handleNavigate} />
+        ) : (
+          <Navbar
+            currentView={currentView}
+            onNavigate={handleNavigate}
+            activeSession={isTimerRunning}
+          />
+        )}
+
+        {/* Main View Router */}
+        <main className={`flex-1 ${isAppView ? 'overflow-y-auto relative z-0' : ''}`}>
         {currentView === 'landing' && (
           <LandingPage onStartSetup={() => handleNavigate('setup')} />
         )}
@@ -366,8 +383,9 @@ function AppContent() {
         )}
       </main>
 
-      {/* Footer */}
-      <Footer />
+        {/* Footer */}
+        {!isAppView && <Footer />}
+      </div>
     </div>
   );
 }
