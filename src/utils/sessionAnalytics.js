@@ -1,5 +1,44 @@
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../services/activityAnalyzer.js';
 
+// Authoritative Permission Terminal State Check Helpers
+export const isTerminalCamera = (status) => ['ALLOWED', 'DENIED', 'UNAVAILABLE', 'ERROR'].includes(status);
+export const isTerminalMic = (status) => ['ALLOWED', 'DENIED', 'UNAVAILABLE', 'ERROR'].includes(status);
+export const isTerminalScreen = (status) => ['SHARED', 'CANCELLED', 'UNAVAILABLE', 'ERROR'].includes(status);
+
+export const isPermissionsComplete = (statuses) =>
+  isTerminalCamera(statuses?.camera) &&
+  isTerminalMic(statuses?.microphone) &&
+  isTerminalScreen(statuses?.screen);
+
+
+/**
+ * Normalizes an activity segment to ensure it contains both canonical frontend and database keys.
+ * 
+ * @param {Object} seg 
+ * @param {number} [idx=0] 
+ * @returns {Object|null}
+ */
+export function normalizeActivitySegment(seg, idx = 0) {
+  if (!seg || typeof seg !== 'object') return null;
+  const type = seg.type || seg.activityType || 'UNKNOWN';
+  const start = Number(seg.startTime ?? seg.startTimeMs ?? 0);
+  const end = Number(seg.endTime ?? seg.endTimeMs ?? (start + Number(seg.durationMs || 0)));
+  const dur = Number(seg.durationMs ?? Math.max(0, end - start));
+
+  return {
+    ...seg,
+    id: seg.id || `seg_${idx}`,
+    type,
+    activityType: type,
+    startTime: start,
+    startTimeMs: start,
+    endTime: Math.max(start, end),
+    endTimeMs: Math.max(start, end),
+    durationMs: dur,
+    label: seg.label || ACTIVITY_LABELS[type] || type,
+  };
+}
+
 /**
  * Merges adjacent activity segments of identical activity types.
  * 
@@ -9,16 +48,23 @@ import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../services/activityAnalyzer.js
 export function mergeAdjacentSegments(segments = []) {
   if (!segments || segments.length === 0) return [];
 
-  // Sort chronologically by startTime
-  const sorted = [...segments].sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
-  const merged = [];
-  let current = { ...sorted[0] };
+  // Normalize and sort chronologically by startTime
+  const normalized = segments
+    .map((s, idx) => normalizeActivitySegment(s, idx))
+    .filter(Boolean)
+    .sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
 
-  for (let i = 1; i < sorted.length; i++) {
-    const next = sorted[i];
+  if (normalized.length === 0) return [];
+
+  const merged = [];
+  let current = { ...normalized[0] };
+
+  for (let i = 1; i < normalized.length; i++) {
+    const next = normalized[i];
 
     if (next.type === current.type) {
       current.endTime = Math.max(current.endTime || 0, next.endTime || 0);
+      current.endTimeMs = current.endTime;
       current.durationMs = Math.max(0, current.endTime - (current.startTime || 0));
       
       if (next.contributingSignals) {
@@ -69,9 +115,10 @@ export function calculateActivityDurations(segments = []) {
   merged.forEach((seg) => {
     const durationMs = seg.durationMs || ((seg.endTime || 0) - (seg.startTime || 0));
     const durationSec = Math.max(0, Math.round(durationMs / 1000));
+    const type = seg.type || seg.activityType || 'UNKNOWN';
     
-    if (totals[seg.type] !== undefined) {
-      totals[seg.type] += durationSec;
+    if (totals[type] !== undefined) {
+      totals[type] += durationSec;
     } else {
       totals.UNKNOWN += durationSec;
     }
@@ -87,9 +134,17 @@ export function calculateActivityDurations(segments = []) {
  * @param {number} totalActiveSeconds - Total active session duration in seconds
  * @returns {Object} Percentage integer per category
  */
-export function calculateActivityPercentages(durations = {}, totalActiveSeconds = 1) {
-  const effectiveTotal = Math.max(1, totalActiveSeconds);
+export function calculateActivityPercentages(durations = {}, totalActiveSeconds = 0) {
+  const sumDurations = Object.values(durations).reduce((acc, d) => acc + (d || 0), 0);
+  const effectiveTotal = sumDurations > 0 ? sumDurations : Math.max(0, totalActiveSeconds);
   const percentages = {};
+
+  if (effectiveTotal <= 0) {
+    Object.keys(ACTIVITY_TYPES).forEach((key) => {
+      percentages[key] = 0;
+    });
+    return percentages;
+  }
 
   Object.keys(ACTIVITY_TYPES).forEach((key) => {
     const durationSec = durations[key] || 0;
@@ -148,8 +203,9 @@ export function countActivitySegments(segments = []) {
   const merged = mergeAdjacentSegments(segments);
 
   merged.forEach((seg) => {
-    if (counts[seg.type] !== undefined) {
-      counts[seg.type] += 1;
+    const type = seg.type || seg.activityType || 'UNKNOWN';
+    if (counts[type] !== undefined) {
+      counts[type] += 1;
     } else {
       counts.UNKNOWN += 1;
     }

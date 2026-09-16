@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Mail, Phone, ShieldCheck, AlertCircle, ArrowRight, RefreshCw, ArrowLeftRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { BackButton } from '../components/BackButton.jsx';
 
 export function VerificationPage({ onNavigate }) {
   const {
@@ -113,6 +114,13 @@ export function VerificationPage({ onNavigate }) {
 
   return (
     <div className="max-w-md mx-auto px-4 py-12">
+      <div className="mb-6 flex items-center justify-start">
+        <BackButton
+          label={user ? 'Back to Settings' : 'Back to Login'}
+          onClick={() => onNavigate && onNavigate(user ? 'profile' : 'login')}
+        />
+      </div>
+
       <div className="text-center mb-8">
         <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-cyan-400 mx-auto flex items-center justify-center shadow-lg shadow-brand-500/20 mb-4">
           <ShieldCheck className="w-8 h-8 text-white" />

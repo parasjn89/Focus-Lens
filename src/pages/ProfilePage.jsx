@@ -16,6 +16,7 @@ import {
   Info,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { BackButton } from '../components/BackButton.jsx';
 
 export function ProfilePage({ onNavigate }) {
   const { user, logout, updateProfile, changePassword, deleteAccount } = useAuth();
@@ -166,7 +167,15 @@ export function ProfilePage({ onNavigate }) {
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-10 space-y-8">
+    <div className="max-w-3xl mx-auto px-4 py-10 space-y-6">
+      {/* Top Contextual Navigation */}
+      <div className="flex items-center justify-between">
+        <BackButton
+          label="Back to Dashboard"
+          onClick={() => onNavigate && onNavigate('dashboard')}
+        />
+      </div>
+
       {/* Page Header */}
       <div className="pb-6 border-b border-slate-800">
         <h1 className="text-2xl font-bold text-white tracking-tight">Account & Profile Settings</h1>

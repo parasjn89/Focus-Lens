@@ -43,6 +43,9 @@ export function useMicrophone({
 
   const trackerRef = useRef(null);
 
+  // Ownership flag: true = stream was passed externally (caller owns lifecycle), false = we created it
+  const isExternalStreamRef = useRef(!!(initialStream && initialStream.active));
+
   if (!trackerRef.current) {
     trackerRef.current = createSpeechTracker({
       speechStartThreshold,
@@ -61,9 +64,20 @@ export function useMicrophone({
   // Handle pre-opened initialStream
   useEffect(() => {
     if (initialStream && initialStream.active) {
+      isExternalStreamRef.current = true;
       setStream(initialStream);
       setIsMicrophoneActive(true);
       if (trackerRef.current) trackerRef.current.reset();
+
+      // Monitor for external track death (hardware unplug, OS revocation)
+      const audioTrack = initialStream.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.onended = () => {
+          console.warn('[Microphone] external audio track ended (hardware disconnect or OS revocation)');
+          setStream(null);
+          setIsMicrophoneActive(false);
+        };
+      }
 
       let lastStateUpdateTs = 0;
       let prevLevelRef = 0;
@@ -104,6 +118,7 @@ export function useMicrophone({
       const micStream = await requestMicrophoneStream();
       setStream(micStream);
       setIsMicrophoneActive(true);
+      isExternalStreamRef.current = false; // We created this stream — we own it
 
       trackerRef.current.reset();
 
@@ -147,9 +162,10 @@ export function useMicrophone({
   }, []);
 
   // Stop microphone monitoring
-  const stopMicrophone = useCallback(() => {
-    console.log('[useMicrophone] stopping microphone...');
-    closeMicrophoneMonitor();
+  const stopMicrophone = useCallback(({ skipTrackStop = false } = {}) => {
+    console.log(`[useMicrophone] stopping microphone... (skipTrackStop=${skipTrackStop})`);
+    closeMicrophoneMonitor({ skipTrackStop });
+    isExternalStreamRef.current = false;
     setIsMicrophoneActive(false);
     setStream(null);
     setIsLoading(false);
@@ -168,10 +184,15 @@ export function useMicrophone({
     });
   }, []);
 
-  // Cleanup on component unmount
+  // Cleanup on component unmount — skip track.stop() for externally owned streams
   useEffect(() => {
     return () => {
-      stopMicrophone();
+      if (isExternalStreamRef.current) {
+        console.log('[Microphone] cleanup: external stream — skipping track.stop()');
+        stopMicrophone({ skipTrackStop: true });
+      } else {
+        stopMicrophone();
+      }
     };
   }, [stopMicrophone]);
 
@@ -185,6 +206,6 @@ export function useMicrophone({
     audioLevel,
     debugStats,
     startMicrophone,
-    stopMicrophone,
+    stopMicrophone: () => stopMicrophone(), // Public API always stops tracks (user-initiated)
   };
 }

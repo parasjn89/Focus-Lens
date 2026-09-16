@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BookOpen, Calendar, Clock, Award, Target, Flame, ChevronRight, RefreshCw, AlertCircle, Edit3, X, CheckCircle2, HardDrive, Database } from 'lucide-react';
 import { apiFetch } from '../api/client';
+import { BackButton } from '../components/BackButton.jsx';
 
-export function FocusJournalPage({ onSelectSession, onNewSession }) {
+export function FocusJournalPage({ onSelectSession, onNewSession, onNavigate }) {
   const [entries, setEntries] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, totalPages: 1, totalCount: 0, hasMore: false });
   const [filter, setFilter] = useState('all'); // 'all' | 'goals' | 'reflections'
@@ -101,7 +102,15 @@ export function FocusJournalPage({ onSelectSession, onNewSession }) {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-6">
+      {/* Top Contextual Navigation */}
+      <div className="flex items-center justify-between">
+        <BackButton
+          label="Back to Dashboard"
+          onClick={() => onNavigate && onNavigate('dashboard')}
+        />
+      </div>
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-8 border-b border-slate-800">
         <div>

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Compass, Sparkles, ArrowRight, ShieldCheck, RefreshCw, AlertCircle, CheckCircle2, Clock, Target, Lightbulb } from 'lucide-react';
 import { apiFetch } from '../api/client';
+import { BackButton } from '../components/BackButton.jsx';
 
-export function FocusCoachPage({ onStartRecommendedSession, onNewSession }) {
+export function FocusCoachPage({ onStartRecommendedSession, onNewSession, onNavigate }) {
   const [coachData, setCoachData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -37,7 +38,15 @@ export function FocusCoachPage({ onStartRecommendedSession, onNewSession }) {
   const isLowData = coachData?.insufficientData;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-6">
+      {/* Top Contextual Navigation */}
+      <div className="flex items-center justify-between">
+        <BackButton
+          label="Back to Dashboard"
+          onClick={() => onNavigate && onNavigate('dashboard')}
+        />
+      </div>
+
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-8 border-b border-slate-800">
         <div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mail, Phone, Lock, Eye, EyeOff, KeyRound, AlertCircle, CheckCircle2, ArrowRight, ShieldCheck, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { BackButton } from '../components/BackButton.jsx';
 
 export function ForgotPasswordPage({ onNavigate }) {
   const { requestForgotPassword, verifyResetToken, resetPassword } = useAuth();
@@ -210,6 +211,13 @@ export function ForgotPasswordPage({ onNavigate }) {
 
   return (
     <div className="max-w-md mx-auto px-4 py-12">
+      <div className="mb-6 flex items-center justify-start">
+        <BackButton
+          label="Back to Login"
+          onClick={() => onNavigate && onNavigate('login')}
+        />
+      </div>
+
       <div className="text-center mb-8">
         <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-cyan-400 mx-auto flex items-center justify-center shadow-lg shadow-brand-500/20 mb-4">
           <KeyRound className="w-7 h-7 text-white" />

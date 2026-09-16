@@ -201,9 +201,33 @@ export async function getSessionById(request, reply) {
     const segments = await dbStore.getSegmentsBySessionId(id);
     const statistics = calculateSessionAnalytics(session, segments);
 
+    const formattedSegments = segments.map((seg, idx) => {
+      const type = seg.activityType || seg.type || 'UNKNOWN';
+      const start = Number(seg.startTimeMs ?? seg.startTime ?? 0);
+      const end = Number(seg.endTimeMs ?? seg.endTime ?? 0);
+      const dur = Number(seg.durationMs ?? Math.max(0, end - start));
+
+      return {
+        id: seg.id || `seg_${idx}`,
+        sessionId: seg.sessionId || id,
+        type,
+        activityType: type,
+        startTime: start,
+        startTimeMs: start,
+        endTime: end,
+        endTimeMs: end,
+        durationMs: dur,
+        evidenceScore: seg.evidenceScore ?? 0.8,
+        confidenceType: seg.confidenceType || 'heuristic',
+        contributingSignals: seg.contributingSignals || [],
+        explanation: seg.explanation || {},
+        createdAt: seg.createdAt || null,
+      };
+    });
+
     return reply.send({
       session,
-      activitySegments: segments,
+      activitySegments: formattedSegments,
       statistics,
     });
   } catch (err) {

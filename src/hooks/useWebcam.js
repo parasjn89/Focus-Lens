@@ -13,25 +13,42 @@ export function useWebcam({ initialStream = null } = {}) {
   // Use a ref to hold current stream reference so unmount cleanup always gets latest stream
   const activeStreamRef = useRef(initialStream);
 
+  // Ownership flag: true = stream was passed externally (caller owns lifecycle), false = we created it
+  const isExternalStreamRef = useRef(!!(initialStream && initialStream.active));
+
   useEffect(() => {
     if (initialStream && initialStream.active) {
       activeStreamRef.current = initialStream;
+      isExternalStreamRef.current = true;
       setStream(initialStream);
       setIsCameraActive(true);
+
+      // Monitor for external track death (hardware unplug, OS revocation)
+      const videoTrack = initialStream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.onended = () => {
+          console.warn('[Camera] external video track ended (hardware disconnect or OS revocation)');
+          activeStreamRef.current = null;
+          setStream(null);
+          setIsCameraActive(false);
+        };
+      }
     }
   }, [initialStream]);
 
   /**
    * Stops all active MediaStreamTracks and resets camera state.
+   * If the stream was externally provided, only resets internal state without stopping tracks.
    */
-  const stopCamera = useCallback(() => {
-    if (activeStreamRef.current) {
+  const stopCamera = useCallback(({ skipTrackStop = false } = {}) => {
+    if (activeStreamRef.current && !skipTrackStop) {
       const tracks = activeStreamRef.current.getTracks();
       tracks.forEach((track) => {
         track.stop(); // Stops physical camera hardware capture
       });
-      activeStreamRef.current = null;
     }
+    activeStreamRef.current = null;
+    isExternalStreamRef.current = false;
     setStream(null);
     setIsCameraActive(false);
     setIsLoading(false);
@@ -74,6 +91,7 @@ export function useWebcam({ initialStream = null } = {}) {
       }
 
       activeStreamRef.current = mediaStream;
+      isExternalStreamRef.current = false; // We created this stream — we own it
       console.log('[Camera] stream acquired');
       setStream(mediaStream);
       setIsCameraActive(true);
@@ -106,10 +124,16 @@ export function useWebcam({ initialStream = null } = {}) {
     }
   }, []);
 
-  // Cleanup on component unmount
+  // Cleanup on component unmount — skip track.stop() for externally owned streams
   useEffect(() => {
     return () => {
-      stopCamera();
+      if (isExternalStreamRef.current) {
+        // External stream: reset internal state only, do NOT stop hardware tracks
+        console.log('[Camera] cleanup: external stream — skipping track.stop()');
+        stopCamera({ skipTrackStop: true });
+      } else {
+        stopCamera();
+      }
     };
   }, [stopCamera]);
 
@@ -119,6 +143,6 @@ export function useWebcam({ initialStream = null } = {}) {
     isLoading,
     error,
     startCamera,
-    stopCamera
+    stopCamera: () => stopCamera(), // Public API always stops tracks (user-initiated)
   };
 }

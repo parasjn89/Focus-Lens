@@ -21,6 +21,7 @@ import { formatSecondsToTime } from '../utils/formatters.js';
 import { ACTIVITY_LABELS } from '../services/activityAnalyzer.js';
 import { CATEGORY_COLORS } from './ActivityBreakdownChart.jsx';
 import { isQualifyingActivity } from '../utils/focusPoints.js';
+import { BackButton } from './BackButton.jsx';
 
 export function FocusReplayView({ reportData = {}, onBackToReport }) {
   const {
@@ -44,32 +45,20 @@ export function FocusReplayView({ reportData = {}, onBackToReport }) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
         <div>
           <div className="flex items-center space-x-3 mb-1">
-            <button
-              type="button"
-              onClick={onBackToReport}
-              className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 transition-colors"
-              title="Return to Session Report"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
             <div className="p-2 rounded-xl bg-brand-500/10 text-brand-400 border border-brand-500/20">
               <Play className="w-5 h-5 fill-current" />
             </div>
             <h1 className="text-2xl font-extrabold text-white tracking-tight">FOCUS REPLAY</h1>
           </div>
-          <p className="text-xs text-slate-400 pl-11">
+          <p className="text-xs text-slate-400">
             Chronological observability replay for <strong>{activity}</strong> ({completedAt})
           </p>
         </div>
 
-        <button
-          type="button"
+        <BackButton
+          label="Back to Session Report"
           onClick={onBackToReport}
-          className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-semibold flex items-center justify-center space-x-2 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to Session Report</span>
-        </button>
+        />
       </div>
 
       {/* 1. Summary Metrics Header Grid */}

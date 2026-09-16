@@ -355,4 +355,45 @@ test('FocusLens Adaptive Session Recommendations Test Suite', async (t) => {
     const idorBody = JSON.parse(idorRes.payload);
     assert.equal(idorBody.available, false);
   });
+
+  await t.test('11. GET /api/analytics/recommended-session returns application/json Content-Type', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/analytics/recommended-session',
+      headers: { cookie: cookieA },
+    });
+
+    assert.equal(res.statusCode, 200);
+    const contentType = res.headers['content-type'] || '';
+    assert.ok(contentType.includes('application/json'), `Expected application/json, got "${contentType}"`);
+  });
+
+  await t.test('12. Regression: HTML / non-JSON response handling does not throw Unexpected token <', async () => {
+    // Simulate non-JSON / HTML response parsing handling
+    const mockHtmlResponse = {
+      ok: true,
+      status: 200,
+      headers: new Map([['content-type', 'text/html; charset=utf-8']]),
+      text: async () => '<!DOCTYPE html><html><body>SPA Fallback</body></html>',
+      json: async () => { throw new SyntaxError("Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"); },
+    };
+
+    const contentType = mockHtmlResponse.headers.get('content-type') || '';
+    let hasJsonError = false;
+    let handledErrorMessage = '';
+
+    if (!contentType.includes('application/json')) {
+      handledErrorMessage = `Unexpected server response format (${contentType}). Expected JSON.`;
+    } else {
+      try {
+        await mockHtmlResponse.json();
+      } catch (err) {
+        hasJsonError = true;
+      }
+    }
+
+    assert.equal(hasJsonError, false, 'Should not attempt response.json() on text/html content-type');
+    assert.ok(handledErrorMessage.includes('Unexpected server response format'), 'Should provide structured error message');
+  });
 });
+

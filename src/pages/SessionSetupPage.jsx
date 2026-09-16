@@ -4,16 +4,15 @@ import {
   Camera, Mic, Monitor, Check, X, AlertCircle, Loader2, ArrowRight, CornerDownRight
 } from 'lucide-react';
 import { requestMicrophoneStream } from '../services/microphoneMonitor.js';
+import {
+  isTerminalCamera,
+  isTerminalMic,
+  isTerminalScreen,
+  isPermissionsComplete,
+} from '../utils/sessionAnalytics.js';
 
-// Authoritative Terminal State Check Helpers
-export const isTerminalCamera = (status) => ['ALLOWED', 'DENIED', 'UNAVAILABLE', 'ERROR'].includes(status);
-export const isTerminalMic = (status) => ['ALLOWED', 'DENIED', 'UNAVAILABLE', 'ERROR'].includes(status);
-export const isTerminalScreen = (status) => ['SHARED', 'DENIED', 'CANCELLED', 'UNAVAILABLE', 'ERROR'].includes(status);
+export { isTerminalCamera, isTerminalMic, isTerminalScreen, isPermissionsComplete };
 
-export const isPermissionsComplete = (statuses) =>
-  isTerminalCamera(statuses?.camera) &&
-  isTerminalMic(statuses?.microphone) &&
-  isTerminalScreen(statuses?.screen);
 
 export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
   const [selectedActivity, setSelectedActivity] = useState(initialConfig?.activity || 'Studying');

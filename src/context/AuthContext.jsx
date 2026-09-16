@@ -12,6 +12,7 @@ export function AuthProvider({ children }) {
       localStorage.removeItem('focuslens_local_sessions');
       localStorage.removeItem('focuslens_pending_sync');
       localStorage.removeItem('focuslens_anonymous_id');
+      sessionStorage.removeItem('focuslens_active_report_session_id');
     } catch (err) {
       console.warn('Failed to clear client user storage:', err);
     }

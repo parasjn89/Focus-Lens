@@ -38,7 +38,22 @@ export async function apiFetch(endpoint, options = {}) {
 
     clearTimeout(timeoutId);
 
-    const data = await response.json().catch(() => ({}));
+    const contentType = response.headers.get('content-type') || '';
+    let data = {};
+
+    if (contentType.includes('application/json')) {
+      try {
+        data = await response.json();
+      } catch (err) {
+        data = {};
+      }
+    } else {
+      const text = await response.text().catch(() => '');
+      if (!response.ok) {
+        throw new Error(`API error (HTTP ${response.status}): Non-JSON response received`);
+      }
+      throw new Error(`Unexpected server response format (${contentType || 'text/html'}). Expected JSON.`);
+    }
 
     if (!response.ok) {
       throw new Error(data.message || `API error: HTTP ${response.status}`);
@@ -53,3 +68,4 @@ export async function apiFetch(endpoint, options = {}) {
     throw err;
   }
 }
+

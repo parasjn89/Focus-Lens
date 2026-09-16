@@ -18,17 +18,22 @@ export function useScreenShare({ initialStream = null } = {}) {
 
   const activeStreamRef = useRef(initialStream);
 
+  // Ownership flag: true = stream was passed externally (caller owns lifecycle), false = we created it
+  const isExternalStreamRef = useRef(!!(initialStream && initialStream.active));
+
   /**
    * Stops all active screen MediaStreamTracks and resets state.
+   * If skipTrackStop is true, only resets internal state without stopping tracks.
    */
-  const stopScreenShare = useCallback(() => {
-    if (activeStreamRef.current) {
+  const stopScreenShare = useCallback(({ skipTrackStop = false } = {}) => {
+    if (activeStreamRef.current && !skipTrackStop) {
       const tracks = activeStreamRef.current.getTracks();
       tracks.forEach((track) => {
         track.stop(); // Release screen capture resources
       });
-      activeStreamRef.current = null;
     }
+    activeStreamRef.current = null;
+    isExternalStreamRef.current = false;
     setStream(null);
     setIsScreenActive(false);
     setSourceType(SCREEN_SOURCE_TYPES.UNKNOWN);
@@ -39,6 +44,7 @@ export function useScreenShare({ initialStream = null } = {}) {
   useEffect(() => {
     if (initialStream && initialStream.active) {
       activeStreamRef.current = initialStream;
+      isExternalStreamRef.current = true;
       setStream(initialStream);
       setIsScreenActive(true);
 
@@ -46,7 +52,10 @@ export function useScreenShare({ initialStream = null } = {}) {
       if (videoTrack) {
         setSourceType(getSourceTypeFromTrack(videoTrack));
         videoTrack.onended = () => {
-          stopScreenShare();
+          console.warn('[Screen] external video track ended');
+          activeStreamRef.current = null;
+          setStream(null);
+          setIsScreenActive(false);
           setError({
             type: 'STOPPED_EXTERNALLY',
             message: 'Screen monitoring stopped.'
@@ -54,7 +63,7 @@ export function useScreenShare({ initialStream = null } = {}) {
         };
       }
     }
-  }, [initialStream, stopScreenShare]);
+  }, [initialStream]);
 
   /**
    * Requests screen sharing permission and starts display MediaStream.
@@ -101,6 +110,7 @@ export function useScreenShare({ initialStream = null } = {}) {
       }
 
       activeStreamRef.current = mediaStream;
+      isExternalStreamRef.current = false; // We created this stream — we own it
       setStream(mediaStream);
       setIsScreenActive(true);
       setSourceType(derivedSourceType);
@@ -127,10 +137,15 @@ export function useScreenShare({ initialStream = null } = {}) {
     }
   }, [stopScreenShare]);
 
-  // Clean up on component unmount
+  // Clean up on component unmount — skip track.stop() for externally owned streams
   useEffect(() => {
     return () => {
-      stopScreenShare();
+      if (isExternalStreamRef.current) {
+        console.log('[Screen] cleanup: external stream — skipping track.stop()');
+        stopScreenShare({ skipTrackStop: true });
+      } else {
+        stopScreenShare();
+      }
     };
   }, [stopScreenShare]);
 
@@ -141,7 +156,7 @@ export function useScreenShare({ initialStream = null } = {}) {
     isLoading,
     error,
     startScreenShare,
-    stopScreenShare,
+    stopScreenShare: () => stopScreenShare(), // Public API always stops tracks (user-initiated)
     observation: createScreenObservation(isScreenActive, stream?.getVideoTracks()[0] || null),
   };
 }

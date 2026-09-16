@@ -11,6 +11,7 @@ import { sessionRoutes } from './routes/sessionRoutes.js';
 import { dashboardRoutes } from './routes/dashboardRoutes.js';
 import { weeklyReviewRoutes } from './routes/weeklyReviewRoutes.js';
 import { journalRoutes } from './routes/journalRoutes.js';
+import { calendarRoutes } from './routes/calendarRoutes.js';
 
 export function buildApp(options = {}) {
   const app = Fastify({
@@ -72,6 +73,7 @@ export function buildApp(options = {}) {
   app.register(dashboardRoutes);
   app.register(weeklyReviewRoutes);
   app.register(journalRoutes);
+  app.register(calendarRoutes);
 
   // Global Error Handler
   app.setErrorHandler((error, request, reply) => {

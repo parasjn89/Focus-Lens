@@ -92,9 +92,11 @@ export function initAudioContext(stream, onAudioFrameCallback, sampleIntervalMs 
 
 /**
  * Safely performs 100% clean shutdown of microphone hardware, Web Audio nodes, and timers.
+ * @param {Object} [options]
+ * @param {boolean} [options.skipTrackStop=false] - If true, skips track.stop() calls (for externally owned streams)
  */
-export function closeMicrophoneMonitor() {
-  console.log('[Microphone] stopping microphone monitor and releasing resources...');
+export function closeMicrophoneMonitor({ skipTrackStop = false } = {}) {
+  console.log(`[Microphone] stopping microphone monitor and releasing resources... (skipTrackStop=${skipTrackStop})`);
 
   if (analysisIntervalId) {
     clearInterval(analysisIntervalId);
@@ -130,7 +132,7 @@ export function closeMicrophoneMonitor() {
     audioContextInstance = null;
   }
 
-  if (activeStream) {
+  if (activeStream && !skipTrackStop) {
     try {
       activeStream.getTracks().forEach((track) => {
         track.stop();
@@ -139,8 +141,8 @@ export function closeMicrophoneMonitor() {
     } catch (e) {
       // Ignore
     }
-    activeStream = null;
   }
+  activeStream = null;
 
   console.log('[Microphone] microphone monitor shutdown complete');
 }

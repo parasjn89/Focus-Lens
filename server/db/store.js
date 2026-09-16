@@ -366,7 +366,7 @@ export const dbStore = {
   },
 
   // SESSION OPERATIONS
-  async createSession({ id, userId, selectedActivity, plannedDurationMs, startedAt, status = 'ACTIVE', goalText = null, goalType = 'NONE', targetValue = null, targetUnit = null, goalProgress = 0, goalCompleted = false, intention = null }) {
+  async createSession({ id, userId, selectedActivity, plannedDurationMs, actualDurationMs = 0, startedAt, endedAt = null, status = 'ACTIVE', focusPoints = 0, goalText = null, goalType = 'NONE', targetValue = null, targetUnit = null, goalProgress = 0, goalCompleted = false, intention = null }) {
     const isConnected = await checkDbConnection();
     if (isConnected) {
       const [newSession] = await db.insert(sessions).values({
@@ -374,9 +374,11 @@ export const dbStore = {
         userId,
         selectedActivity,
         plannedDurationMs,
+        actualDurationMs: actualDurationMs ?? 0,
         startedAt: startedAt ? new Date(startedAt) : new Date(),
+        endedAt: endedAt ? new Date(endedAt) : null,
         status: status || 'ACTIVE',
-        focusPoints: 0,
+        focusPoints: focusPoints ?? 0,
         goalText,
         goalType,
         targetValue,
@@ -396,10 +398,10 @@ export const dbStore = {
       userId,
       selectedActivity,
       plannedDurationMs,
-      actualDurationMs: 0,
+      actualDurationMs: actualDurationMs ?? 0,
       pausedDurationMs: 0,
-      status: 'ACTIVE',
-      focusPoints: 0,
+      status: status || 'ACTIVE',
+      focusPoints: focusPoints ?? 0,
       goalText,
       goalType,
       targetValue,
@@ -411,7 +413,7 @@ export const dbStore = {
       gotInTheWay: null,
       notes: null,
       startedAt: startedAt ? new Date(startedAt) : new Date(),
-      endedAt: null,
+      endedAt: endedAt ? new Date(endedAt) : null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -523,6 +525,13 @@ export const dbStore = {
       ...updates,
       updatedAt: new Date(),
     };
+
+    if (updatedFields.endedAt && typeof updatedFields.endedAt === 'string') {
+      updatedFields.endedAt = new Date(updatedFields.endedAt);
+    }
+    if (updatedFields.startedAt && typeof updatedFields.startedAt === 'string') {
+      updatedFields.startedAt = new Date(updatedFields.startedAt);
+    }
 
     if (isConnected) {
       const [updated] = await db.update(sessions)

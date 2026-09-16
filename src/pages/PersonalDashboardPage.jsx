@@ -546,8 +546,13 @@ export function PersonalDashboardPage({ onSelectSession, onNewSession, onNavigat
                 <h3 className="text-white font-semibold mb-1">Activity</h3>
                 <p className="text-xs text-amber-400">{weekly.days?.reduce((acc, curr) => acc + (curr.sessionCount || 0), 0) || 0} Tasks Completed 👏</p>
               </div>
-              <button className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-brand-900/40 border border-brand-500/30 text-xs text-white">
-                <span>Get the report</span>
+              <button
+                type="button"
+                onClick={() => onNavigate && onNavigate('weekly-review')}
+                className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-brand-900/40 hover:bg-brand-900/70 border border-brand-500/30 text-xs text-white transition-all cursor-pointer"
+                title="View Weekly Review"
+              >
+                <span>Weekly review</span>
                 <span className="w-5 h-5 rounded-full bg-gradient-to-r from-brand-500 to-indigo-500 flex items-center justify-center">
                   <ChevronRight className="w-3 h-3 text-white" />
                 </span>

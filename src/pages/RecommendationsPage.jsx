@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Compass, Sparkles, CheckCircle2, Clock, Target, ShieldAlert, ArrowRight, Settings, AlertCircle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { fetchRecommendedSession } from '../api/sessionApi.js';
+import { BackButton } from '../components/BackButton.jsx';
 
 export function RecommendationsPage({ onStartRecommendedSession, onCustomizeRecommendation, onNavigate, onNewSession }) {
   const { user } = useAuth();
@@ -12,17 +14,7 @@ export function RecommendationsPage({ onStartRecommendedSession, onCustomizeReco
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/analytics/recommended-session', {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!res.ok) {
-        throw new Error(`Failed to load recommendation (HTTP ${res.status})`);
-      }
-
-      const result = await res.json();
+      const result = await fetchRecommendedSession();
       setData(result);
     } catch (err) {
       console.error('Error fetching adaptive recommendation:', err);
@@ -31,6 +23,7 @@ export function RecommendationsPage({ onStartRecommendedSession, onCustomizeReco
       setIsLoading(false);
     }
   };
+
 
   useEffect(() => {
     fetchRecommendation();
@@ -80,6 +73,12 @@ export function RecommendationsPage({ onStartRecommendedSession, onCustomizeReco
   if (error) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 py-12 px-4 sm:px-6 lg:px-8 flex flex-col justify-center items-center">
+        <div className="max-w-md w-full mb-4 flex justify-start">
+          <BackButton
+            label="Back to Dashboard"
+            onClick={() => onNavigate && onNavigate('dashboard')}
+          />
+        </div>
         <div className="max-w-md w-full bg-slate-900/80 backdrop-blur-md border border-slate-800 rounded-2xl p-8 text-center space-y-4 shadow-xl">
           <AlertCircle className="w-12 h-12 text-rose-400 mx-auto" />
           <h2 className="text-xl font-bold text-slate-100">Unable to load a recommendation right now</h2>
@@ -104,6 +103,13 @@ export function RecommendationsPage({ onStartRecommendedSession, onCustomizeReco
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl mx-auto space-y-8">
+          <div className="flex items-center justify-between">
+            <BackButton
+              label="Back to Dashboard"
+              onClick={() => onNavigate && onNavigate('dashboard')}
+            />
+          </div>
+
           <div>
             <div className="flex items-center space-x-3 mb-2">
               <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -171,6 +177,14 @@ export function RecommendationsPage({ onStartRecommendedSession, onCustomizeReco
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-8">
+        {/* Top Contextual Navigation */}
+        <div className="flex items-center justify-between">
+          <BackButton
+            label="Back to Dashboard"
+            onClick={() => onNavigate && onNavigate('dashboard')}
+          />
+        </div>
+
         {/* Header */}
         <div>
           <div className="flex items-center space-x-3 mb-2">

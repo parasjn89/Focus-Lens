@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CalendarCheck, ChevronLeft, ChevronRight, Award, Clock, Target, Flame, RefreshCw, CheckCircle2, AlertCircle, Sparkles, Compass, HelpCircle, HardDrive } from 'lucide-react';
 import { apiFetch } from '../api/client';
+import { BackButton } from '../components/BackButton.jsx';
 
 export function WeeklyReviewPage({ onNewSession, onNavigate }) {
   const [reviewData, setReviewData] = useState(null);
@@ -117,7 +118,15 @@ export function WeeklyReviewPage({ onNewSession, onNavigate }) {
   const { overview = {}, comparison = {}, daily = [], deepWork = {}, goals = {}, distractions = {}, consistency = {}, highlight, recommendation } = reviewData || {};
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-6">
+      {/* Top Contextual Navigation */}
+      <div className="flex items-center justify-between">
+        <BackButton
+          label="Back to Dashboard"
+          onClick={() => onNavigate && onNavigate('dashboard')}
+        />
+      </div>
+
       {/* Header & Week Selector */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-8 border-b border-slate-800">
         <div>

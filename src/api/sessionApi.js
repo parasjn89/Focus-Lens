@@ -150,7 +150,20 @@ export async function saveSessionSegments(sessionId, segments = []) {
     }
   }
 
-  // Queue locally for retry
+  // Queue locally for retry and attach to local session record
+  const localList = getLocalSessions();
+  const updatedLocal = localList.map(s => {
+    if (s.id === sessionId || s.backendId === sessionId) {
+      return {
+        ...s,
+        activitySegments: sanitizedSegments,
+        synced: false,
+      };
+    }
+    return s;
+  });
+  saveLocalSessions(updatedLocal);
+
   enqueuePendingSync({
     type: 'SAVE_SEGMENTS',
     sessionId,
@@ -305,3 +318,109 @@ export async function fetchSessionsHistory({ limit = 20, offset = 0 } = {}) {
     totalCount: mergedSessions.length,
   };
 }
+
+/**
+ * API: Fetch adaptive session recommendation for authenticated user
+ */
+export async function fetchRecommendedSession() {
+  return await apiFetch('/api/analytics/recommended-session');
+}
+
+/**
+ * API: Fetch complete session details by ID (including persisted activity segments and analytics).
+ * If offline or local session ID, retrieves from local sessions cache.
+ */
+export async function fetchSessionById(sessionId) {
+  if (!sessionId) return null;
+
+  // 1. Try backend fetch first if not an unsynced local ID
+  if (!sessionId.startsWith('local_')) {
+    try {
+      const res = await apiFetch(`/api/sessions/${sessionId}`);
+      if (res && res.session) {
+        const rawSegments = res.activitySegments || [];
+        const normalizedSegments = rawSegments.map((seg, idx) => {
+          const type = seg.type || seg.activityType || 'UNKNOWN';
+          const start = Number(seg.startTime ?? seg.startTimeMs ?? 0);
+          const end = Number(seg.endTime ?? seg.endTimeMs ?? (start + Number(seg.durationMs || 0)));
+          const dur = Number(seg.durationMs ?? Math.max(0, end - start));
+          return {
+            ...seg,
+            id: seg.id || `seg_${idx}`,
+            type,
+            activityType: type,
+            startTime: start,
+            startTimeMs: start,
+            endTime: Math.max(start, end),
+            endTimeMs: Math.max(start, end),
+            durationMs: dur,
+          };
+        });
+
+        return {
+          session: res.session,
+          activitySegments: normalizedSegments,
+          statistics: res.statistics,
+          isOfflineFallback: false,
+        };
+      }
+    } catch (err) {
+      console.warn(`[Session API] Failed to fetch session "${sessionId}" from backend:`, err.message);
+    }
+  }
+
+  // 2. Local fallback if offline or local_ session
+  const localList = getLocalSessions();
+  const found = localList.find(s => s.id === sessionId || s.backendId === sessionId);
+  if (found) {
+    const rawSegments = found.activitySegments || [];
+    const normalizedSegments = rawSegments.map((seg, idx) => {
+      const type = seg.type || seg.activityType || 'UNKNOWN';
+      const start = Number(seg.startTime ?? seg.startTimeMs ?? 0);
+      const end = Number(seg.endTime ?? seg.endTimeMs ?? (start + Number(seg.durationMs || 0)));
+      const dur = Number(seg.durationMs ?? Math.max(0, end - start));
+      return {
+        ...seg,
+        id: seg.id || `seg_${idx}`,
+        type,
+        activityType: type,
+        startTime: start,
+        startTimeMs: start,
+        endTime: Math.max(start, end),
+        endTimeMs: Math.max(start, end),
+        durationMs: dur,
+      };
+    });
+
+    return {
+      session: found,
+      activitySegments: normalizedSegments,
+      statistics: null,
+      isOfflineFallback: true,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * API: Fetch calendar month breakdown and daily session records
+ * @param {string} [targetMonthStr] - 'YYYY-MM' (defaults to current month)
+ */
+export async function fetchCalendarMonth(targetMonthStr) {
+  const query = targetMonthStr ? `?month=${encodeURIComponent(targetMonthStr)}` : '';
+  const offsetMinutes = new Date().getTimezoneOffset();
+
+  try {
+    const res = await apiFetch(`/api/calendar${query}`, {
+      headers: {
+        'x-timezone-offset': String(offsetMinutes),
+      },
+    });
+    return res;
+  } catch (err) {
+    console.warn('[Session API] Failed to fetch calendar from backend:', err.message);
+    throw err;
+  }
+}
+

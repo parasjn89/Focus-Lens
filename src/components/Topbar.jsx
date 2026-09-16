@@ -11,6 +11,15 @@ export function Topbar({ currentView }) {
       case 'history': return 'Home / Activity';
       case 'profile': return 'Home / Settings';
       case 'setup': return 'Home / Tasks';
+      case 'recommendations': return 'Home / Recommendations';
+      case 'coach': return 'Home / Focus Coach';
+      case 'consistency': return 'Home / Consistency';
+      case 'weekly-review': return 'Home / Weekly Review';
+      case 'journal': return 'Home / Focus Journal';
+      case 'report': return 'Home / Session Report';
+      case 'messages': return 'Home / Messages';
+      case 'calendar': return 'Home / Calendar';
+      case 'options': return 'Home / Options';
       default: return `Home / ${currentView}`;
     }
   };

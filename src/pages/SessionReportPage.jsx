@@ -16,6 +16,7 @@ import {
   TrendingUp,
   Sliders,
   Compass,
+  FileText,
 } from 'lucide-react';
 import { apiFetch } from '../api/client.js';
 import { formatSecondsToTime, formatMinutesText } from '../utils/formatters.js';
@@ -35,7 +36,9 @@ import { ActivityTimeline } from '../components/ActivityTimeline.jsx';
 import { SegmentDetailModal } from '../components/SegmentDetailModal.jsx';
 
 import { FocusReplayView } from '../components/FocusReplayView.jsx';
+import { BackButton } from '../components/BackButton.jsx';
 import { calculateDeepWorkBlocks } from '../utils/deepWork.js';
+import { generateSessionPDF } from '../utils/pdfReportGenerator.js';
 
 export function SessionReportPage({ reportData: initialReportData, onNewSession, onHome, onNavigate }) {
   const [reportData, setReportData] = useState(initialReportData || {});
@@ -43,13 +46,29 @@ export function SessionReportPage({ reportData: initialReportData, onNewSession,
   const [selectedSegment, setSelectedSegment] = useState(null);
   const [selectedRelativeTiming, setSelectedRelativeTiming] = useState(null);
   const [isExported, setIsExported] = useState(false);
+  const [isPdfExporting, setIsPdfExporting] = useState(false);
   const [coachPreview, setCoachPreview] = useState(null);
+
+  React.useEffect(() => {
+    if (initialReportData) {
+      setReportData(initialReportData);
+    }
+  }, [initialReportData]);
 
   React.useEffect(() => {
     apiFetch('/api/analytics/focus-coach').then(res => {
       if (res && !res.insufficientData) setCoachPreview(res);
     }).catch(() => null);
   }, []);
+
+  if (reportData?.isLoading) {
+    return (
+      <div className="max-w-5xl mx-auto px-4 py-24 text-center text-slate-400">
+        <RefreshCw className="w-8 h-8 animate-spin mx-auto text-brand-400 mb-3" />
+        <p className="text-sm font-medium">Loading session analytics & activity replay...</p>
+      </div>
+    );
+  }
 
   const {
     activity = 'Focus Session',
@@ -87,6 +106,26 @@ export function SessionReportPage({ reportData: initialReportData, onNewSession,
     setTimeout(() => setIsExported(false), 3000);
   };
 
+  // Download PDF export
+  const handleExportPDF = () => {
+    setIsPdfExporting(true);
+    try {
+      generateSessionPDF({
+        reportData,
+        activitySegments,
+        actualSecondsSpent,
+        pausedSecondsSpent,
+        activity,
+        targetMinutes,
+        completedAt,
+      });
+    } catch (err) {
+      console.error('[PDF Export] Failed:', err);
+    } finally {
+      setIsPdfExporting(false);
+    }
+  };
+
   // Toggle mock data for dev testing
   const handleLoadMockData = () => {
     const mock = generateMockSessionData();
@@ -94,6 +133,18 @@ export function SessionReportPage({ reportData: initialReportData, onNewSession,
   };
 
   const totalMinutesSpent = Math.max(1, Math.round(totalActiveSeconds / 60));
+
+  const handleBackNavigation = () => {
+    try {
+      sessionStorage.removeItem('focuslens_active_report_session_id');
+    } catch (e) {}
+
+    if (onNavigate) {
+      onNavigate('history');
+    } else if (onHome) {
+      onHome();
+    }
+  };
 
   if (activeView === 'replay') {
     return (
@@ -106,6 +157,26 @@ export function SessionReportPage({ reportData: initialReportData, onNewSession,
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
+      {/* Top Contextual Navigation */}
+      <div className="flex items-center justify-between">
+        <BackButton
+          label="Back to History"
+          onClick={handleBackNavigation}
+        />
+        {onNavigate && (
+          <button
+            type="button"
+            onClick={() => {
+              try { sessionStorage.removeItem('focuslens_active_report_session_id'); } catch (e) {}
+              onNavigate('dashboard');
+            }}
+            className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            Dashboard
+          </button>
+        )}
+      </div>
+
       {/* Header Banner */}
       <div className="text-center relative">
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center mx-auto mb-4 shadow-xl shadow-brand-500/20">
@@ -171,11 +242,21 @@ export function SessionReportPage({ reportData: initialReportData, onNewSession,
             </button>
             <button
               type="button"
+              onClick={handleExportPDF}
+              disabled={isPdfExporting}
+              className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs transition-all shadow-md shadow-brand-600/20 flex items-center space-x-2"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>{isPdfExporting ? 'Generating...' : 'Download PDF Report'}</span>
+            </button>
+            <button
+              type="button"
               onClick={handleExportJSON}
-              className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs transition-all shadow-md flex items-center space-x-2"
+              className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white font-semibold text-xs transition-colors flex items-center space-x-1.5"
+              title="Export raw session data as JSON"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>{isExported ? 'Exported!' : 'Export Session JSON'}</span>
+              <span>{isExported ? 'Exported!' : 'JSON'}</span>
             </button>
           </div>
         </div>
@@ -550,11 +631,11 @@ export function SessionReportPage({ reportData: initialReportData, onNewSession,
 
         <button
           type="button"
-          onClick={onHome}
-          className="w-full sm:w-auto px-6 py-3 rounded-xl border border-slate-800 text-slate-300 hover:bg-slate-900 text-sm font-semibold flex items-center justify-center space-x-2 transition-colors"
+          onClick={handleBackNavigation}
+          className="w-full sm:w-auto px-6 py-3 rounded-xl border border-slate-800 text-slate-300 hover:bg-slate-900 text-sm font-semibold flex items-center justify-center space-x-2 transition-colors cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Return to Home</span>
+          <span>Back to History</span>
         </button>
       </div>
     </div>

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+
 import { Navbar } from './components/Navbar';
 import { LandingNavbar } from './components/LandingNavbar';
 import { Sidebar } from './components/Sidebar';
@@ -19,8 +20,11 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { FocusCoachPage } from './pages/FocusCoachPage';
 import { ConsistencyPage } from './pages/ConsistencyPage';
 import { RecommendationsPage } from './pages/RecommendationsPage';
+import { WeeklyReviewPage } from './pages/WeeklyReviewPage';
+import { FocusJournalPage } from './pages/FocusJournalPage';
+import { CalendarPage } from './pages/CalendarPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { startSession, saveSessionSegments, finalizeSession } from './api/sessionApi';
+import { startSession, saveSessionSegments, finalizeSession, fetchSessionById } from './api/sessionApi';
 import { initBackgroundSync } from './api/syncManager';
 
 function AppContent() {
@@ -36,30 +40,84 @@ function AppContent() {
   });
   const [activeBackendSession, setActiveBackendSession] = useState(null);
 
-  // Countdown timer state
+  // Countdown timer state & logs
   const [remainingSeconds, setRemainingSeconds] = useState(25 * 60);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [isTimerPaused, setIsTimerPaused] = useState(false);
-
-  // Track session event logs, activity segments, and report data
   const [eventLogs, setEventLogs] = useState([]);
   const [activeSessionSegments, setActiveSessionSegments] = useState([]);
   const [reportData, setReportData] = useState(null);
 
-  // Initialize background retry sync manager on mount & check URL params
+  // Precise timestamp-anchored timer & session references to prevent closure staleness
+  const timerStartedAtRef = useRef(null);
+  const pausedAtRef = useRef(null);
+  const totalPausedMsRef = useRef(0);
+  const isFinalizingRef = useRef(false);
+  const activeBackendSessionRef = useRef(null);
+  const activeSessionSegmentsRef = useRef([]);
+  const activeBackendSessionPromiseRef = useRef(null);
+
+  // Initialize background retry sync manager on mount & check URL params / restore report
   useEffect(() => {
     initBackgroundSync();
     if (window.location.search.includes('token=') || window.location.pathname.includes('reset-password')) {
       setCurrentView('forgot-password');
+      return;
+    }
+
+    // Check if user was viewing a report before page refresh
+    const savedReportSessionId = sessionStorage.getItem('focuslens_active_report_session_id');
+    if (savedReportSessionId) {
+      fetchSessionById(savedReportSessionId).then((fullData) => {
+        if (fullData && fullData.session) {
+          const s = fullData.session;
+          const fullActualSecs = s.actualDurationMs ? Math.round(s.actualDurationMs / 1000) : 0;
+          const fullPlannedMins = s.plannedDurationMs ? Math.round(s.plannedDurationMs / 60000) : 25;
+          const fullPausedSecs = s.pausedDurationMs ? Math.round(s.pausedDurationMs / 1000) : 0;
+
+          setReportData({
+            id: s.id,
+            sessionId: s.id,
+            activity: s.selectedActivity || 'Focus Session',
+            targetMinutes: fullPlannedMins,
+            actualSecondsSpent: fullActualSecs,
+            pausedSecondsSpent: fullPausedSecs,
+            activitySegments: fullData.activitySegments || [],
+            isAutoCompleted: true,
+            completedAt: s.endedAt
+              ? new Date(s.endedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : s.startedAt
+                ? new Date(s.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : 'Previous Session',
+            goalText: s.goalText,
+            goalType: s.goalType,
+            targetValue: s.targetValue,
+            targetUnit: s.targetUnit,
+            goalProgress: s.goalProgress,
+            goalCompleted: s.goalCompleted,
+            intention: s.intention,
+            workedWell: s.workedWell,
+            gotInTheWay: s.gotInTheWay,
+            notes: s.notes,
+            isHistorical: true,
+            isLoading: false,
+          });
+          setCurrentView('report');
+        }
+      }).catch(() => null);
     }
   }, []);
 
   // Handle protected route navigation
   const handleNavigate = (view) => {
-    const protectedViews = ['dashboard', 'profile', 'history', 'verify', 'coach', 'consistency', 'recommendations'];
+    const protectedViews = ['dashboard', 'profile', 'history', 'verify', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
     if (protectedViews.includes(view) && !isAuthenticated && !isLoading) {
       setCurrentView('login');
       return;
+    }
+    if (currentView === 'active' && view !== 'active') {
+      setIsTimerRunning(false);
+      setIsTimerPaused(false);
     }
     setCurrentView(view);
   };
@@ -79,30 +137,43 @@ function AppContent() {
     handleNavigate('setup');
   };
 
-  // Countdown Timer Hook Effect
+  // Countdown Timer Hook Effect using precise Timestamp-Delta Calculation
   useEffect(() => {
     let intervalId = null;
 
-    if (isTimerRunning && !isTimerPaused) {
-      intervalId = setInterval(() => {
-        setRemainingSeconds((prev) => {
-          if (prev <= 1) {
-            clearInterval(intervalId);
+    if (isTimerRunning && !isTimerPaused && timerStartedAtRef.current) {
+      const updateTimer = () => {
+        if (isFinalizingRef.current) return;
+
+        const now = Date.now();
+        const totalPlannedSecs = sessionConfig.durationMinutes * 60;
+        const elapsedMs = now - timerStartedAtRef.current - totalPausedMsRef.current;
+        const elapsedSecs = Math.max(0, Math.floor(elapsedMs / 1000));
+        const nextRemaining = Math.max(0, totalPlannedSecs - elapsedSecs);
+
+        setRemainingSeconds(nextRemaining);
+
+        if (nextRemaining <= 0) {
+          if (!isFinalizingRef.current) {
+            isFinalizingRef.current = true;
+            if (intervalId) clearInterval(intervalId);
             finishSession(true);
-            return 0;
           }
-          return prev - 1;
-        });
-      }, 1000);
+        }
+      };
+
+      // Immediate tick + 250ms high-precision polling interval
+      updateTimer();
+      intervalId = setInterval(updateTimer, 250);
     }
 
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [isTimerRunning, isTimerPaused]);
+  }, [isTimerRunning, isTimerPaused, sessionConfig.durationMinutes]);
 
   // Handler to initialize a new focus session
-  const handleStartSession = async ({ activity, durationMinutes, goalText = null, goalType = 'NONE', targetValue = null, targetUnit = null, initialStreams }) => {
+  const handleStartSession = ({ activity, durationMinutes, goalText = null, goalType = 'NONE', targetValue = null, targetUnit = null, initialStreams }) => {
     const totalSecs = durationMinutes * 60;
     const plannedDurationMs = totalSecs * 1000;
 
@@ -117,12 +188,24 @@ function AppContent() {
       goalCompleted: false,
       initialStreams,
     };
+
     setSessionConfig(newConfig);
     setRemainingSeconds(totalSecs);
+
+    // Initialize timer timestamp anchors
+    const now = Date.now();
+    timerStartedAtRef.current = now;
+    pausedAtRef.current = null;
+    totalPausedMsRef.current = 0;
+    isFinalizingRef.current = false;
+
     setIsTimerRunning(true);
     setIsTimerPaused(false);
     setActiveSessionSegments([]);
-    
+    activeSessionSegmentsRef.current = [];
+    setActiveBackendSession(null);
+    activeBackendSessionRef.current = null;
+
     setEventLogs([
       {
         time: '00:00',
@@ -136,45 +219,66 @@ function AppContent() {
       }
     ]);
 
-    // Create session in backend / local fallback store
-    try {
-      const { session, isOfflineFallback } = await startSession({
-        plannedDurationMs,
-        selectedActivity: activity,
-        goalText,
-        goalType,
-        targetValue,
-        targetUnit,
-      });
-      setActiveBackendSession(session);
+    // Transition IMMEDIATELY to active view so monitoring initializes without network latency blocking
+    setCurrentView('active');
 
+    // Register session asynchronously with backend and capture in ref
+    const startPromise = startSession({
+      plannedDurationMs,
+      selectedActivity: activity,
+      goalText,
+      goalType,
+      targetValue,
+      targetUnit,
+    });
+    activeBackendSessionPromiseRef.current = startPromise;
+
+    startPromise.then(({ session, isOfflineFallback }) => {
+      setActiveBackendSession(session);
+      activeBackendSessionRef.current = session;
       if (isOfflineFallback) {
         addEventLog('Local Persistence Active', 'Backend server offline. Session metadata saving safely to browser cache.');
       } else {
         addEventLog('Backend Synced', `Session #${session.id.slice(0, 8)} registered with PostgreSQL database.`);
       }
-    } catch (err) {
+    }).catch((err) => {
       console.warn('Failed to register session with backend:', err);
-    }
-
-    setCurrentView('active');
+    });
   };
 
   // Pause timer handler
   const handlePauseTimer = () => {
-    setIsTimerPaused(true);
-    addEventLog('Session Paused', 'User manually paused countdown timer.');
+    if (isTimerRunning && !isTimerPaused) {
+      pausedAtRef.current = Date.now();
+      setIsTimerPaused(true);
+      addEventLog('Session Paused', 'User manually paused countdown timer.');
+    }
   };
 
   // Resume timer handler
   const handleResumeTimer = () => {
-    setIsTimerPaused(false);
-    addEventLog('Session Resumed', 'Focus countdown resumed.');
+    if (isTimerRunning && isTimerPaused) {
+      if (pausedAtRef.current) {
+        totalPausedMsRef.current += (Date.now() - pausedAtRef.current);
+        pausedAtRef.current = null;
+      }
+      setIsTimerPaused(false);
+      addEventLog('Session Resumed', 'Focus countdown resumed.');
+    }
   };
 
   // Helper to add timeline event log
   const addEventLog = (label, description) => {
-    const elapsedSecs = (sessionConfig.durationMinutes * 60) - remainingSeconds;
+    const scheduledSeconds = sessionConfig.durationMinutes * 60;
+    let elapsedSecs = 0;
+    if (timerStartedAtRef.current) {
+      const currentPauseMs = isTimerPaused && pausedAtRef.current ? (Date.now() - pausedAtRef.current) : 0;
+      const totalElapsedMs = Date.now() - timerStartedAtRef.current - (totalPausedMsRef.current + currentPauseMs);
+      elapsedSecs = Math.max(0, Math.floor(totalElapsedMs / 1000));
+    } else {
+      elapsedSecs = scheduledSeconds - remainingSeconds;
+    }
+
     const mins = Math.floor(elapsedSecs / 60);
     const secs = elapsedSecs % 60;
     const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
@@ -187,23 +291,52 @@ function AppContent() {
 
   // Complete session (either via countdown end or user manual end)
   const finishSession = async (isAutoCompleted = false) => {
+    if (isFinalizingRef.current && !isAutoCompleted) {
+      // Prevent duplicate finalization
+    }
+    isFinalizingRef.current = true;
     setIsTimerRunning(false);
     setIsTimerPaused(false);
 
     const scheduledSeconds = sessionConfig.durationMinutes * 60;
-    const actualSecondsSpent = scheduledSeconds - remainingSeconds;
-    const actualDurationMs = (actualSecondsSpent > 0 ? actualSecondsSpent : scheduledSeconds) * 1000;
+    let actualSecondsSpent = scheduledSeconds;
+    if (timerStartedAtRef.current) {
+      const currentPauseMs = isTimerPaused && pausedAtRef.current ? (Date.now() - pausedAtRef.current) : 0;
+      const totalElapsedMs = Date.now() - timerStartedAtRef.current - (totalPausedMsRef.current + currentPauseMs);
+      actualSecondsSpent = Math.min(scheduledSeconds, Math.max(1, Math.floor(totalElapsedMs / 1000)));
+    }
+    const actualDurationMs = actualSecondsSpent * 1000;
 
-    let finalGoalProgress = activeBackendSession?.goalProgress ?? (sessionConfig.goalProgress || 0);
-    let finalGoalCompleted = activeBackendSession?.goalCompleted ?? (sessionConfig.goalCompleted || false);
-
-    // Save activity segments & finalize backend session
-    if (activeBackendSession && activeBackendSession.id) {
+    // Await backend registration if still in-flight to prevent dropped sessions
+    let backendSession = activeBackendSessionRef.current || activeBackendSession;
+    if (!backendSession && activeBackendSessionPromiseRef.current) {
       try {
-        await saveSessionSegments(activeBackendSession.id, activeSessionSegments);
-        const finalized = await finalizeSession(activeBackendSession.id, {
+        const startRes = await activeBackendSessionPromiseRef.current;
+        if (startRes?.session) {
+          backendSession = startRes.session;
+          activeBackendSessionRef.current = backendSession;
+          setActiveBackendSession(backendSession);
+        }
+      } catch (err) {
+        console.warn('Waiting for session registration failed:', err);
+      }
+    }
+
+    // Read segments from ref to prevent stale closure in timer intervals
+    const segmentsToSave = activeSessionSegmentsRef.current?.length > 0
+      ? activeSessionSegmentsRef.current
+      : activeSessionSegments;
+
+    let finalGoalProgress = backendSession?.goalProgress ?? (sessionConfig.goalProgress || 0);
+    let finalGoalCompleted = backendSession?.goalCompleted ?? (sessionConfig.goalCompleted || false);
+
+    // Save activity segments & finalize backend session in PostgreSQL
+    if (backendSession && backendSession.id) {
+      try {
+        await saveSessionSegments(backendSession.id, segmentsToSave);
+        const finalized = await finalizeSession(backendSession.id, {
           actualDurationMs,
-          pausedDurationMs: 0,
+          pausedDurationMs: totalPausedMsRef.current,
           status: 'COMPLETED',
           goalProgress: finalGoalProgress,
           goalCompleted: finalGoalCompleted,
@@ -218,11 +351,21 @@ function AppContent() {
       }
     }
 
+    const sessionId = backendSession?.id || null;
+    if (sessionId) {
+      try {
+        sessionStorage.setItem('focuslens_active_report_session_id', sessionId);
+      } catch (e) {}
+    }
+
     const summaryReport = {
+      id: sessionId,
+      sessionId,
       activity: sessionConfig.activity,
       targetMinutes: sessionConfig.durationMinutes,
       actualSecondsSpent: actualSecondsSpent > 0 ? actualSecondsSpent : scheduledSeconds,
-      activitySegments: activeSessionSegments,
+      pausedSecondsSpent: Math.round(totalPausedMsRef.current / 1000),
+      activitySegments: segmentsToSave,
       isAutoCompleted,
       completedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       goalText: sessionConfig.goalText,
@@ -242,21 +385,90 @@ function AppContent() {
     finishSession(false);
   };
 
-  // Select historical session to view report
-  const handleSelectHistoricalSession = (session) => {
-    const actualSecs = session.actualDurationMs ? Math.round(session.actualDurationMs / 1000) : 0;
-    const plannedMins = session.plannedDurationMs ? Math.round(session.plannedDurationMs / 60000) : 25;
+  // Select historical session to view report - fetches full persisted activity segments & metadata
+  const handleSelectHistoricalSession = async (sessionSummary) => {
+    if (!sessionSummary) return;
 
+    const sessionId = sessionSummary.id || sessionSummary.sessionId;
+    const actualSecs = sessionSummary.actualDurationMs ? Math.round(sessionSummary.actualDurationMs / 1000) : 0;
+    const plannedMins = sessionSummary.plannedDurationMs ? Math.round(sessionSummary.plannedDurationMs / 60000) : 25;
+    const pausedSecs = sessionSummary.pausedDurationMs ? Math.round(sessionSummary.pausedDurationMs / 1000) : 0;
+
+    // Show initial session report immediately with loading skeleton
     setReportData({
-      activity: session.selectedActivity || 'Focus Session',
+      id: sessionId,
+      sessionId,
+      activity: sessionSummary.selectedActivity || 'Focus Session',
       targetMinutes: plannedMins,
       actualSecondsSpent: actualSecs,
-      activitySegments: session.activitySegments || [],
+      pausedSecondsSpent: pausedSecs,
+      activitySegments: sessionSummary.activitySegments || [],
       isAutoCompleted: true,
-      completedAt: session.startedAt ? new Date(session.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Previous Session',
+      completedAt: sessionSummary.startedAt ? new Date(sessionSummary.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Previous Session',
+      goalText: sessionSummary.goalText || null,
+      goalType: sessionSummary.goalType || 'NONE',
+      targetValue: sessionSummary.targetValue || null,
+      targetUnit: sessionSummary.targetUnit || null,
+      goalProgress: sessionSummary.goalProgress ?? 0,
+      goalCompleted: sessionSummary.goalCompleted ?? false,
+      intention: sessionSummary.intention || null,
+      workedWell: sessionSummary.workedWell || null,
+      gotInTheWay: sessionSummary.gotInTheWay || null,
+      notes: sessionSummary.notes || null,
       isHistorical: true,
+      isLoading: true,
     });
     setCurrentView('report');
+
+    if (sessionId) {
+      try {
+        sessionStorage.setItem('focuslens_active_report_session_id', sessionId);
+      } catch (e) {}
+
+      // Fetch full session details from backend (or local offline cache)
+      try {
+        const fullData = await fetchSessionById(sessionId);
+        if (fullData && fullData.session) {
+          const s = fullData.session;
+          const fullActualSecs = s.actualDurationMs ? Math.round(s.actualDurationMs / 1000) : actualSecs;
+          const fullPlannedMins = s.plannedDurationMs ? Math.round(s.plannedDurationMs / 60000) : plannedMins;
+          const fullPausedSecs = s.pausedDurationMs ? Math.round(s.pausedDurationMs / 1000) : pausedSecs;
+
+          setReportData({
+            id: s.id,
+            sessionId: s.id,
+            activity: s.selectedActivity || sessionSummary.selectedActivity || 'Focus Session',
+            targetMinutes: fullPlannedMins,
+            actualSecondsSpent: fullActualSecs,
+            pausedSecondsSpent: fullPausedSecs,
+            activitySegments: fullData.activitySegments || [],
+            isAutoCompleted: true,
+            completedAt: s.endedAt
+              ? new Date(s.endedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : s.startedAt
+                ? new Date(s.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : 'Previous Session',
+            goalText: s.goalText ?? sessionSummary.goalText ?? null,
+            goalType: s.goalType ?? sessionSummary.goalType ?? 'NONE',
+            targetValue: s.targetValue ?? sessionSummary.targetValue ?? null,
+            targetUnit: s.targetUnit ?? sessionSummary.targetUnit ?? null,
+            goalProgress: s.goalProgress ?? sessionSummary.goalProgress ?? 0,
+            goalCompleted: s.goalCompleted ?? sessionSummary.goalCompleted ?? false,
+            intention: s.intention ?? sessionSummary.intention ?? null,
+            workedWell: s.workedWell ?? sessionSummary.workedWell ?? null,
+            gotInTheWay: s.gotInTheWay ?? sessionSummary.gotInTheWay ?? null,
+            notes: s.notes ?? sessionSummary.notes ?? null,
+            isHistorical: true,
+            isLoading: false,
+          });
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to fetch full historical session details:', err);
+      }
+    }
+
+    setReportData((prev) => (prev ? { ...prev, isLoading: false } : null));
   };
 
   const isAppView = isAuthenticated && !['landing', 'login', 'register', 'verify', 'forgot-password', 'active'].includes(currentView);
@@ -292,7 +504,7 @@ function AppContent() {
           <SessionSetupPage
             initialConfig={prefilledSetupConfig}
             onStartSession={handleStartSession}
-            onCancel={() => handleNavigate('landing')}
+            onCancel={() => handleNavigate(isAuthenticated ? 'dashboard' : 'landing')}
           />
         )}
 
@@ -306,15 +518,24 @@ function AppContent() {
             onEndSession={handleEndSession}
             eventLogs={eventLogs}
             onAddEventLog={addEventLog}
-            onUpdateSessionSegments={(segments) => setActiveSessionSegments(segments)}
+            onUpdateSessionSegments={(segments) => {
+              setActiveSessionSegments(segments);
+              activeSessionSegmentsRef.current = segments;
+            }}
           />
         )}
 
         {currentView === 'report' && (
           <SessionReportPage
             reportData={reportData}
-            onNewSession={() => handleNavigate('setup')}
-            onHome={() => handleNavigate('landing')}
+            onNewSession={() => {
+              try { sessionStorage.removeItem('focuslens_active_report_session_id'); } catch (e) {}
+              handleNavigate('setup');
+            }}
+            onHome={() => {
+              try { sessionStorage.removeItem('focuslens_active_report_session_id'); } catch (e) {}
+              handleNavigate('landing');
+            }}
             onNavigate={handleNavigate}
           />
         )}
@@ -323,12 +544,29 @@ function AppContent() {
           <FocusCoachPage
             onStartRecommendedSession={handleStartRecommendedSession}
             onNewSession={() => handleNavigate('setup')}
+            onNavigate={handleNavigate}
           />
         )}
 
         {currentView === 'consistency' && (
           <ConsistencyPage
             onNewSession={() => handleNavigate('setup')}
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {currentView === 'weekly-review' && (
+          <WeeklyReviewPage
+            onNewSession={() => handleNavigate('setup')}
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {currentView === 'journal' && (
+          <FocusJournalPage
+            onSelectSession={handleSelectHistoricalSession}
+            onNewSession={() => handleNavigate('setup')}
+            onNavigate={handleNavigate}
           />
         )}
 
@@ -380,6 +618,32 @@ function AppContent() {
 
         {currentView === 'forgot-password' && (
           <ForgotPasswordPage onNavigate={handleNavigate} />
+        )}
+
+        {currentView === 'calendar' && (
+          <CalendarPage
+            onSelectSession={handleSelectHistoricalSession}
+            onNewSession={() => handleNavigate('setup')}
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {['messages', 'options'].includes(currentView) && (
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center space-y-6">
+            <div className="p-8 rounded-3xl bg-slate-900/60 border border-slate-800 backdrop-blur-sm max-w-md mx-auto space-y-4">
+              <h2 className="text-xl font-bold text-white capitalize">{currentView}</h2>
+              <p className="text-sm text-slate-400">
+                This section is coming soon. Focus session tracking and personal intelligence analytics are available on your Dashboard.
+              </p>
+              <button
+                type="button"
+                onClick={() => handleNavigate('dashboard')}
+                className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs transition-all shadow-md shadow-brand-600/20 cursor-pointer"
+              >
+                <span>Back to Dashboard</span>
+              </button>
+            </div>
+          </div>
         )}
       </main>
 
