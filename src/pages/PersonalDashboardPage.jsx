@@ -398,7 +398,7 @@ export function PersonalDashboardPage({ onSelectSession, onNewSession, onNavigat
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Left Column (Main Tasks/Sessions) */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 min-w-0 space-y-6">
           
           {/* Today Overview Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -512,7 +512,7 @@ export function PersonalDashboardPage({ onSelectSession, onNewSession, onNavigat
         </div>
 
         {/* Right Column (Widgets) */}
-        <div className="lg:col-span-1 space-y-6">
+        <div className="lg:col-span-1 min-w-0 space-y-6">
           
           {/* Note Widget */}
           <div className="glass-panel p-6 rounded-3xl relative overflow-hidden bg-brand-900/30 border-brand-500/20">
@@ -540,16 +540,18 @@ export function PersonalDashboardPage({ onSelectSession, onNewSession, onNavigat
           </div>
 
           {/* Activity Chart Widget */}
-          <div className="glass-panel p-6 rounded-3xl">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h3 className="text-white font-semibold mb-1">Activity</h3>
-                <p className="text-xs text-amber-400">{weekly.days?.reduce((acc, curr) => acc + (curr.sessionCount || 0), 0) || 0} Tasks Completed 👏</p>
+          <div className="glass-panel p-5 sm:p-6 rounded-3xl min-w-0">
+            <div className="flex items-start justify-between gap-3 mb-5 min-w-0">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-white font-semibold text-lg leading-tight mb-0.5">Activity</h3>
+                <p className="text-xs text-amber-400 font-medium truncate">
+                  {weekly.days?.reduce((acc, curr) => acc + (curr.sessionCount || 0), 0) || 0} Tasks Completed 👏
+                </p>
               </div>
               <button
                 type="button"
                 onClick={() => onNavigate && onNavigate('weekly-review')}
-                className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-brand-900/40 hover:bg-brand-900/70 border border-brand-500/30 text-xs text-white transition-all cursor-pointer"
+                className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-brand-900/40 hover:bg-brand-900/70 border border-brand-500/30 text-xs text-white transition-all cursor-pointer shrink-0"
                 title="View Weekly Review"
               >
                 <span>Weekly review</span>
@@ -559,9 +561,9 @@ export function PersonalDashboardPage({ onSelectSession, onNewSession, onNavigat
               </button>
             </div>
             
-            {/* The existing chart component, customized if needed or just wrapped */}
-            <div className="h-40 w-full mt-4 bg-navy-950/30 rounded-xl p-2 border border-slate-800 overflow-hidden">
-               <WeeklyActivityChart weeklyData={weekly.days || []} />
+            {/* The 7-Day Focus Activity card */}
+            <div className="w-full min-w-0">
+              <WeeklyActivityChart weeklyData={weekly.days || []} />
             </div>
           </div>
 

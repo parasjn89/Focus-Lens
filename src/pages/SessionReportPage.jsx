@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Award,
+  Flame,
   Clock,
   BarChart2,
   ArrowLeft,
@@ -42,12 +43,24 @@ import { generateSessionPDF } from '../utils/pdfReportGenerator.js';
 
 export function SessionReportPage({ reportData: initialReportData, onNewSession, onHome, onNavigate }) {
   const [reportData, setReportData] = useState(initialReportData || {});
-  const [activeView, setActiveView] = useState('report'); // 'report' | 'replay'
+  const [activeView, setActiveView] = useState(() => (typeof window !== 'undefined' && window.location.hash === '#replay') ? 'replay' : 'report');
   const [selectedSegment, setSelectedSegment] = useState(null);
   const [selectedRelativeTiming, setSelectedRelativeTiming] = useState(null);
   const [isExported, setIsExported] = useState(false);
   const [isPdfExporting, setIsPdfExporting] = useState(false);
   const [coachPreview, setCoachPreview] = useState(null);
+
+  React.useEffect(() => {
+    const handlePop = (e) => {
+      if (e.state?.subView === 'replay' || (typeof window !== 'undefined' && window.location.hash === '#replay')) {
+        setActiveView('replay');
+      } else {
+        setActiveView('report');
+      }
+    };
+    window.addEventListener('popstate', handlePop);
+    return () => window.removeEventListener('popstate', handlePop);
+  }, []);
 
   React.useEffect(() => {
     if (initialReportData) {
@@ -146,11 +159,29 @@ export function SessionReportPage({ reportData: initialReportData, onNewSession,
     }
   };
 
+  const handleOpenReplay = () => {
+    setActiveView('replay');
+    try {
+      window.history.pushState({ view: 'report', subView: 'replay' }, '', window.location.pathname + '#replay');
+    } catch (e) {}
+  };
+
+  const handleBackToReport = () => {
+    setActiveView('report');
+    try {
+      if (window.history.state?.subView === 'replay') {
+        window.history.back();
+        return;
+      }
+      window.history.replaceState({ view: 'report' }, '', window.location.pathname);
+    } catch (e) {}
+  };
+
   if (activeView === 'replay') {
     return (
       <FocusReplayView
         reportData={reportData}
-        onBackToReport={() => setActiveView('report')}
+        onBackToReport={handleBackToReport}
       />
     );
   }
@@ -179,19 +210,54 @@ export function SessionReportPage({ reportData: initialReportData, onNewSession,
 
       {/* Header Banner */}
       <div className="text-center relative">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center mx-auto mb-4 shadow-xl shadow-brand-500/20">
-          <Award className="w-8 h-8 text-white" />
+        {/* Award Badge Hero Logo (Blue → Teal Gradient with Medal & Star) */}
+        <div
+          className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-blue-600 via-cyan-500 to-teal-400 flex items-center justify-center mx-auto mb-4 shadow-xl shadow-cyan-500/25 border border-white/20"
+          aria-hidden="true"
+        >
+          <svg
+            className="w-11 h-11 sm:w-14 sm:h-14 text-white drop-shadow-sm"
+            viewBox="0 0 64 64"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            {/* Left Ribbon Tail */}
+            <path
+              d="M21.5 36.5 L17 56 L25 50.5 L28.5 40"
+              stroke="white"
+              strokeWidth="3.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {/* Right Ribbon Tail */}
+            <path
+              d="M35.5 40 L39 50.5 L47 56 L42.5 36.5"
+              stroke="white"
+              strokeWidth="3.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {/* Circular Medal Medallion Outline */}
+            <circle
+              cx="32"
+              cy="24"
+              r="16.5"
+              stroke="white"
+              strokeWidth="3.2"
+              fill="none"
+            />
+            {/* Center Star */}
+            <path
+              d="M 32 16.5 L 34.12 21.09 L 39.13 21.68 L 35.42 25.11 L 36.41 30.07 L 32 27.6 L 27.59 30.07 L 28.58 25.11 L 24.87 21.68 L 29.88 21.09 Z"
+              fill="white"
+            />
+          </svg>
         </div>
 
         <div className="flex items-center justify-center space-x-2 mb-2">
           <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 inline-block">
             Session Completed
           </span>
-          {isMockData && (
-            <span className="text-xs font-mono font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-              Dev Test Data (120 Min)
-            </span>
-          )}
         </div>
 
         <h1 className="text-3xl font-extrabold text-white tracking-tight mb-2">SESSION REPORT</h1>
@@ -207,14 +273,6 @@ export function SessionReportPage({ reportData: initialReportData, onNewSession,
             className="px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs shadow-lg shadow-brand-600/30 flex items-center space-x-2 transition-all hover:scale-105"
           >
             <span>Open Focus Replay</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleLoadMockData}
-            className="text-[11px] font-mono text-slate-500 hover:text-brand-300 underline transition-colors"
-          >
-            [ Load 120-Min Dev Test Data ]
           </button>
         </div>
       </div>
@@ -235,7 +293,7 @@ export function SessionReportPage({ reportData: initialReportData, onNewSession,
           <div className="flex items-center space-x-2">
             <button
               type="button"
-              onClick={() => setActiveView('replay')}
+              onClick={handleOpenReplay}
               className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-brand-300 font-semibold text-xs transition-colors flex items-center space-x-1.5"
             >
               <span>Focus Replay →</span>
@@ -266,9 +324,9 @@ export function SessionReportPage({ reportData: initialReportData, onNewSession,
           const pointsData = calculateFocusPointsFromDurations(categoryDurations);
           return (
             <div className="p-5 rounded-2xl bg-gradient-to-r from-brand-950/80 via-slate-900 to-slate-950 border border-brand-500/30 flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-3 rounded-xl bg-brand-500/20 text-brand-400 border border-brand-500/30">
-                  <Award className="w-6 h-6" />
+              <div className="flex items-center space-x-3.5">
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 via-cyan-500 to-teal-400 flex items-center justify-center shadow-lg shadow-cyan-500/25 border border-white/20 transition-all duration-300 hover:shadow-cyan-400/40 shrink-0">
+                  <Flame className="w-8 h-8 text-white drop-shadow-sm" strokeWidth={2.2} />
                 </div>
                 <div>
                   <span className="text-xs font-semibold text-brand-300 uppercase tracking-wider block">Focus Points Earned</span>
