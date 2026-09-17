@@ -64,7 +64,7 @@ export function getObjectDetector() {
           modelAssetPath: MODEL_ASSET_PATH,
           delegate: 'GPU'
         },
-        scoreThreshold: 0.22,
+        scoreThreshold: 0.15,
         runningMode: 'VIDEO'
       };
 
@@ -125,6 +125,10 @@ export async function detectObjectsInVideo(videoElement) {
         }
 
         const bbox = det.boundingBox || { originX: 0, originY: 0, width: 0, height: 0 };
+
+        if (normalizedLabel === 'cell phone') {
+          console.log(`[ObjectDetector Raw] Raw phone detection: rawLabel="${rawLabel}", score=${category.score.toFixed(3)}, box=[${Math.round(bbox.originX)}, ${Math.round(bbox.originY)}, ${Math.round(bbox.width)}, ${Math.round(bbox.height)}]`);
+        }
 
         normalizedObjects.push({
           type: 'OBJECT_DETECTED',

@@ -48,6 +48,7 @@ export function useObjectDetection({
     realPeople: 0,
     onPhonePeople: 0,
     rawPhones: 0,
+    lastRawPhoneConfidence: null,
     lastTimestamp: null,
     lastError: null,
   });
@@ -175,6 +176,7 @@ export function useObjectDetection({
         realPeople: 0,
         onPhonePeople: 0,
         rawPhones: 0,
+        lastRawPhoneConfidence: null,
         lastTimestamp: null,
         lastError: null,
       });
@@ -229,10 +231,12 @@ export function useObjectDetection({
           const rawPeople = personRes.rawCount || 0;
           const realPeople = personRes.count || 0;
           const onPhonePeople = personRes.personOnPhoneCount || 0;
-          const phoneCount = detectedObjects.filter((o) => o.label === 'cell phone').length;
+          const phoneObjects = detectedObjects.filter((o) => o.label === 'cell phone');
+          const phoneCount = phoneObjects.length;
+          const maxRawPhoneConf = phoneCount > 0 ? Math.max(...phoneObjects.map((p) => p.confidence)) : null;
 
           if (currentAttempt === 1 || currentAttempt % 20 === 0) {
-            console.log(`[ObjectHook] raw people = ${rawPeople}, real people = ${realPeople}, on-phone people = ${onPhonePeople}, raw phones = ${phoneCount}`);
+            console.log(`[ObjectHook] raw people = ${rawPeople}, real people = ${realPeople}, on-phone people = ${onPhonePeople}, raw phones = ${phoneCount} (maxConf: ${maxRawPhoneConf ? maxRawPhoneConf.toFixed(2) : 'N/A'})`);
           }
 
           if (currentAttempt === 1 || currentAttempt % 4 === 0) {
@@ -244,6 +248,7 @@ export function useObjectDetection({
               realPeople,
               onPhonePeople,
               rawPhones: phoneCount,
+              lastRawPhoneConfidence: maxRawPhoneConf,
               lastTimestamp: Date.now(),
               lastError: null,
             });
@@ -285,6 +290,7 @@ export function useObjectDetection({
   return {
     phoneState,
     isPhoneDetected: phoneState === PHONE_STATES.PHONE_PRESENT,
+    isPhoneUncertain: phoneState === PHONE_STATES.PHONE_UNCERTAIN,
     phoneConfidence,
     personState,
     personCount, // Real physical person count
