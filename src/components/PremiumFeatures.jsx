@@ -44,7 +44,7 @@ export function PremiumFeatures() {
   }, []);
 
   return (
-    <section ref={sectionRef} className="relative bg-[#10232A] py-32 overflow-hidden border-y border-brand-slate/20">
+    <section ref={sectionRef} className="relative bg-[#10232A] py-16 overflow-hidden border-y border-brand-slate/20">
       
       {/* Subtle Background Glow */}
       <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-brand-sand/5 blur-[120px] rounded-full transition-opacity duration-1000 ${isVisible ? 'opacity-100' : 'opacity-0'}`}></div>
@@ -59,7 +59,7 @@ export function PremiumFeatures() {
       <div className="relative max-w-7xl mx-auto px-6 z-10">
         
         {/* Headings */}
-        <div className={`text-center mb-24 transition-all duration-1000 transform ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+        <div className={`text-center mb-12 transition-all duration-1000 transform ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
           <p className="text-brand-gray text-[10px] tracking-[0.3em] font-semibold uppercase mb-4">Why FocusLens</p>
           <h2 className="text-3xl md:text-5xl font-bold text-white mb-6">
             Built for a <span className="text-brand-sand">Better You</span>
@@ -119,7 +119,7 @@ export function PremiumFeatures() {
         </div>
 
         {/* Bottom Message */}
-        <div className={`mt-32 text-center transition-all duration-1000 delay-1000 transform ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+        <div className={`mt-16 text-center transition-all duration-1000 delay-1000 transform ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
           <h4 className="text-xl font-serif italic text-white mb-2">Small sessions. Big progress.</h4>
           <p className="text-sm text-brand-gray/60 font-light">FocusLens turns everyday study time into meaningful progress.</p>
         </div>

@@ -392,13 +392,13 @@ export const dbStore = {
     }
 
     const newSession = {
-      id: crypto.randomUUID(),
+      id: id || crypto.randomUUID(),
       userId,
       selectedActivity,
       plannedDurationMs,
-      actualDurationMs: 0,
-      pausedDurationMs: 0,
-      status: 'ACTIVE',
+      actualDurationMs: arguments[0].actualDurationMs || 0,
+      pausedDurationMs: arguments[0].pausedDurationMs || 0,
+      status: status || 'ACTIVE',
       focusPoints: 0,
       goalText,
       goalType,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Navbar } from './components/Navbar';
 import { LandingNavbar } from './components/LandingNavbar';
 import { Sidebar } from './components/Sidebar';
@@ -40,10 +40,9 @@ function AppContent() {
   const [remainingSeconds, setRemainingSeconds] = useState(25 * 60);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [isTimerPaused, setIsTimerPaused] = useState(false);
+  const pauseStartTimeRef = useRef(null);
 
-  // Track session event logs, activity segments, and report data
-  const [eventLogs, setEventLogs] = useState([]);
-  const [activeSessionSegments, setActiveSessionSegments] = useState([]);
+  // Track activity segments and report data  const [activeSessionSegments, setActiveSessionSegments] = useState([]);
   const [reportData, setReportData] = useState(null);
 
   // Initialize background retry sync manager on mount & check URL params
@@ -94,6 +93,18 @@ function AppContent() {
           return prev - 1;
         });
       }, 1000);
+    } else if (isTimerRunning && isTimerPaused) {
+      // Enforce 5-minute maximum pause timeout
+      intervalId = setInterval(() => {
+        if (pauseStartTimeRef.current) {
+          const elapsedPaused = Date.now() - pauseStartTimeRef.current;
+          if (elapsedPaused >= 300000) { // 5 minutes in ms
+            // Auto resume
+            pauseStartTimeRef.current = null;
+            setIsTimerPaused(false);
+          }
+        }
+      }, 1000);
     }
 
     return () => {
@@ -122,19 +133,6 @@ function AppContent() {
     setIsTimerRunning(true);
     setIsTimerPaused(false);
     setActiveSessionSegments([]);
-    
-    setEventLogs([
-      {
-        time: '00:00',
-        label: 'Session Initialized',
-        description: `Target Activity: ${activity} (${durationMinutes} mins)${goalText ? ` • Goal: ${goalText}` : ''}`,
-      },
-      {
-        time: '00:01',
-        label: 'Observational Signals Ready',
-        description: 'Camera, Screen & Audio analysis pipeline running strictly client-side.',
-      }
-    ]);
 
     // Create session in backend / local fallback store
     try {
@@ -147,12 +145,6 @@ function AppContent() {
         targetUnit,
       });
       setActiveBackendSession(session);
-
-      if (isOfflineFallback) {
-        addEventLog('Local Persistence Active', 'Backend server offline. Session metadata saving safely to browser cache.');
-      } else {
-        addEventLog('Backend Synced', `Session #${session.id.slice(0, 8)} registered with PostgreSQL database.`);
-      }
     } catch (err) {
       console.warn('Failed to register session with backend:', err);
     }
@@ -162,33 +154,19 @@ function AppContent() {
 
   // Pause timer handler
   const handlePauseTimer = () => {
+    pauseStartTimeRef.current = Date.now();
     setIsTimerPaused(true);
-    addEventLog('Session Paused', 'User manually paused countdown timer.');
   };
 
   // Resume timer handler
   const handleResumeTimer = () => {
-    setIsTimerPaused(false);
-    addEventLog('Session Resumed', 'Focus countdown resumed.');
-  };
-
-  // Helper to add timeline event log
-  const addEventLog = (label, description) => {
-    const elapsedSecs = (sessionConfig.durationMinutes * 60) - remainingSeconds;
-    const mins = Math.floor(elapsedSecs / 60);
-    const secs = elapsedSecs % 60;
-    const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-
-    setEventLogs((prev) => {
-      const nextLogs = [...prev, { time: timeStr, label, description }];
-      return nextLogs.length > 100 ? nextLogs.slice(-100) : nextLogs;
-    });
-  };
-
+    pauseStartTimeRef.current = null;
+    setIsTimerPaused(false);  };
   // Complete session (either via countdown end or user manual end)
   const finishSession = async (isAutoCompleted = false) => {
     setIsTimerRunning(false);
     setIsTimerPaused(false);
+    pauseStartTimeRef.current = null;
 
     const scheduledSeconds = sessionConfig.durationMinutes * 60;
     const actualSecondsSpent = scheduledSeconds - remainingSeconds;
@@ -283,7 +261,7 @@ function AppContent() {
         )}
 
         {/* Main View Router */}
-        <main className={`flex-1 ${isAppView ? 'overflow-y-auto relative z-0' : ''}`}>
+        <main className={`flex-1 ${isAppView ? 'overflow-y-auto relative z-0' : ''} ${!isAppView && currentView !== 'landing' ? 'pt-28 pb-12' : ''}`}>
         {currentView === 'landing' && (
           <LandingPage onStartSetup={() => handleNavigate('setup')} />
         )}
@@ -303,10 +281,7 @@ function AppContent() {
             isPaused={isTimerPaused}
             onPause={handlePauseTimer}
             onResume={handleResumeTimer}
-            onEndSession={handleEndSession}
-            eventLogs={eventLogs}
-            onAddEventLog={addEventLog}
-            onUpdateSessionSegments={(segments) => setActiveSessionSegments(segments)}
+            onEndSession={handleEndSession}            onUpdateSessionSegments={(segments) => setActiveSessionSegments(segments)}
           />
         )}
 

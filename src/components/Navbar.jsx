@@ -22,45 +22,38 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
           : 'bg-transparent border border-transparent'
       }`}>
         <div className="flex items-center justify-between h-16 px-6">
-          {/* Logo and Brand */}
+          {/* LEFT: Logo and Brand */}
           <div 
             onClick={() => onNavigate('landing')}
-            className="flex items-center space-x-3 cursor-pointer group"
+            className="flex items-center space-x-3 cursor-pointer group flex-shrink-0"
           >
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-brand-500/20 group-hover:scale-105 transition-transform">
               <Eye className="w-6 h-6 text-white" />
             </div>
-            <div>
+            <div className="hidden sm:block">
               <span className="text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-indigo-200">
                 FocusLens
               </span>
             </div>
           </div>
 
-          {/* Navigation Actions */}
-          <div className="flex items-center space-x-2.5">
-            {currentView === 'active' && activeSession && (
-              <span className="flex items-center space-x-2 text-xs font-medium px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 animate-pulse">
-                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                <span>Session Active</span>
-              </span>
-            )}
-            
+          {/* CENTER: Navigation Actions (Desktop only) */}
+          <div className="hidden md:flex items-center space-x-2.5 mx-4 flex-wrap justify-center">
             {currentView !== 'landing' && currentView !== 'active' && (
               <button
                 onClick={() => onNavigate('landing')}
-                className="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg border border-slate-800 hover:bg-slate-900 transition-colors"
+                className="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg border border-slate-800 hover:bg-slate-900 transition-colors whitespace-nowrap"
               >
                 Home
               </button>
             )}
 
-            {isAuthenticated ? (
+            {isAuthenticated && (
               <>
                 {currentView !== 'active' && (
                   <button
                     onClick={() => onNavigate('dashboard')}
-                    className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                    className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
                       currentView === 'dashboard'
                         ? 'bg-brand-600 text-white border-brand-500'
                         : 'text-slate-300 hover:text-white border-slate-800 hover:bg-slate-900'
@@ -70,11 +63,12 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                     <span>Dashboard</span>
                   </button>
                 )}
-
+                
+                {/* Other nav items... */}
                 {currentView !== 'active' && (
                   <button
                     onClick={() => onNavigate('recommendations')}
-                    className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                    className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
                       currentView === 'recommendations'
                         ? 'bg-emerald-600 text-white border-emerald-500'
                         : 'text-slate-300 hover:text-white border-slate-800 hover:bg-slate-900'
@@ -88,7 +82,7 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                 {currentView !== 'active' && (
                   <button
                     onClick={() => onNavigate('consistency')}
-                    className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                    className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
                       currentView === 'consistency'
                         ? 'bg-amber-600 text-white border-amber-500'
                         : 'text-slate-300 hover:text-white border-slate-800 hover:bg-slate-900'
@@ -102,7 +96,7 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                 {currentView !== 'active' && (
                   <button
                     onClick={() => onNavigate('coach')}
-                    className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                    className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
                       currentView === 'coach'
                         ? 'bg-indigo-600 text-white border-indigo-500'
                         : 'text-slate-300 hover:text-white border-slate-800 hover:bg-slate-900'
@@ -116,7 +110,7 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                 {currentView !== 'active' && (
                   <button
                     onClick={() => onNavigate('history')}
-                    className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                    className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
                       currentView === 'history'
                         ? 'bg-slate-800 text-white border-slate-700'
                         : 'text-slate-400 hover:text-white border-slate-800 hover:bg-slate-900'
@@ -125,50 +119,58 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                     History
                   </button>
                 )}
-
-                <button
-                  onClick={() => onNavigate('profile')}
-                  className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
-                    currentView === 'profile'
-                      ? 'bg-slate-800 text-white border-slate-700'
-                      : 'text-slate-300 hover:text-white border-slate-800 hover:bg-slate-900'
-                  }`}
-                  title={user?.email}
-                >
-                  <User className="w-3.5 h-3.5 text-brand-400" />
-                  <span className="max-w-[120px] truncate">
-                    {user?.name || (user?.username ? `@${user.username}` : 'Profile')}
-                  </span>
-                  {user?.username && (
-                    <span className="hidden lg:inline text-[10px] font-mono text-brand-400">
-                      @{user.username}
-                    </span>
-                  )}
-                </button>
               </>
+            )}
+          </div>
+
+          {/* RIGHT: Status, Auth, Profile */}
+          <div className="flex items-center space-x-3 sm:space-x-4 flex-shrink-0">
+            {currentView === 'active' && activeSession && (
+              <span className="flex items-center space-x-2 text-[10px] sm:text-xs font-medium px-2.5 sm:px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 animate-pulse whitespace-nowrap">
+                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span className="hidden sm:inline">Session Active</span>
+                <span className="sm:hidden">Active</span>
+              </span>
+            )}
+
+            {isAuthenticated ? (
+              <button
+                onClick={() => onNavigate('profile')}
+                className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                  currentView === 'profile'
+                    ? 'bg-slate-800 text-white border-slate-700'
+                    : 'text-slate-300 hover:text-white border-slate-800 hover:bg-slate-900'
+                }`}
+                title={user?.email}
+              >
+                <User className="w-3.5 h-3.5 text-brand-400" />
+                <span className="max-w-[80px] sm:max-w-[120px] truncate hidden xs:inline-block">
+                  {user?.name || (user?.username ? `@${user.username}` : 'Profile')}
+                </span>
+              </button>
             ) : (
-              <>
+              <div className="flex items-center space-x-2 sm:space-x-3">
                 <button
                   onClick={() => onNavigate('login')}
-                  className="flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-800 hover:bg-slate-900 text-slate-300 hover:text-white transition-colors"
+                  className="flex items-center space-x-1.5 text-xs font-medium px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-800 hover:bg-slate-900 text-slate-300 hover:text-white transition-colors whitespace-nowrap"
                 >
-                  <LogIn className="w-3.5 h-3.5 text-slate-400" />
+                  <LogIn className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
                   <span>Sign In</span>
                 </button>
 
                 <button
                   onClick={() => onNavigate('register')}
-                  className="text-xs font-medium bg-brand-600 hover:bg-brand-500 text-white px-3.5 py-1.5 rounded-lg shadow-md shadow-brand-600/20 transition-all"
+                  className="text-xs font-medium bg-brand-600 hover:bg-brand-500 text-white px-3 sm:px-3.5 py-1.5 rounded-lg shadow-md shadow-brand-600/20 transition-all whitespace-nowrap"
                 >
                   Register
                 </button>
-              </>
+              </div>
             )}
 
             {currentView === 'landing' && (
               <button
                 onClick={() => onNavigate('setup')}
-                className="text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-lg shadow-md shadow-indigo-600/20 transition-all hover:scale-105 ml-1"
+                className="text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white px-3 sm:px-3.5 py-1.5 rounded-lg shadow-md shadow-indigo-600/20 transition-all hover:scale-105 whitespace-nowrap"
               >
                 Start Session
               </button>

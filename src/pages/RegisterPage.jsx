@@ -101,7 +101,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="parasjain"
+                placeholder="Enter Username "
                 className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm text-white placeholder-slate-500 outline-none transition-all font-mono"
               />
             </div>
@@ -120,7 +120,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Paras Jain"
+                placeholder="Enter Your Name "
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm text-white placeholder-slate-500 outline-none transition-all"
               />
             </div>
@@ -211,7 +211,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
                 required={verificationMethod === 'PHONE'}
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="+15551234567 or +919876543210"
+                placeholder=" +91"
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm text-white placeholder-slate-500 outline-none transition-all"
               />
             </div>

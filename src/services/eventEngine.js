@@ -88,14 +88,7 @@ export function createEventEngine({ onSpanCompleted = null } = {}) {
         endSpan('FACE_ABSENT', timestamp);
       }
 
-      // Handle Audio Speech States
-      if (type === 'AUDIO_ACTIVITY') {
-        if (event.activity === 'SPEECH_LIKE') {
-          startSpan('SPEECH_LIKE', 'SPEECH_LIKE', timestamp, confidence, { audioLevel: event.audioLevel });
-        } else if (event.activity === 'SILENCE') {
-          endSpan('SPEECH_LIKE', timestamp);
-        }
-      }
+
     },
   };
 }

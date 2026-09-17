@@ -1,18 +1,15 @@
 import React, { useState, useRef } from 'react';
 import {
   BookOpen, Code2, BookMarked, Video, Edit3, Clock, Play, ShieldAlert,
-  Camera, Mic, Monitor, Check, X, AlertCircle, Loader2, ArrowRight, CornerDownRight
+  Camera, Monitor, Check, X, AlertCircle, Loader2, ArrowRight, CornerDownRight
 } from 'lucide-react';
-import { requestMicrophoneStream } from '../services/microphoneMonitor.js';
 
 // Authoritative Terminal State Check Helpers
 export const isTerminalCamera = (status) => ['ALLOWED', 'DENIED', 'UNAVAILABLE', 'ERROR'].includes(status);
-export const isTerminalMic = (status) => ['ALLOWED', 'DENIED', 'UNAVAILABLE', 'ERROR'].includes(status);
 export const isTerminalScreen = (status) => ['SHARED', 'DENIED', 'CANCELLED', 'UNAVAILABLE', 'ERROR'].includes(status);
 
 export const isPermissionsComplete = (statuses) =>
   isTerminalCamera(statuses?.camera) &&
-  isTerminalMic(statuses?.microphone) &&
   isTerminalScreen(statuses?.screen);
 
 export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
@@ -33,19 +30,17 @@ export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
   const [intention, setIntention] = useState(initialConfig?.intention || '');
 
   // Pre-session permission setup state machine
-  // States: 'IDLE' | 'REQUESTING_CAMERA_MIC' | 'CAMERA_MIC_RESOLVED' | 'WAITING_FOR_SCREEN_USER_ACTION' | 'REQUESTING_SCREEN' | 'SCREEN_RESOLVED' | 'PERMISSIONS_COMPLETE'
+  // States: 'IDLE' | 'REQUESTING_CAMERA' | 'CAMERA_RESOLVED' | 'WAITING_FOR_SCREEN_USER_ACTION' | 'REQUESTING_SCREEN' | 'SCREEN_RESOLVED' | 'PERMISSIONS_COMPLETE'
   const [isPreparing, setIsPreparing] = useState(false);
   const [setupState, setSetupState] = useState('IDLE');
 
   const [permissionStatuses, setPermissionStatuses] = useState({
     camera: 'IDLE',     // 'IDLE' | 'REQUESTING' | 'ALLOWED' | 'DENIED' | 'UNAVAILABLE' | 'ERROR'
-    microphone: 'IDLE', // 'IDLE' | 'REQUESTING' | 'ALLOWED' | 'DENIED' | 'UNAVAILABLE' | 'ERROR'
     screen: 'IDLE',     // 'IDLE' | 'REQUESTING' | 'SHARED' | 'DENIED' | 'CANCELLED' | 'UNAVAILABLE' | 'ERROR'
   });
 
   const streamsRef = useRef({
     cameraStream: null,
-    micStream: null,
     screenStream: null,
   });
 
@@ -64,10 +59,6 @@ export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
       streamsRef.current.cameraStream.getTracks().forEach(t => t.stop());
       streamsRef.current.cameraStream = null;
     }
-    if (streamsRef.current.micStream) {
-      streamsRef.current.micStream.getTracks().forEach(t => t.stop());
-      streamsRef.current.micStream = null;
-    }
     if (streamsRef.current.screenStream) {
       streamsRef.current.screenStream.getTracks().forEach(t => t.stop());
       streamsRef.current.screenStream = null;
@@ -78,10 +69,10 @@ export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
     stopAcquiredStreams();
     setIsPreparing(false);
     setSetupState('IDLE');
-    setPermissionStatuses({ camera: 'IDLE', microphone: 'IDLE', screen: 'IDLE' });
+    setPermissionStatuses({ camera: 'IDLE', screen: 'IDLE' });
   };
 
-  // STEP 1 & 2: CAMERA AND MICROPHONE ACQUISITION
+  // STEP 1 & 2: CAMERA ACQUISITION
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     if (isPreparing) return; // Prevent double clicks
@@ -114,41 +105,11 @@ export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
     }
 
     setIsPreparing(true);
-    setSetupState('REQUESTING_CAMERA_MIC');
-    setPermissionStatuses({ camera: 'REQUESTING', microphone: 'REQUESTING', screen: 'IDLE' });
+    setSetupState('REQUESTING_CAMERA');
+    setPermissionStatuses({ camera: 'REQUESTING', screen: 'IDLE' });
 
-    let camAllowed = false;
-    let micAllowed = false;
-
-    // Combined request attempt for optimal UX
-    if (navigator?.mediaDevices?.getUserMedia) {
-      try {
-        const combined = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-          audio: true,
-        });
-
-        const videoTracks = combined.getVideoTracks();
-        const audioTracks = combined.getAudioTracks();
-
-        if (videoTracks.length > 0) {
-          streamsRef.current.cameraStream = new MediaStream(videoTracks);
-          camAllowed = true;
-        }
-        if (audioTracks.length > 0) {
-          streamsRef.current.micStream = new MediaStream(audioTracks);
-          micAllowed = true;
-        }
-      } catch (err) {
-        // Combined failed - will prompt separately below
-      }
-    }
-
-    // Fallback: Camera request
     let camStatus = 'UNAVAILABLE';
-    if (camAllowed) {
-      camStatus = 'ALLOWED';
-    } else if (navigator?.mediaDevices?.getUserMedia) {
+    if (navigator?.mediaDevices?.getUserMedia) {
       try {
         const cStream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
@@ -165,28 +126,9 @@ export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
       }
     }
 
-    // Fallback: Microphone request
-    let micStatus = 'UNAVAILABLE';
-    if (micAllowed) {
-      micStatus = 'ALLOWED';
-    } else {
-      try {
-        const mStream = await requestMicrophoneStream();
-        streamsRef.current.micStream = mStream;
-        micStatus = 'ALLOWED';
-      } catch (err) {
-        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          micStatus = 'DENIED';
-        } else {
-          micStatus = 'UNAVAILABLE';
-        }
-      }
-    }
-
-    // Update statuses for Camera and Mic (both now terminal)
+    // Update statuses for Camera (now terminal)
     const nextStatuses = {
       camera: camStatus,
-      microphone: micStatus,
       screen: 'IDLE',
     };
     setPermissionStatuses(nextStatuses);
@@ -275,7 +217,6 @@ export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
       intention: intention.trim() || null,
       initialStreams: {
         cameraStream: streamsRef.current.cameraStream,
-        micStream: streamsRef.current.micStream,
         screenStream: streamsRef.current.screenStream,
       }
     });
@@ -339,7 +280,7 @@ export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
             </div>
             <h2 className="text-2xl font-extrabold text-white tracking-tight">Preparing Focus Session</h2>
             <p className="text-xs text-slate-400 max-w-md">
-              All 3 monitoring permissions must reach a resolved terminal state before the session timer starts.
+              Both monitoring permissions must reach a resolved terminal state before the session timer starts.
             </p>
           </div>
 
@@ -358,28 +299,14 @@ export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
               <div>{renderStatusBadge(permissionStatuses.camera)}</div>
             </div>
 
-            {/* 2. Microphone */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-lg bg-slate-800 text-slate-300">
-                  <Mic className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="font-semibold text-sm text-slate-200">2. Microphone Input</span>
-                  <p className="text-[11px] text-slate-400">Voice activity detection</p>
-                </div>
-              </div>
-              <div>{renderStatusBadge(permissionStatuses.microphone)}</div>
-            </div>
-
-            {/* 3. Screen Sharing */}
+            {/* 2. Screen Sharing */}
             <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
               <div className="flex items-center space-x-3">
                 <div className="p-2 rounded-lg bg-slate-800 text-slate-300">
                   <Monitor className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="font-semibold text-sm text-slate-200">3. Screen Sharing</span>
+                  <span className="font-semibold text-sm text-slate-200">2. Screen Sharing</span>
                   <p className="text-[11px] text-slate-400">Context classification (Requires click gesture)</p>
                 </div>
               </div>
@@ -388,7 +315,7 @@ export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
           </div>
 
           {/* Interactive Screen Sharing Step (Browser User-Activation Compliant) */}
-          {permissionStatuses.screen === 'IDLE' && isTerminalCamera(permissionStatuses.camera) && isTerminalMic(permissionStatuses.microphone) && (
+          {permissionStatuses.screen === 'IDLE' && isTerminalCamera(permissionStatuses.camera) && (
             <div className="p-4 rounded-2xl bg-brand-500/10 border border-brand-500/30 text-left space-y-3">
               <div className="flex items-center space-x-2 text-xs font-bold text-brand-300">
                 <CornerDownRight className="w-4 h-4 text-brand-400" />
@@ -425,7 +352,7 @@ export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
                 <span>All Permission Stages Resolved!</span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Camera ({permissionStatuses.camera}), Microphone ({permissionStatuses.microphone}), and Screen ({permissionStatuses.screen}) permission setup is complete. Click to begin your focus countdown.
+                Camera ({permissionStatuses.camera}) and Screen ({permissionStatuses.screen}) permission setup is complete. Click to begin your focus countdown.
               </p>
               <button
                 type="button"
@@ -446,7 +373,6 @@ export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 pt-1">
               <div>Camera status: <span className="text-slate-200">{permissionStatuses.camera}</span></div>
-              <div>Microphone status: <span className="text-slate-200">{permissionStatuses.microphone}</span></div>
               <div>Screen status: <span className="text-slate-200">{permissionStatuses.screen}</span></div>
               <div>permissionsComplete: <span className={canLaunchFinalSession ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>{canLaunchFinalSession ? 'TRUE' : 'FALSE'}</span></div>
               <div>sessionStartAllowed: <span className={canLaunchFinalSession ? 'text-emerald-400 font-bold' : 'text-slate-400'}>{canLaunchFinalSession ? 'TRUE' : 'FALSE'}</span></div>

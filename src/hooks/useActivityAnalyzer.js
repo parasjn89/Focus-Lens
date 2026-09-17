@@ -29,10 +29,6 @@ export function useActivityAnalyzer({
   screenActivity = 'UNKNOWN',
   screenConfidence = null,
   screenSourceType = 'unknown',
-  isMicrophoneActive = false,
-  speechState = 'SILENCE',
-  isSpeechDetected = false,
-  audioLevel = 0,
   onActivityChanged = null,
 }) {
   const [currentActivity, setCurrentActivity] = useState(ACTIVITY_TYPES.UNKNOWN);
@@ -62,7 +58,7 @@ export function useActivityAnalyzer({
     onActivityChangedRef.current = onActivityChanged;
   }, [onActivityChanged]);
 
-  // Update activity tracker whenever camera, screen, or audio input signals change
+  // Update activity tracker whenever camera or screen input signals change
   useEffect(() => {
     if (trackerRef.current) {
       const cameraSignals = {
@@ -83,19 +79,12 @@ export function useActivityAnalyzer({
         sourceType: screenSourceType,
       };
 
-      const audioSignals = {
-        isMicrophoneActive,
-        speechState,
-        isSpeechDetected,
-        audioLevel,
-      };
-
-      const classification = classifyMultimodalActivity(cameraSignals, screenSignals, audioSignals);
+      const classification = classifyMultimodalActivity(cameraSignals, screenSignals);
       setContributingSignals(classification.contributingSignals);
       setExplanation(classification.explanation || []);
       setEvidenceScore(classification.evidenceScore);
 
-      const res = trackerRef.current.updateMultimodalSignals(cameraSignals, screenSignals, audioSignals);
+      const res = trackerRef.current.updateMultimodalSignals(cameraSignals, screenSignals);
       
       if (res.currentActivity !== currentActivityRef.current) {
         setCurrentActivity(res.currentActivity);
@@ -123,8 +112,7 @@ export function useActivityAnalyzer({
     }
   }, [
     isCameraActive, isFacePresent, isPhonePresent, personCount, rawPersonCount, personOnPhoneCount, isPersonOnPhoneScreen, headOrientation,
-    isScreenActive, screenActivity, screenConfidence, screenSourceType,
-    isMicrophoneActive, speechState, isSpeechDetected, audioLevel
+    isScreenActive, screenActivity, screenConfidence, screenSourceType
   ]);
 
   // Clean up on unmount
