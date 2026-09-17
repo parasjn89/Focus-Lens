@@ -9,6 +9,7 @@ import {
 } from '../utils/verificationUtils.js';
 import { sendEmailVerificationChallenge, sendEmailPasswordResetLink, sendEmailPasswordResetOtp } from '../services/emailService.js';
 import { sendSmsOtpChallenge, sendSmsPasswordResetOtp } from '../services/smsService.js';
+import { saveAvatar, deleteAvatarFile } from '../services/avatarStorageService.js';
 
 
 export function toSafeUser(user) {
@@ -18,6 +19,8 @@ export function toSafeUser(user) {
     username: user.username || null,
     email: user.email,
     name: user.name,
+    avatarUrl: user.avatarUrl || null,
+    avatarPublicId: user.avatarPublicId || null,
     phoneNumber: user.phoneNumber || null,
     preferredVerificationMethod: user.preferredVerificationMethod || 'EMAIL',
     verificationStatus: user.verificationStatus || 'UNVERIFIED',
@@ -162,6 +165,7 @@ export async function register(request, reply) {
         statusCode: 400,
         error: 'Bad Request',
         message: 'That username is already taken. Please choose another.',
+        field: 'username',
       });
     }
 
@@ -172,6 +176,7 @@ export async function register(request, reply) {
           statusCode: 400,
           error: 'Bad Request',
           message: 'An account with this email address already exists. Please sign in.',
+          field: 'email',
         });
       }
     }
@@ -185,6 +190,7 @@ export async function register(request, reply) {
           statusCode: 400,
           error: 'Bad Request',
           message: 'An account with this phone number already exists. Please sign in.',
+          field: 'phoneNumber',
         });
       }
     }
@@ -195,6 +201,7 @@ export async function register(request, reply) {
         statusCode: 400,
         error: 'Validation Error',
         message: policyErr,
+        field: 'password',
       });
     }
 
@@ -235,10 +242,14 @@ export async function register(request, reply) {
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
+      const primaryIssue = err.errors[0];
+      const primaryField = primaryIssue ? primaryIssue.path[0] : undefined;
       return reply.status(400).send({
         statusCode: 400,
         error: 'Validation Error',
         message: err.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', '),
+        field: primaryField,
+        errors: err.errors.map(e => ({ field: e.path[0], message: e.message })),
       });
     }
 
@@ -251,6 +262,7 @@ export async function register(request, reply) {
           statusCode: 400,
           error: 'Bad Request',
           message: 'That username is already taken. Please choose another.',
+          field: 'username',
         });
       }
       if (msg.includes('phone') || detail.includes('phone') || msg.includes('phone_number')) {
@@ -258,12 +270,14 @@ export async function register(request, reply) {
           statusCode: 400,
           error: 'Bad Request',
           message: 'An account with this phone number already exists. Please sign in.',
+          field: 'phoneNumber',
         });
       }
       return reply.status(400).send({
         statusCode: 400,
         error: 'Bad Request',
         message: 'An account with this email address already exists. Please sign in.',
+        field: 'email',
       });
     }
 
@@ -291,13 +305,23 @@ export async function login(request, reply) {
       if (!user) {
         user = await dbStore.getUserByUsername(rawKey);
       }
+      if (!user) {
+        try {
+          const normalizedPhone = normalizePhoneNumber(rawKey);
+          if (normalizedPhone) {
+            user = await dbStore.getUserByPhoneNumber(normalizedPhone);
+          }
+        } catch (_) {
+          // Identifier is not a phone number, fall through
+        }
+      }
     }
 
     if (!user || !user.passwordHash) {
       return reply.status(401).send({
         statusCode: 401,
         error: 'Unauthorized',
-        message: 'Invalid email/username or password.',
+        message: 'Invalid email/phone/username or password.',
       });
     }
 
@@ -462,6 +486,91 @@ export async function updateProfile(request, reply) {
   }
 }
 
+// Handler: POST /api/auth/profile/avatar
+export async function uploadAvatar(request, reply) {
+  if (!request.user || !request.user.id) {
+    return reply.status(401).send({
+      statusCode: 401,
+      error: 'Unauthorized',
+      message: 'Not authenticated.',
+    });
+  }
+
+  const userId = request.user.id;
+  const body = request.body || {};
+  const avatarData = body.avatarData || body.avatar || body.image;
+
+  if (!avatarData) {
+    return reply.status(400).send({
+      statusCode: 400,
+      error: 'Bad Request',
+      message: 'No image data provided. Please select an image file to upload.',
+    });
+  }
+
+  try {
+    const currentUser = await dbStore.getUserById(userId);
+    const oldAvatarPublicId = currentUser?.avatarPublicId;
+
+    const { avatarUrl, avatarPublicId } = await saveAvatar(userId, avatarData, oldAvatarPublicId);
+
+    const updatedUser = await dbStore.updateUserAvatar(userId, {
+      avatarUrl,
+      avatarPublicId,
+    });
+
+    return reply.send({
+      user: toSafeUser(updatedUser),
+      message: 'Profile picture updated successfully.',
+    });
+  } catch (err) {
+    request.log.error(err);
+    const statusCode = err.statusCode || (err.message && (err.message.includes('limit') || err.message.includes('format') || err.message.includes('corrupted') || err.message.includes('invalid') || err.message.includes('Empty')) ? 400 : 500);
+    return reply.status(statusCode).send({
+      statusCode,
+      error: statusCode === 400 ? 'Bad Request' : 'Internal Server Error',
+      message: err.message || 'Failed to upload profile picture.',
+    });
+  }
+}
+
+// Handler: DELETE /api/auth/profile/avatar
+export async function removeAvatar(request, reply) {
+  if (!request.user || !request.user.id) {
+    return reply.status(401).send({
+      statusCode: 401,
+      error: 'Unauthorized',
+      message: 'Not authenticated.',
+    });
+  }
+
+  const userId = request.user.id;
+
+  try {
+    const currentUser = await dbStore.getUserById(userId);
+    if (currentUser?.avatarPublicId) {
+      await deleteAvatarFile(currentUser.avatarPublicId).catch(() => {});
+    }
+
+    const updatedUser = await dbStore.updateUserAvatar(userId, {
+      avatarUrl: null,
+      avatarPublicId: null,
+    });
+
+    return reply.send({
+      user: toSafeUser(updatedUser),
+      message: 'Profile picture removed successfully.',
+    });
+  } catch (err) {
+    request.log.error(err);
+    return reply.status(500).send({
+      statusCode: 500,
+      error: 'Internal Server Error',
+      message: 'Failed to remove profile picture.',
+    });
+  }
+}
+
 // Zod Schemas for Verification
 export const VerifyCodeSchema = z.object({
   code: z.string().min(6, 'Verification code must be 6 digits').max(6, 'Verification code must be 6 digits'),
@@ -474,6 +583,7 @@ export const SendPhoneSchema = z.object({
 export const SwitchMethodSchema = z.object({
   method: z.enum(['EMAIL', 'PHONE']),
   phoneNumber: z.string().optional(),
+  email: z.string().optional(),
 });
 
 // Handler: POST /api/auth/send-email-verification
@@ -699,6 +809,7 @@ export async function switchVerificationMethod(request, reply) {
     const body = SwitchMethodSchema.parse(request.body);
     const userId = request.user.id;
     let normalizedPhone = null;
+    let normalizedEmail = null;
 
     if (body.method === 'PHONE') {
       const phoneInput = body.phoneNumber || request.user.phoneNumber;
@@ -713,9 +824,27 @@ export async function switchVerificationMethod(request, reply) {
       }
     }
 
+    if (body.method === 'EMAIL') {
+      const emailInput = (body.email || request.user.email || '').trim().toLowerCase();
+      if (!emailInput) {
+        return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Email address is required when switching to Email Verification.' });
+      }
+      const emailCheck = z.string().email().safeParse(emailInput);
+      if (!emailCheck.success) {
+        return reply.status(400).send({ statusCode: 400, error: 'Validation Error', message: 'Please enter a valid email address.' });
+      }
+      normalizedEmail = emailInput;
+
+      const existingEmailUser = await dbStore.getUserByEmail(normalizedEmail);
+      if (existingEmailUser && existingEmailUser.id !== userId) {
+        return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'This email address is already registered to another account.' });
+      }
+    }
+
     const updatedUser = await dbStore.switchVerificationMethod(userId, {
       preferredVerificationMethod: body.method,
-      phoneNumber: normalizedPhone,
+      phoneNumber: normalizedPhone || undefined,
+      email: normalizedEmail || undefined,
     });
 
     const otp = generateNumericOTP();
@@ -727,9 +856,9 @@ export async function switchVerificationMethod(request, reply) {
     await dbStore.setVerificationChallenge(userId, { tokenHash, expiresAt, resendAvailableAt });
 
     if (body.method === 'PHONE') {
-      await sendSmsOtpChallenge({ phoneNumber: normalizedPhone, otp });
+      await sendSmsOtpChallenge({ phoneNumber: normalizedPhone || updatedUser.phoneNumber, otp });
     } else {
-      await sendEmailVerificationChallenge({ email: updatedUser.email, otp, name: updatedUser.name });
+      await sendEmailVerificationChallenge({ email: normalizedEmail || updatedUser.email, otp, name: updatedUser.name });
     }
 
     return reply.send({

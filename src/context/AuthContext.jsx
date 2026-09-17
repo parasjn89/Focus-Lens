@@ -107,6 +107,29 @@ export function AuthProvider({ children }) {
     return res;
   };
 
+  const uploadAvatar = async (avatarData) => {
+    const res = await apiFetch('/api/auth/profile/avatar', {
+      method: 'POST',
+      body: JSON.stringify({ avatarData }),
+    });
+
+    if (res.user) {
+      setUser(res.user);
+    }
+    return res;
+  };
+
+  const removeAvatar = async () => {
+    const res = await apiFetch('/api/auth/profile/avatar', {
+      method: 'DELETE',
+    });
+
+    if (res.user) {
+      setUser(res.user);
+    }
+    return res;
+  };
+
   const changePassword = async ({ currentPassword, newPassword, confirmPassword }) => {
     const res = await apiFetch('/api/auth/change-password', {
       method: 'POST',
@@ -151,10 +174,18 @@ export function AuthProvider({ children }) {
     return res;
   };
 
-  const switchVerificationMethod = async (method, phoneNumber = '') => {
+  const switchVerificationMethod = async (method, contactArg = '') => {
+    let payload = { method };
+    if (typeof contactArg === 'object' && contactArg !== null) {
+      if (contactArg.phoneNumber) payload.phoneNumber = contactArg.phoneNumber;
+      if (contactArg.email) payload.email = contactArg.email;
+    } else if (typeof contactArg === 'string' && contactArg) {
+      if (method === 'PHONE') payload.phoneNumber = contactArg;
+      if (method === 'EMAIL') payload.email = contactArg;
+    }
     const res = await apiFetch('/api/auth/switch-verification-method', {
       method: 'POST',
-      body: JSON.stringify({ method, phoneNumber }),
+      body: JSON.stringify(payload),
     });
     if (res.user) {
       setUser(res.user);
@@ -202,6 +233,8 @@ export function AuthProvider({ children }) {
         register,
         logout,
         updateProfile,
+        uploadAvatar,
+        removeAvatar,
         changePassword,
         sendEmailVerification,
         verifyEmail,

@@ -251,4 +251,285 @@ describe('Account Verification System Test Suite (Email & Phone Choice)', () => 
     const userARecord = await dbStore.getUserByEmail(userAEmail);
     assert.equal(userARecord.preferredVerificationMethod, 'EMAIL');
   });
+
+  it('9. Phone Registration without email creates unverified user and SMS challenge', async () => {
+    const rawPhone = uniquePhone();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        name: 'Phone Only User',
+        username: `verif9_${uniqueId()}`,
+        email: null,
+        password: 'ValidPassword123!',
+        verificationMethod: 'PHONE',
+        phoneNumber: rawPhone,
+      },
+    });
+
+    assert.equal(res.statusCode, 201);
+    const body = JSON.parse(res.body);
+    assert.equal(body.user.email, null);
+    assert.equal(body.user.phoneNumber, rawPhone);
+    assert.equal(body.user.verificationStatus, 'UNVERIFIED');
+    assert.equal(body.user.preferredVerificationMethod, 'PHONE');
+  });
+
+  it('10. Successful Phone Verification using correct OTP updates status to VERIFIED', async () => {
+    const rawPhone = uniquePhone();
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        name: 'Phone OTP User',
+        username: `verif10_${uniqueId()}`,
+        email: null,
+        password: 'ValidPassword123!',
+        verificationMethod: 'PHONE',
+        phoneNumber: rawPhone,
+      },
+    });
+
+    assert.equal(regRes.statusCode, 201);
+    const cookieHeader = regRes.headers['set-cookie'];
+    const userId = JSON.parse(regRes.body).user.id;
+
+    // Set known OTP challenge
+    const knownOtp = '888777';
+    const tokenHash = hashVerificationToken(knownOtp);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await dbStore.setVerificationChallenge(userId, { tokenHash, expiresAt, resendAvailableAt: new Date() });
+
+    // Submit code to verify-phone
+    const verRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-phone',
+      headers: { cookie: cookieHeader },
+      payload: { code: knownOtp },
+    });
+
+    assert.equal(verRes.statusCode, 200);
+    const verBody = JSON.parse(verRes.body);
+    assert.equal(verBody.user.verificationStatus, 'VERIFIED');
+    assert.notEqual(verBody.user.phoneVerifiedAt, null);
+  });
+
+  it('11. Wrong phone OTP is rejected and remaining attempts are tracked', async () => {
+    const rawPhone = uniquePhone();
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        name: 'Wrong Phone OTP',
+        username: `verif11_${uniqueId()}`,
+        email: null,
+        password: 'ValidPassword123!',
+        verificationMethod: 'PHONE',
+        phoneNumber: rawPhone,
+      },
+    });
+
+    const cookieHeader = regRes.headers['set-cookie'];
+    const userId = JSON.parse(regRes.body).user.id;
+
+    const tokenHash = hashVerificationToken('123456');
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await dbStore.setVerificationChallenge(userId, { tokenHash, expiresAt, resendAvailableAt: new Date() });
+
+    const verRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-phone',
+      headers: { cookie: cookieHeader },
+      payload: { code: '654321' },
+    });
+
+    assert.equal(verRes.statusCode, 400);
+    const verBody = JSON.parse(verRes.body);
+    assert.match(verBody.message, /Invalid SMS verification code/i);
+  });
+
+  it('12. Expired phone OTP is rejected', async () => {
+    const rawPhone = uniquePhone();
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        name: 'Expired Phone OTP',
+        username: `verif12_${uniqueId()}`,
+        email: null,
+        password: 'ValidPassword123!',
+        verificationMethod: 'PHONE',
+        phoneNumber: rawPhone,
+      },
+    });
+
+    const cookieHeader = regRes.headers['set-cookie'];
+    const userId = JSON.parse(regRes.body).user.id;
+
+    const tokenHash = hashVerificationToken('123456');
+    const expiredAt = new Date(Date.now() - 1000); // 1s in the past
+    await dbStore.setVerificationChallenge(userId, { tokenHash, expiresAt: expiredAt, resendAvailableAt: new Date() });
+
+    const verRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-phone',
+      headers: { cookie: cookieHeader },
+      payload: { code: '123456' },
+    });
+
+    assert.equal(verRes.statusCode, 400);
+    const verBody = JSON.parse(verRes.body);
+    assert.match(verBody.message, /expired/i);
+  });
+
+  it('13. Resend cooldown applies to phone SMS challenges', async () => {
+    const rawPhone = uniquePhone();
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        name: 'Cooldown Phone User',
+        username: `verif13_${uniqueId()}`,
+        email: null,
+        password: 'ValidPassword123!',
+        verificationMethod: 'PHONE',
+        phoneNumber: rawPhone,
+      },
+    });
+
+    const cookieHeader = regRes.headers['set-cookie'];
+
+    const resendRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/send-phone-verification',
+      headers: { cookie: cookieHeader },
+      payload: { phoneNumber: rawPhone },
+    });
+
+    assert.equal(resendRes.statusCode, 429);
+    const body = JSON.parse(resendRes.body);
+    assert.match(body.message, /Please wait/i);
+  });
+
+  it('14. Method switching from Phone to Email allows providing new email and updates method', async () => {
+    const rawPhone = uniquePhone();
+    const newEmail = `verif14_new_${uniqueId()}@example.com`;
+
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        name: 'Phone To Email User',
+        username: `verif14_${uniqueId()}`,
+        email: null,
+        password: 'ValidPassword123!',
+        verificationMethod: 'PHONE',
+        phoneNumber: rawPhone,
+      },
+    });
+
+    const cookieHeader = regRes.headers['set-cookie'];
+
+    const switchRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/switch-verification-method',
+      headers: { cookie: cookieHeader },
+      payload: {
+        method: 'EMAIL',
+        email: newEmail,
+      },
+    });
+
+    assert.equal(switchRes.statusCode, 200);
+    const body = JSON.parse(switchRes.body);
+    assert.equal(body.user.preferredVerificationMethod, 'EMAIL');
+    assert.equal(body.user.email, newEmail);
+  });
+
+  it('15. Login with phone number works (E.164 and raw) and returns unverified status when unverified', async () => {
+    const rawPhone = uniquePhone();
+    const password = 'StrongPassword123!';
+
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        name: 'Phone Login User',
+        username: `verif15_${uniqueId()}`,
+        email: null,
+        password,
+        verificationMethod: 'PHONE',
+        phoneNumber: rawPhone,
+      },
+    });
+
+    assert.equal(regRes.statusCode, 201);
+
+    // Test logging in using the exact phone number
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        identifier: rawPhone,
+        password,
+      },
+    });
+
+    assert.equal(loginRes.statusCode, 200);
+    const loginBody = JSON.parse(loginRes.body);
+    assert.equal(loginBody.user.phoneNumber, rawPhone);
+    assert.equal(loginBody.user.verificationStatus, 'UNVERIFIED');
+
+    // Test logging in using phone with formatting (e.g. spaces/hyphens)
+    const formattedPhone = `+1 (${rawPhone.slice(2, 5)}) ${rawPhone.slice(5, 8)}-${rawPhone.slice(8)}`;
+    const formattedLoginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        identifier: formattedPhone,
+        password,
+      },
+    });
+
+    assert.equal(formattedLoginRes.statusCode, 200);
+    const formattedBody = JSON.parse(formattedLoginRes.body);
+    assert.equal(formattedBody.user.phoneNumber, rawPhone);
+  });
+
+  it('16. Unverified account cannot become verified with an invalid code', async () => {
+    const rawPhone = uniquePhone();
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        name: 'Tamper User',
+        username: `verif16_${uniqueId()}`,
+        email: null,
+        password: 'ValidPassword123!',
+        verificationMethod: 'PHONE',
+        phoneNumber: rawPhone,
+      },
+    });
+
+    const cookieHeader = regRes.headers['set-cookie'];
+
+    const fakeVerRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-phone',
+      headers: { cookie: cookieHeader },
+      payload: { code: '000000' },
+    });
+
+    assert.equal(fakeVerRes.statusCode, 400);
+
+    const meRes = await app.inject({
+      method: 'GET',
+      url: '/api/auth/me',
+      headers: { cookie: cookieHeader },
+    });
+
+    const meBody = JSON.parse(meRes.body);
+    assert.equal(meBody.user.verificationStatus, 'UNVERIFIED');
+    assert.equal(meBody.user.phoneVerifiedAt, null);
+  });
 });

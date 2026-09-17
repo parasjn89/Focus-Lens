@@ -78,7 +78,7 @@ export const dbStore = {
     return null;
   },
 
-  async createUser({ username, email, name, passwordHash, anonymousId, phoneNumber, preferredVerificationMethod, verificationStatus }) {
+  async createUser({ username, email, name, passwordHash, anonymousId, phoneNumber, preferredVerificationMethod, verificationStatus, avatarUrl, avatarPublicId }) {
     const isConnected = await checkDbConnection();
     const values = {
       username: username ? username.toLowerCase().trim() : null,
@@ -89,6 +89,8 @@ export const dbStore = {
       phoneNumber: phoneNumber || null,
       preferredVerificationMethod: preferredVerificationMethod || 'EMAIL',
       verificationStatus: verificationStatus || 'UNVERIFIED',
+      avatarUrl: avatarUrl || null,
+      avatarPublicId: avatarPublicId || null,
     };
 
     if (isConnected) {
@@ -174,6 +176,27 @@ export const dbStore = {
     if (emailVerifiedAt !== undefined) updates.emailVerifiedAt = emailVerifiedAt;
     if (phoneVerifiedAt !== undefined) updates.phoneVerifiedAt = phoneVerifiedAt;
     if (verificationStatus !== undefined) updates.verificationStatus = verificationStatus;
+
+    if (isConnected) {
+      const [updated] = await db.update(users).set(updates).where(eq(users.id, userId)).returning();
+      return updated || null;
+    }
+
+    const u = memoryUsers.get(userId);
+    if (u) {
+      Object.assign(u, updates);
+      return u;
+    }
+    return null;
+  },
+
+  async updateUserAvatar(userId, { avatarUrl, avatarPublicId }) {
+    const isConnected = await checkDbConnection();
+    const updates = {
+      avatarUrl: avatarUrl !== undefined ? avatarUrl : null,
+      avatarPublicId: avatarPublicId !== undefined ? avatarPublicId : null,
+      updatedAt: new Date(),
+    };
 
     if (isConnected) {
       const [updated] = await db.update(users).set(updates).where(eq(users.id, userId)).returning();
@@ -295,11 +318,12 @@ export const dbStore = {
     return null;
   },
 
-  async switchVerificationMethod(userId, { preferredVerificationMethod, phoneNumber, tokenHash, expiresAt, resendAvailableAt }) {
+  async switchVerificationMethod(userId, { preferredVerificationMethod, phoneNumber, email, tokenHash, expiresAt, resendAvailableAt }) {
     const isConnected = await checkDbConnection();
     const updates = {
       preferredVerificationMethod,
       phoneNumber: phoneNumber || undefined,
+      email: email || undefined,
       verificationTokenHash: tokenHash,
       verificationExpiresAt: expiresAt,
       verificationResendAvailableAt: resendAvailableAt,

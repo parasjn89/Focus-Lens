@@ -35,7 +35,7 @@ export function buildApp(options = {}) {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'DENY');
     reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-    reply.header('Permissions-Policy', 'camera=(self), microphone=(self), display-capture=(self)');
+    reply.header('Permissions-Policy', 'camera=(self), display-capture=(self)');
   });
 
   // Cookie & Session Configuration

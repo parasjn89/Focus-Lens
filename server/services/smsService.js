@@ -22,11 +22,12 @@ export async function sendSmsOtpChallenge({ phoneNumber, otp }) {
       return { success: true, provider: 'twilio' };
     } catch (err) {
       console.warn(`[SMS Service] Twilio transmission error to ${phoneNumber}:`, err.message);
+      return { success: false, error: err.message, provider: 'twilio' };
     }
   }
 
   // Development Fallback Abstraction
-  if (config.nodeEnv !== 'test') {
+  if (config.nodeEnv !== 'test' && config.nodeEnv !== 'production') {
     console.log(`\n==================================================`);
     console.log(`[SMS PROVIDER (DEV)] Verification Challenge`);
     console.log(`To: ${phoneNumber}`);
@@ -60,11 +61,12 @@ export async function sendSmsPasswordResetOtp({ phoneNumber, otp }) {
       return { success: true, provider: 'twilio' };
     } catch (err) {
       console.warn(`[SMS Service] Twilio password reset SMS error to ${phoneNumber}:`, err.message);
+      return { success: false, error: err.message, provider: 'twilio' };
     }
   }
 
   // Development Fallback Abstraction
-  if (config.nodeEnv !== 'test') {
+  if (config.nodeEnv !== 'test' && config.nodeEnv !== 'production') {
     console.log(`\n==================================================`);
     console.log(`[SMS PROVIDER (DEV)] Password Reset OTP`);
     console.log(`To: ${phoneNumber}`);

@@ -21,8 +21,10 @@ export function hashVerificationToken(token) {
 export function normalizePhoneNumber(phoneNumber) {
   if (!phoneNumber) return null;
   
-  let cleaned = String(phoneNumber).trim().replace(/[\s\-\(\)]/g, '');
-  if (!cleaned.startsWith('+')) {
+  let cleaned = String(phoneNumber).trim().replace(/[\s\-\(\)\.]/g, '');
+  if (cleaned.startsWith('00')) {
+    cleaned = '+' + cleaned.slice(2);
+  } else if (!cleaned.startsWith('+')) {
     // Default to + if missing
     cleaned = '+' + cleaned;
   }

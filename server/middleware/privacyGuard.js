@@ -37,6 +37,11 @@ function containsForbiddenMediaKey(obj) {
 }
 
 export async function privacyGuard(request, reply) {
+  // User profile picture updates are user account assets, strictly isolated from session monitoring
+  if (request.url.startsWith('/api/auth/profile/avatar')) {
+    return;
+  }
+
   if (request.body && containsForbiddenMediaKey(request.body)) {
     return reply.status(400).send({
       statusCode: 400,

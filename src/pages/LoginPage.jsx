@@ -21,9 +21,14 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
 
     setIsSubmitting(true);
     try {
-      await login(email, password);
-      if (onLoginSuccess) onLoginSuccess();
-      else onNavigate('dashboard');
+      const res = await login(email, password);
+      if (onLoginSuccess) {
+        onLoginSuccess(res?.user);
+      } else if (res?.user?.verificationStatus !== 'VERIFIED') {
+        onNavigate('verify');
+      } else {
+        onNavigate('dashboard');
+      }
     } catch (err) {
       setError(err.message || 'Login failed. Please check your credentials.');
     } finally {

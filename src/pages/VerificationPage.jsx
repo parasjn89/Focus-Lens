@@ -3,7 +3,7 @@ import { Mail, Phone, ShieldCheck, AlertCircle, ArrowRight, RefreshCw, ArrowLeft
 import { useAuth } from '../context/AuthContext';
 import { BackButton } from '../components/BackButton.jsx';
 
-export function VerificationPage({ onNavigate }) {
+export function VerificationPage({ onNavigate, registrationState }) {
   const {
     user,
     sendEmailVerification,
@@ -24,6 +24,7 @@ export function VerificationPage({ onNavigate }) {
   const [showSwitchModal, setShowSwitchModal] = useState(false);
   const [newMethod, setNewMethod] = useState('EMAIL');
   const [newPhoneNumber, setNewPhoneNumber] = useState('');
+  const [newEmail, setNewEmail] = useState('');
   const [switchError, setSwitchError] = useState(null);
   const [isSwitching, setIsSwitching] = useState(false);
 
@@ -40,7 +41,9 @@ export function VerificationPage({ onNavigate }) {
     };
   }, [resendCooldown]);
 
-  const currentMethod = user?.preferredVerificationMethod || 'EMAIL';
+  const currentMethod = user?.preferredVerificationMethod || registrationState?.method || 'EMAIL';
+  const effectivePhoneNumber = user?.phoneNumber || registrationState?.phoneNumber || '';
+  const effectiveEmail = user?.email || registrationState?.email || '';
   const isVerified = user?.verificationStatus === 'VERIFIED';
 
   const handleVerifySubmit = async (e) => {
@@ -77,13 +80,14 @@ export function VerificationPage({ onNavigate }) {
 
     try {
       if (currentMethod === 'PHONE') {
-        if (!user?.phoneNumber) {
+        const targetPhone = effectivePhoneNumber;
+        if (!targetPhone) {
           setError('No phone number on file. Please switch verification method or update your phone number.');
           return;
         }
-        await sendPhoneVerification(user.phoneNumber);
+        await sendPhoneVerification(targetPhone);
       } else {
-        await sendEmailVerification();
+        await sendEmailVerification(effectiveEmail || undefined);
       }
       setSuccessMsg(`New verification code sent via ${currentMethod}.`);
       setResendCooldown(60);
@@ -100,7 +104,11 @@ export function VerificationPage({ onNavigate }) {
     setIsSwitching(true);
 
     try {
-      const res = await switchVerificationMethod(newMethod, newMethod === 'PHONE' ? newPhoneNumber : undefined);
+      const payload = {
+        phoneNumber: newMethod === 'PHONE' ? newPhoneNumber : undefined,
+        email: newMethod === 'EMAIL' ? (newEmail.trim() || effectiveEmail) : undefined,
+      };
+      const res = await switchVerificationMethod(newMethod, payload);
       setShowSwitchModal(false);
       setSuccessMsg(res.message || `Switched verification method to ${newMethod}. New code sent!`);
       setResendCooldown(60);
@@ -152,6 +160,27 @@ export function VerificationPage({ onNavigate }) {
           </div>
         ) : (
           <>
+            {/* Prominent Verification Dispatch Banner */}
+            <div className="mb-6 p-4 rounded-xl bg-brand-500/10 border border-brand-500/25 flex items-start space-x-3">
+              {currentMethod === 'PHONE' ? (
+                <Phone className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
+              ) : (
+                <Mail className="w-5 h-5 text-brand-400 shrink-0 mt-0.5" />
+              )}
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-white">
+                  {currentMethod === 'PHONE'
+                    ? "We've sent a verification code to your phone."
+                    : "We've sent a verification code to your email."}
+                </div>
+                <p className="text-xs text-slate-300">
+                  {currentMethod === 'PHONE'
+                    ? `Please enter the 6-digit SMS code sent to ${effectivePhoneNumber || 'your phone number'} below to activate your account.`
+                    : `Please enter the 6-digit verification code sent to ${effectiveEmail || 'your email inbox'} below to activate your account.`}
+                </p>
+              </div>
+            </div>
+
             {/* Active Method Badge */}
             <div className="mb-6 p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
               <div className="flex items-center space-x-3">
@@ -165,7 +194,7 @@ export function VerificationPage({ onNavigate }) {
                     Verifying via {currentMethod === 'PHONE' ? 'SMS Phone Number' : 'Email Inbox'}
                   </div>
                   <div className="text-xs text-slate-400">
-                    {currentMethod === 'PHONE' ? (user?.phoneNumber || 'No phone set') : user?.email}
+                    {currentMethod === 'PHONE' ? (effectivePhoneNumber || 'No phone set') : (effectiveEmail || 'No email set')}
                   </div>
                 </div>
               </div>
@@ -298,9 +327,28 @@ export function VerificationPage({ onNavigate }) {
                     required
                     value={newPhoneNumber}
                     onChange={(e) => setNewPhoneNumber(e.target.value)}
-                    placeholder="+15551234567"
+                    placeholder="+15551234567 or +919876543210"
                     className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 outline-none focus:border-brand-500"
                   />
+                </div>
+              )}
+
+              {newMethod === 'EMAIL' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    Email Address {!effectiveEmail && '*'}
+                  </label>
+                  <input
+                    type="email"
+                    required={!effectiveEmail}
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder={effectiveEmail || 'alex@example.com'}
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 outline-none focus:border-brand-500"
+                  />
+                  {effectiveEmail && (
+                    <p className="text-[10px] text-slate-500 mt-1">Leave blank to use current email ({effectiveEmail})</p>
+                  )}
                 </div>
               )}
 

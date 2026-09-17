@@ -10,6 +10,8 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash'),
   anonymousId: text('anonymous_id').unique(),
   phoneNumber: text('phone_number'),
+  avatarUrl: text('avatar_url'),
+  avatarPublicId: text('avatar_public_id'),
   preferredVerificationMethod: text('preferred_verification_method').default('EMAIL'),
   verificationStatus: text('verification_status').default('UNVERIFIED'),
   emailVerifiedAt: timestamp('email_verified_at'),
