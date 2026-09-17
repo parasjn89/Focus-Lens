@@ -26,11 +26,23 @@ import { CalendarPage } from './pages/CalendarPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { startSession, saveSessionSegments, finalizeSession, fetchSessionById } from './api/sessionApi';
 import { initBackgroundSync } from './api/syncManager';
+import { ROUTE_PATH_MAP, PATH_ALIASES, resolveViewFromLocation } from './utils/routes';
 
 function AppContent() {
-  const { isAuthenticated, isLoading } = useAuth();
-  // Navigation state: 'landing' | 'setup' | 'active' | 'report' | 'history' | 'login' | 'register' | 'dashboard' | 'profile' | 'verify' | 'forgot-password' | 'coach' | 'consistency'
-  const [currentView, setCurrentView] = useState('landing');
+  const { user, isAuthenticated, isLoading } = useAuth();
+  // Navigation state initialized from location or active report session in storage
+  const [currentView, setCurrentView] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const resolved = resolveViewFromLocation(window.location);
+      const savedReportSessionId = sessionStorage.getItem('focuslens_active_report_session_id');
+      if (savedReportSessionId && (resolved === 'landing' || resolved === 'report')) {
+        return 'report';
+      }
+      return resolved;
+    }
+    return 'landing';
+  });
+  const [registrationState, setRegistrationState] = useState(null);
   const [prefilledSetupConfig, setPrefilledSetupConfig] = useState(null);
 
   // Session configuration & persistent record state
@@ -57,13 +69,61 @@ function AppContent() {
   const activeSessionSegmentsRef = useRef([]);
   const activeBackendSessionPromiseRef = useRef(null);
 
-  // Initialize background retry sync manager on mount & check URL params / restore report
-  useEffect(() => {
-    initBackgroundSync();
-    if (window.location.search.includes('token=') || window.location.pathname.includes('reset-password')) {
-      setCurrentView('forgot-password');
+  // Handle protected route navigation with browser history synchronization
+  const handleNavigate = (view, options = {}) => {
+    const { fromPopState = false, replace = false } = options;
+
+    const protectedViews = ['dashboard', 'profile', 'history', 'verify', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
+    if (protectedViews.includes(view) && !isAuthenticated && !isLoading) {
+      handleNavigate('login', { replace: true });
       return;
     }
+    // Prevent unverified accounts from bypassing verification to access session/dashboard views
+    const unverifiedBlockedViews = ['dashboard', 'setup', 'history', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
+    if (isAuthenticated && user && user.verificationStatus !== 'VERIFIED' && unverifiedBlockedViews.includes(view)) {
+      handleNavigate('verify', { replace: true });
+      return;
+    }
+    if (currentView === 'active' && view !== 'active') {
+      setIsTimerRunning(false);
+      setIsTimerPaused(false);
+    }
+
+    // Synchronize browser history entry (push or replace) unless triggered by popstate
+    if (!fromPopState && typeof window !== 'undefined') {
+      const canonicalPath = ROUTE_PATH_MAP[view] || `/${view === 'landing' ? '' : view}`;
+      const currentState = window.history.state;
+      if (!currentState || currentState.view !== view) {
+        if (replace) {
+          window.history.replaceState({ view }, '', canonicalPath);
+        } else {
+          window.history.pushState({ view }, '', canonicalPath);
+        }
+      }
+    }
+
+    setCurrentView(view);
+  };
+
+  // Initialize background retry sync manager, browser popstate listener & initial history state
+  useEffect(() => {
+    initBackgroundSync();
+
+    // Check URL params for reset password
+    if (window.location.search.includes('token=') || window.location.pathname.includes('reset-password')) {
+      handleNavigate('forgot-password', { replace: true });
+      return;
+    }
+
+    // Initialize initial history entry with replaceState if needed
+    // CRITICAL: NEVER call pushState on initial load so pressing Back in a fresh tab cleanly exits to New Tab
+    try {
+      const initialView = resolveViewFromLocation(window.location);
+      const canonicalPath = ROUTE_PATH_MAP[initialView] || `/${initialView === 'landing' ? '' : initialView}`;
+      if (!window.history.state || window.history.state.view !== initialView) {
+        window.history.replaceState({ view: initialView }, '', canonicalPath);
+      }
+    } catch (e) {}
 
     // Check if user was viewing a report before page refresh
     const savedReportSessionId = sessionStorage.getItem('focuslens_active_report_session_id');
@@ -102,25 +162,40 @@ function AppContent() {
             isHistorical: true,
             isLoading: false,
           });
-          setCurrentView('report');
+          handleNavigate('report', { replace: true });
         }
       }).catch(() => null);
     }
+
+    // Listen to browser Back and Forward button navigation events
+    const onPopState = (event) => {
+      const stateView = event.state?.view;
+      const targetView = stateView || resolveViewFromLocation(window.location);
+      if (targetView) {
+        handleNavigate(targetView, { fromPopState: true });
+      }
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+    };
   }, []);
 
-  // Handle protected route navigation
-  const handleNavigate = (view) => {
-    const protectedViews = ['dashboard', 'profile', 'history', 'verify', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
-    if (protectedViews.includes(view) && !isAuthenticated && !isLoading) {
-      setCurrentView('login');
-      return;
+  // Keep unverified authenticated users on the verification view or redirect unauthenticated
+  useEffect(() => {
+    if (!isLoading) {
+      const protectedViews = ['dashboard', 'profile', 'history', 'verify', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
+      if (protectedViews.includes(currentView) && !isAuthenticated) {
+        handleNavigate('login', { replace: true });
+        return;
+      }
+      const unverifiedBlockedViews = ['dashboard', 'setup', 'history', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
+      if (isAuthenticated && user && user.verificationStatus !== 'VERIFIED' && unverifiedBlockedViews.includes(currentView)) {
+        handleNavigate('verify', { replace: true });
+      }
     }
-    if (currentView === 'active' && view !== 'active') {
-      setIsTimerRunning(false);
-      setIsTimerPaused(false);
-    }
-    setCurrentView(view);
-  };
+  }, [isLoading, isAuthenticated, user?.verificationStatus, currentView]);
 
   const handleStartRecommendedSession = (suggestedSession) => {
     if (!suggestedSession) {
@@ -220,7 +295,7 @@ function AppContent() {
     ]);
 
     // Transition IMMEDIATELY to active view so monitoring initializes without network latency blocking
-    setCurrentView('active');
+    handleNavigate('active');
 
     // Register session asynchronously with backend and capture in ref
     const startPromise = startSession({
@@ -377,7 +452,7 @@ function AppContent() {
     };
 
     setReportData(summaryReport);
-    setCurrentView('report');
+    handleNavigate('report');
   };
 
   // End session manually button click
@@ -418,7 +493,7 @@ function AppContent() {
       isHistorical: true,
       isLoading: true,
     });
-    setCurrentView('report');
+    handleNavigate('report');
 
     if (sessionId) {
       try {
@@ -589,19 +664,31 @@ function AppContent() {
         {currentView === 'login' && (
           <LoginPage
             onNavigate={handleNavigate}
-            onLoginSuccess={() => setCurrentView('dashboard')}
+            onLoginSuccess={(loggedInUser) => {
+              if (loggedInUser?.verificationStatus !== 'VERIFIED') {
+                handleNavigate('verify');
+              } else {
+                handleNavigate('dashboard');
+              }
+            }}
           />
         )}
 
         {currentView === 'register' && (
           <RegisterPage
             onNavigate={handleNavigate}
-            onRegisterSuccess={(targetView) => setCurrentView(targetView || 'verify')}
+            onRegisterSuccess={(targetView, regInfo) => {
+              if (regInfo) setRegistrationState(regInfo);
+              handleNavigate(targetView || 'verify');
+            }}
           />
         )}
 
         {currentView === 'verify' && (
-          <VerificationPage onNavigate={handleNavigate} />
+          <VerificationPage
+            onNavigate={handleNavigate}
+            registrationState={registrationState}
+          />
         )}
 
         {currentView === 'dashboard' && (

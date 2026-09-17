@@ -1,6 +1,7 @@
 import React from 'react';
 import { Search, Bell, Plus, Calendar as CalendarIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { UserAvatar } from './UserAvatar.jsx';
 
 export function Topbar({ currentView }) {
   const { user } = useAuth();
@@ -59,9 +60,7 @@ export function Topbar({ currentView }) {
         </button>
         
         {/* User Profile */}
-        <div className="w-10 h-10 rounded-full bg-brand-600 flex items-center justify-center text-white font-bold shadow-lg shadow-brand-500/20 ml-2 border-2 border-slate-700/50">
-          {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
-        </div>
+        <UserAvatar user={user} size="md" roundedFull className="ml-2 border-2 border-slate-700/50" />
       </div>
     </header>
   );

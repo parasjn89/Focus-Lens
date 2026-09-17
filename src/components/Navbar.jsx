@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, ShieldCheck, LayoutDashboard, User, LogIn, Compass, Flame, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { UserAvatar } from './UserAvatar.jsx';
 
 export function Navbar({ currentView, onNavigate, activeSession }) {
   const { user, isAuthenticated } = useAuth();
@@ -135,7 +136,7 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                   }`}
                   title={user?.email}
                 >
-                  <User className="w-3.5 h-3.5 text-brand-400" />
+                  <UserAvatar user={user} size="xs" roundedFull className="w-4 h-4 text-[9px] mr-0.5" />
                   <span className="max-w-[120px] truncate">
                     {user?.name || (user?.username ? `@${user.username}` : 'Profile')}
                   </span>
