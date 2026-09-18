@@ -280,6 +280,7 @@ function AppContent() {
     activeSessionSegmentsRef.current = [];
     setActiveBackendSession(null);
     activeBackendSessionRef.current = null;
+    setPrefilledSetupConfig(null);
 
     setEventLogs([
       {
@@ -711,7 +712,10 @@ function AppContent() {
         {currentView === 'calendar' && (
           <CalendarPage
             onSelectSession={handleSelectHistoricalSession}
-            onNewSession={() => handleNavigate('setup')}
+            onNewSession={() => {
+              setPrefilledSetupConfig(null);
+              handleNavigate('setup');
+            }}
             onNavigate={handleNavigate}
           />
         )}

@@ -210,7 +210,10 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
 
           <button
             type="button"
-            onClick={onNewSession}
+            onClick={() => {
+              setSelectedDateStr(todayStr);
+              if (onNewSession) onNewSession();
+            }}
             className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs shadow-md shadow-brand-600/20 transition-all flex items-center space-x-1.5 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -482,7 +485,10 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
                   </p>
                   <button
                     type="button"
-                    onClick={onNewSession}
+                    onClick={() => {
+                      setSelectedDateStr(todayStr);
+                      if (onNewSession) onNewSession();
+                    }}
                     className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs shadow-md shadow-brand-600/20 transition-all mt-2 cursor-pointer"
                   >
                     <Play className="w-3 h-3 fill-current" />
@@ -583,7 +589,10 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
           <div className="pt-4 border-t border-slate-800">
             <button
               type="button"
-              onClick={onNewSession}
+              onClick={() => {
+                setSelectedDateStr(todayStr);
+                if (onNewSession) onNewSession();
+              }}
               className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold text-xs shadow-lg shadow-brand-600/25 flex items-center justify-center space-x-2 transition-all cursor-pointer"
             >
               <Play className="w-3.5 h-3.5 fill-current" />

@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, ShieldCheck, LayoutDashboard, User, LogIn, Compass, Flame, Sparkles } from 'lucide-react';
+import {
+  Eye,
+  LayoutDashboard,
+  LogIn,
+  Compass,
+  Flame,
+  Sparkles
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserAvatar } from './UserAvatar.jsx';
 
@@ -11,26 +18,36 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 10);
     };
+
     window.addEventListener('scroll', handleScroll);
+
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   return (
-    <div className={`fixed inset-x-0 z-50 transition-all duration-500 flex justify-center px-4 pointer-events-none ${isScrolled ? 'top-4' : 'top-6'}`}>
-      <header className={`w-full max-w-5xl transition-all duration-500 rounded-full pointer-events-auto ${
-        isScrolled 
-          ? 'border border-white/10 bg-navy-950/60 backdrop-blur-2xl shadow-xl shadow-black/30' 
-          : 'bg-transparent border border-transparent'
-      }`}>
+    <div
+      className={`fixed inset-x-0 z-50 transition-all duration-500 flex justify-center px-4 pointer-events-none ${
+        isScrolled ? 'top-4' : 'top-6'
+      }`}
+    >
+      <header
+        className={`w-full max-w-5xl transition-all duration-500 rounded-full pointer-events-auto ${
+          isScrolled
+            ? 'border border-white/10 bg-navy-950/60 backdrop-blur-2xl shadow-xl shadow-black/30'
+            : 'bg-transparent border border-transparent'
+        }`}
+      >
         <div className="flex items-center justify-between h-16 px-6">
+
           {/* LEFT: Logo and Brand */}
-          <div 
+          <div
             onClick={() => onNavigate('landing')}
             className="flex items-center space-x-3 cursor-pointer group flex-shrink-0"
           >
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-brand-500/20 group-hover:scale-105 transition-transform">
               <Eye className="w-6 h-6 text-white" />
             </div>
+
             <div className="hidden sm:block">
               <span className="text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-indigo-200">
                 FocusLens
@@ -38,8 +55,9 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
             </div>
           </div>
 
-          {/* CENTER: Navigation Actions (Desktop only) */}
+          {/* CENTER: Navigation Actions */}
           <div className="hidden md:flex items-center space-x-2.5 mx-4 flex-wrap justify-center">
+
             {currentView !== 'landing' && currentView !== 'active' && (
               <button
                 onClick={() => onNavigate('landing')}
@@ -51,6 +69,7 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
 
             {isAuthenticated && (
               <>
+                {/* Dashboard */}
                 {currentView !== 'active' && (
                   <button
                     onClick={() => onNavigate('dashboard')}
@@ -64,8 +83,8 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                     <span>Dashboard</span>
                   </button>
                 )}
-                
-                {/* Other nav items... */}
+
+                {/* Recommendations */}
                 {currentView !== 'active' && (
                   <button
                     onClick={() => onNavigate('recommendations')}
@@ -80,6 +99,7 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                   </button>
                 )}
 
+                {/* Consistency */}
                 {currentView !== 'active' && (
                   <button
                     onClick={() => onNavigate('consistency')}
@@ -94,6 +114,7 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                   </button>
                 )}
 
+                {/* Focus Coach */}
                 {currentView !== 'active' && (
                   <button
                     onClick={() => onNavigate('coach')}
@@ -108,6 +129,7 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                   </button>
                 )}
 
+                {/* History */}
                 {currentView !== 'active' && (
                   <button
                     onClick={() => onNavigate('history')}
@@ -120,35 +142,14 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                     History
                   </button>
                 )}
-<<<<<<< ours
-
-                <button
-                  onClick={() => onNavigate('profile')}
-                  className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
-                    currentView === 'profile'
-                      ? 'bg-slate-800 text-white border-slate-700'
-                      : 'text-slate-300 hover:text-white border-slate-800 hover:bg-slate-900'
-                  }`}
-                  title={user?.email}
-                >
-                  <UserAvatar user={user} size="xs" roundedFull className="w-4 h-4 text-[9px] mr-0.5" />
-                  <span className="max-w-[120px] truncate">
-                    {user?.name || (user?.username ? `@${user.username}` : 'Profile')}
-                  </span>
-                  {user?.username && (
-                    <span className="hidden lg:inline text-[10px] font-mono text-brand-400">
-                      @{user.username}
-                    </span>
-                  )}
-                </button>
-=======
->>>>>>> theirs
               </>
             )}
           </div>
 
           {/* RIGHT: Status, Auth, Profile */}
           <div className="flex items-center space-x-3 sm:space-x-4 flex-shrink-0">
+
+            {/* Active Session Status */}
             {currentView === 'active' && activeSession && (
               <span className="flex items-center space-x-2 text-[10px] sm:text-xs font-medium px-2.5 sm:px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 animate-pulse whitespace-nowrap">
                 <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
@@ -157,6 +158,7 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
               </span>
             )}
 
+            {/* Authenticated User */}
             {isAuthenticated ? (
               <button
                 onClick={() => onNavigate('profile')}
@@ -167,13 +169,22 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                 }`}
                 title={user?.email}
               >
-                <User className="w-3.5 h-3.5 text-brand-400" />
+                <UserAvatar
+                  user={user}
+                  size="xs"
+                  roundedFull
+                  className="w-4 h-4 text-[9px]"
+                />
+
                 <span className="max-w-[80px] sm:max-w-[120px] truncate hidden xs:inline-block">
-                  {user?.name || (user?.username ? `@${user.username}` : 'Profile')}
+                  {user?.name ||
+                    (user?.username ? `@${user.username}` : 'Profile')}
                 </span>
               </button>
             ) : (
+              /* Logged Out */
               <div className="flex items-center space-x-2 sm:space-x-3">
+
                 <button
                   onClick={() => onNavigate('login')}
                   className="flex items-center space-x-1.5 text-xs font-medium px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-800 hover:bg-slate-900 text-slate-300 hover:text-white transition-colors whitespace-nowrap"
@@ -188,9 +199,11 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                 >
                   Register
                 </button>
+
               </div>
             )}
 
+            {/* Start Session */}
             {currentView === 'landing' && (
               <button
                 onClick={() => onNavigate('setup')}
@@ -199,6 +212,7 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
                 Start Session
               </button>
             )}
+
           </div>
         </div>
       </header>

@@ -123,11 +123,33 @@ export async function createSession(request, reply) {
       targetUnit = 'minutes';
     }
 
+    // DATE SOURCE OF TRUTH:
+    // The authoritative session creation/start timestamp must come from the actual session start event.
+    // Use the real current server timestamp when a session is created.
+    // Client-supplied dates (such as a clicked calendar cell, URL parameter, or stale React state)
+    // must NEVER override the actual session creation date.
+    const now = new Date();
+    let sessionStartedAt = now;
+    if (body.startedAt) {
+      const clientDate = new Date(body.startedAt);
+      if (!isNaN(clientDate.getTime())) {
+        const diffMs = Math.abs(now.getTime() - clientDate.getTime());
+        // Accept client timestamp only if within reasonable clock skew / latency (within 2 hours in the past, or 1 minute in future).
+        // Any date outside this window (such as a historical clicked calendar cell date e.g. 2 days ago)
+        // is strictly rejected in favor of the authoritative server timestamp.
+        if (clientDate <= new Date(now.getTime() + 60000) && diffMs <= 2 * 3600 * 1000) {
+          sessionStartedAt = clientDate;
+        } else {
+          sessionStartedAt = now;
+        }
+      }
+    }
+
     const session = await dbStore.createSession({
       userId,
       selectedActivity: body.selectedActivity,
       plannedDurationMs: body.plannedDurationMs,
-      startedAt: body.startedAt,
+      startedAt: sessionStartedAt,
       goalText,
       goalType,
       targetValue,

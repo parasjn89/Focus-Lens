@@ -236,7 +236,6 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
                 type="text"
                 required
                 value={username}
-<<<<<<< ours
                 onChange={(e) => {
                   setUsername(e.target.value);
                   clearFieldError('username');
@@ -249,11 +248,6 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
                     ? 'border-rose-500/80 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 text-white'
                     : 'border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-white'
                 } text-sm placeholder-slate-500 outline-none transition-all font-mono`}
-=======
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter Username "
-                className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm text-white placeholder-slate-500 outline-none transition-all font-mono"
->>>>>>> theirs
               />
             </div>
             {fieldErrors.username && (
@@ -284,7 +278,6 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
                 type="text"
                 required
                 value={name}
-<<<<<<< ours
                 onChange={(e) => {
                   setName(e.target.value);
                   clearFieldError('name');
@@ -297,11 +290,6 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
                     ? 'border-rose-500/80 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 text-white'
                     : 'border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-white'
                 } text-sm placeholder-slate-500 outline-none transition-all`}
-=======
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Enter Your Name "
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm text-white placeholder-slate-500 outline-none transition-all"
->>>>>>> theirs
               />
             </div>
             {fieldErrors.name && (
@@ -431,7 +419,6 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
                 type="tel"
                 required={verificationMethod === 'PHONE'}
                 value={phoneNumber}
-<<<<<<< ours
                 onChange={(e) => {
                   setPhoneNumber(e.target.value);
                   clearFieldError('phoneNumber');
@@ -444,11 +431,6 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
                     ? 'border-rose-500/80 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 text-white'
                     : 'border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-white'
                 } text-sm placeholder-slate-500 outline-none transition-all`}
-=======
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder=" +91"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm text-white placeholder-slate-500 outline-none transition-all"
->>>>>>> theirs
               />
             </div>
             {fieldErrors.phoneNumber && (
