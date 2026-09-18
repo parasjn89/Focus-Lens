@@ -1,6 +1,6 @@
 import { eq, desc, gte, lte, and } from 'drizzle-orm';
 import { db, checkDbConnection } from './client.js';
-import { users, sessions, activitySegments, passwordResets, weeklyReviewNotes } from './schema.js';
+import { users, sessions, activitySegments, passwordResets, weeklyReviewNotes, googleCalendarConnections } from './schema.js';
 import crypto from 'crypto';
 
 // In-Memory Fallback Stores (used if PostgreSQL service is offline)
@@ -9,6 +9,7 @@ const memorySessions = new Map();
 const memorySegments = [];
 const memoryPasswordResets = new Map();
 const memoryWeeklyNotes = new Map();
+const memoryGoogleCalendarConnections = new Map();
 
 export const dbStore = {
   // USER OPERATIONS
@@ -789,6 +790,115 @@ export const dbStore = {
       totalPages: Math.ceil(totalCount / limit) || 1,
       hasMore: offset + limit < totalCount,
     };
+  },
+
+  // GOOGLE CALENDAR CONNECTIONS
+  async getGoogleCalendarConnection(userId) {
+    if (!userId) return null;
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      const rows = await db.select().from(googleCalendarConnections).where(eq(googleCalendarConnections.userId, userId)).limit(1);
+      return rows[0] || null;
+    }
+    return memoryGoogleCalendarConnections.get(userId) || null;
+  },
+
+  async upsertGoogleCalendarConnection(userId, {
+    googleAccountEmail,
+    accessTokenEncrypted,
+    refreshTokenEncrypted,
+    scope,
+    tokenExpiry,
+    calendarId = 'primary',
+  }) {
+    if (!userId) throw new Error('userId is required');
+    const now = new Date();
+    const isConnected = await checkDbConnection();
+
+    if (isConnected) {
+      const existing = await db.select().from(googleCalendarConnections).where(eq(googleCalendarConnections.userId, userId)).limit(1);
+      if (existing.length > 0) {
+        const updateValues = {
+          googleAccountEmail: googleAccountEmail || existing[0].googleAccountEmail,
+          accessTokenEncrypted,
+          refreshTokenEncrypted: refreshTokenEncrypted || existing[0].refreshTokenEncrypted,
+          scope: scope || existing[0].scope,
+          tokenExpiry: tokenExpiry || existing[0].tokenExpiry,
+          calendarId: calendarId || existing[0].calendarId,
+          updatedAt: now,
+        };
+        const [updated] = await db.update(googleCalendarConnections)
+          .set(updateValues)
+          .where(eq(googleCalendarConnections.userId, userId))
+          .returning();
+        return updated;
+      }
+
+      const [created] = await db.insert(googleCalendarConnections).values({
+        userId,
+        provider: 'google',
+        googleAccountEmail: googleAccountEmail || null,
+        accessTokenEncrypted,
+        refreshTokenEncrypted: refreshTokenEncrypted || null,
+        scope: scope || null,
+        tokenExpiry: tokenExpiry || null,
+        calendarId: calendarId || 'primary',
+        createdAt: now,
+        updatedAt: now,
+      }).returning();
+      return created;
+    }
+
+    // Memory fallback
+    const existing = memoryGoogleCalendarConnections.get(userId);
+    const connection = {
+      id: existing?.id || crypto.randomUUID(),
+      userId,
+      provider: 'google',
+      googleAccountEmail: googleAccountEmail || existing?.googleAccountEmail || null,
+      accessTokenEncrypted,
+      refreshTokenEncrypted: refreshTokenEncrypted || existing?.refreshTokenEncrypted || null,
+      scope: scope || existing?.scope || null,
+      tokenExpiry: tokenExpiry || existing?.tokenExpiry || null,
+      calendarId: calendarId || existing?.calendarId || 'primary',
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+    memoryGoogleCalendarConnections.set(userId, connection);
+    return connection;
+  },
+
+  async updateGoogleCalendarSelectedCalendar(userId, calendarId) {
+    if (!userId || !calendarId) return null;
+    const now = new Date();
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      const [updated] = await db.update(googleCalendarConnections)
+        .set({ calendarId, updatedAt: now })
+        .where(eq(googleCalendarConnections.userId, userId))
+        .returning();
+      return updated || null;
+    }
+
+    const existing = memoryGoogleCalendarConnections.get(userId);
+    if (existing) {
+      existing.calendarId = calendarId;
+      existing.updatedAt = now;
+      memoryGoogleCalendarConnections.set(userId, existing);
+      return existing;
+    }
+    return null;
+  },
+
+  async deleteGoogleCalendarConnection(userId) {
+    if (!userId) return false;
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      await db.delete(googleCalendarConnections).where(eq(googleCalendarConnections.userId, userId));
+      return true;
+    }
+    memoryGoogleCalendarConnections.delete(userId);
+    return true;
   },
 };
 

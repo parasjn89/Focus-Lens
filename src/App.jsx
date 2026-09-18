@@ -27,6 +27,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { startSession, saveSessionSegments, finalizeSession, fetchSessionById } from './api/sessionApi';
 import { initBackgroundSync } from './api/syncManager';
 import { ROUTE_PATH_MAP, PATH_ALIASES, resolveViewFromLocation } from './utils/routes';
+import { MAX_PAUSE_DURATION_MS, AUTO_RESUME_NOTIFICATION_MESSAGE } from './utils/sessionTimer';
 
 function AppContent() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -56,6 +57,9 @@ function AppContent() {
   const [remainingSeconds, setRemainingSeconds] = useState(25 * 60);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [isTimerPaused, setIsTimerPaused] = useState(false);
+  const [pauseStartedAt, setPauseStartedAt] = useState(null);
+  const [isPauseConfirmOpen, setIsPauseConfirmOpen] = useState(false);
+  const [autoResumeNotice, setAutoResumeNotice] = useState(null);
   const [eventLogs, setEventLogs] = useState([]);
   const [activeSessionSegments, setActiveSessionSegments] = useState([]);
   const [reportData, setReportData] = useState(null);
@@ -64,6 +68,7 @@ function AppContent() {
   const timerStartedAtRef = useRef(null);
   const pausedAtRef = useRef(null);
   const totalPausedMsRef = useRef(0);
+  const autoResumeTimeoutRef = useRef(null);
   const isFinalizingRef = useRef(false);
   const activeBackendSessionRef = useRef(null);
   const activeSessionSegmentsRef = useRef([]);
@@ -87,6 +92,12 @@ function AppContent() {
     if (currentView === 'active' && view !== 'active') {
       setIsTimerRunning(false);
       setIsTimerPaused(false);
+      setPauseStartedAt(null);
+      setIsPauseConfirmOpen(false);
+      if (autoResumeTimeoutRef.current) {
+        clearTimeout(autoResumeTimeoutRef.current);
+        autoResumeTimeoutRef.current = null;
+      }
     }
 
     // Synchronize browser history entry (push or replace) unless triggered by popstate
@@ -273,6 +284,13 @@ function AppContent() {
     pausedAtRef.current = null;
     totalPausedMsRef.current = 0;
     isFinalizingRef.current = false;
+    setPauseStartedAt(null);
+    setIsPauseConfirmOpen(false);
+    setAutoResumeNotice(null);
+    if (autoResumeTimeoutRef.current) {
+      clearTimeout(autoResumeTimeoutRef.current);
+      autoResumeTimeoutRef.current = null;
+    }
 
     setIsTimerRunning(true);
     setIsTimerPaused(false);
@@ -322,26 +340,110 @@ function AppContent() {
     });
   };
 
-  // Pause timer handler
-  const handlePauseTimer = () => {
-    if (isTimerRunning && !isTimerPaused) {
-      pausedAtRef.current = Date.now();
-      setIsTimerPaused(true);
-      addEventLog('Session Paused', 'User manually paused countdown timer.');
+  // Request pause: show confirmation dialog before pausing
+  const handleRequestPause = () => {
+    if (isTimerRunning && !isTimerPaused && !isFinalizingRef.current) {
+      setIsPauseConfirmOpen(true);
     }
   };
 
-  // Resume timer handler
+  // Cancel pause request: dismiss dialog without pausing
+  const handleCancelPause = () => {
+    setIsPauseConfirmOpen(false);
+  };
+
+  // Confirm pause: start 5-minute pause window and record exact timestamp
+  const handleConfirmPause = () => {
+    if (isTimerRunning && !isTimerPaused && !isFinalizingRef.current) {
+      setIsPauseConfirmOpen(false);
+      const now = Date.now();
+      pausedAtRef.current = now;
+      setPauseStartedAt(now);
+      setIsTimerPaused(true);
+      addEventLog('Session Paused', 'User paused countdown timer (5-minute maximum pause limit).');
+
+      // Schedule fallback wakeup timeout for 5 minutes
+      if (autoResumeTimeoutRef.current) {
+        clearTimeout(autoResumeTimeoutRef.current);
+      }
+      autoResumeTimeoutRef.current = setTimeout(() => {
+        handleCheckAutoResume();
+      }, MAX_PAUSE_DURATION_MS);
+    }
+  };
+
+  // Resume timer handler (Manual or Auto)
   const handleResumeTimer = () => {
-    if (isTimerRunning && isTimerPaused) {
+    if (isTimerRunning && isTimerPaused && !isFinalizingRef.current) {
+      if (autoResumeTimeoutRef.current) {
+        clearTimeout(autoResumeTimeoutRef.current);
+        autoResumeTimeoutRef.current = null;
+      }
+      const now = Date.now();
       if (pausedAtRef.current) {
-        totalPausedMsRef.current += (Date.now() - pausedAtRef.current);
+        const elapsed = Math.max(0, now - pausedAtRef.current);
+        totalPausedMsRef.current += Math.min(elapsed, MAX_PAUSE_DURATION_MS);
         pausedAtRef.current = null;
       }
+      setPauseStartedAt(null);
       setIsTimerPaused(false);
       addEventLog('Session Resumed', 'Focus countdown resumed.');
     }
   };
+
+  // Automatic resume triggered when 5-minute limit is reached
+  const handleAutoResume = () => {
+    if (!isTimerRunning || !isTimerPaused || isFinalizingRef.current || !pausedAtRef.current) {
+      return;
+    }
+    if (autoResumeTimeoutRef.current) {
+      clearTimeout(autoResumeTimeoutRef.current);
+      autoResumeTimeoutRef.current = null;
+    }
+    // Exactly 5 minutes (MAX_PAUSE_DURATION_MS) credited for pause
+    totalPausedMsRef.current += MAX_PAUSE_DURATION_MS;
+    pausedAtRef.current = null;
+    setPauseStartedAt(null);
+    setIsTimerPaused(false);
+
+    addEventLog('Session Auto-Resumed', '5-minute maximum pause reached. Focus timer resumed automatically.');
+    setAutoResumeNotice(AUTO_RESUME_NOTIFICATION_MESSAGE);
+  };
+
+  // Check auto resume condition based on stored timestamp (authoritative)
+  const handleCheckAutoResume = () => {
+    if (isTimerRunning && isTimerPaused && pausedAtRef.current && !isFinalizingRef.current) {
+      const elapsed = Date.now() - pausedAtRef.current;
+      if (elapsed >= MAX_PAUSE_DURATION_MS) {
+        handleAutoResume();
+      }
+    }
+  };
+
+  // Background-tab / visibilitychange & wake reconciliation for pause limit
+  useEffect(() => {
+    const handleReconcile = () => {
+      if (document.visibilityState === 'visible' || document.hasFocus()) {
+        handleCheckAutoResume();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleReconcile);
+    window.addEventListener('focus', handleReconcile);
+
+    let pauseTickerId = null;
+    if (isTimerRunning && isTimerPaused && pausedAtRef.current) {
+      pauseTickerId = setInterval(() => {
+        handleCheckAutoResume();
+      }, 500);
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleReconcile);
+      window.removeEventListener('focus', handleReconcile);
+      if (pauseTickerId) clearInterval(pauseTickerId);
+    };
+  }, [isTimerRunning, isTimerPaused]);
 
   // Helper to add timeline event log
   const addEventLog = (label, description) => {
@@ -373,7 +475,13 @@ function AppContent() {
     isFinalizingRef.current = true;
     setIsTimerRunning(false);
     setIsTimerPaused(false);
-    pauseStartTimeRef.current = null;
+    pausedAtRef.current = null;
+    setPauseStartedAt(null);
+    setIsPauseConfirmOpen(false);
+    if (autoResumeTimeoutRef.current) {
+      clearTimeout(autoResumeTimeoutRef.current);
+      autoResumeTimeoutRef.current = null;
+    }
 
     const scheduledSeconds = sessionConfig.durationMinutes * 60;
     let actualSecondsSpent = scheduledSeconds;
@@ -590,9 +698,15 @@ function AppContent() {
             sessionInfo={sessionConfig}
             remainingSeconds={remainingSeconds}
             isPaused={isTimerPaused}
-            onPause={handlePauseTimer}
+            pauseStartedAt={pauseStartedAt}
+            onPause={handleRequestPause}
             onResume={handleResumeTimer}
             onEndSession={handleEndSession}
+            isPauseConfirmOpen={isPauseConfirmOpen}
+            onConfirmPause={handleConfirmPause}
+            onCancelPause={handleCancelPause}
+            autoResumeNotice={autoResumeNotice}
+            onDismissAutoResumeNotice={() => setAutoResumeNotice(null)}
             eventLogs={eventLogs}
             onAddEventLog={addEventLog}
             onUpdateSessionSegments={(segments) => {
@@ -712,8 +826,8 @@ function AppContent() {
         {currentView === 'calendar' && (
           <CalendarPage
             onSelectSession={handleSelectHistoricalSession}
-            onNewSession={() => {
-              setPrefilledSetupConfig(null);
+            onNewSession={(prefill) => {
+              setPrefilledSetupConfig(prefill || null);
               handleNavigate('setup');
             }}
             onNavigate={handleNavigate}

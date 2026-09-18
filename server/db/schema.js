@@ -98,11 +98,29 @@ export const passwordResets = pgTable('password_resets', {
   idxPasswordResetsUserId: index('idx_password_resets_user_id').on(table.userId),
 }));
 
+// Google Calendar Connections table
+export const googleCalendarConnections = pgTable('google_calendar_connections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull().unique(),
+  provider: text('provider').default('google').notNull(),
+  googleAccountEmail: text('google_account_email'),
+  accessTokenEncrypted: text('access_token_encrypted').notNull(),
+  refreshTokenEncrypted: text('refresh_token_encrypted'),
+  scope: text('scope'),
+  tokenExpiry: timestamp('token_expiry'),
+  calendarId: text('calendar_id').default('primary'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  idxGoogleCalUser: index('idx_google_cal_user').on(table.userId),
+}));
+
 // Drizzle Relations
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ one, many }) => ({
   sessions: many(sessions),
   passwordResets: many(passwordResets),
   weeklyReviewNotes: many(weeklyReviewNotes),
+  googleCalendarConnection: one(googleCalendarConnections),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one, many }) => ({
@@ -130,6 +148,13 @@ export const activitySegmentsRelations = relations(activitySegments, ({ one }) =
 export const passwordResetsRelations = relations(passwordResets, ({ one }) => ({
   user: one(users, {
     fields: [passwordResets.userId],
+    references: [users.id],
+  }),
+}));
+
+export const googleCalendarConnectionsRelations = relations(googleCalendarConnections, ({ one }) => ({
+  user: one(users, {
+    fields: [googleCalendarConnections.userId],
     references: [users.id],
   }),
 }));

@@ -26,4 +26,10 @@ export const config = {
   smsFromNumber: process.env.SMS_FROM_NUMBER || '',
 
   appBaseUrl: process.env.APP_BASE_URL || 'http://localhost:3001',
+
+  // Google Calendar Integration Configuration
+  googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+  googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/integrations/google-calendar/callback',
+  googleTokenEncryptionKey: process.env.GOOGLE_TOKEN_ENCRYPTION_KEY || '',
 };
