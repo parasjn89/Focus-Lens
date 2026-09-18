@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Pause, Play, Square, Settings, Camera, Monitor, Brain, RefreshCw } from 'lucide-react';
 import { formatSecondsToTime } from '../utils/formatters';
+import { formatPauseTime } from '../utils/sessionTimer';
 
 export function FuturisticTimer({
   remainingSeconds,
   progressPercent,
   isPaused,
+  pauseStartedAt = null,
   activity,
   onPause,
   onResume,
@@ -16,6 +18,21 @@ export function FuturisticTimer({
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const containerRef = useRef(null);
   const [hasStarted, setHasStarted] = useState(false);
+  const [pauseRemainingSecs, setPauseRemainingSecs] = useState(null);
+
+  useEffect(() => {
+    if (!isPaused || !pauseStartedAt) {
+      setPauseRemainingSecs(null);
+      return;
+    }
+    const updatePauseInfo = () => {
+      const remainingMs = 5 * 60 * 1000 - (Date.now() - pauseStartedAt);
+      setPauseRemainingSecs(Math.max(0, Math.ceil(remainingMs / 1000)));
+    };
+    updatePauseInfo();
+    const interval = setInterval(updatePauseInfo, 500);
+    return () => clearInterval(interval);
+  }, [isPaused, pauseStartedAt]);
 
   useEffect(() => {
     // Entrance animation trigger
@@ -105,14 +122,28 @@ export function FuturisticTimer({
           </div>
           
           <div className="flex items-center space-x-3 px-6 py-2 rounded-full bg-[#161616]/90 border border-[#B58863]/30 shadow-[0_4px_20px_rgba(0,0,0,0.4)] backdrop-blur-md">
-            <span className={`w-2.5 h-2.5 rounded-full ${isPaused ? 'bg-[#A79E9C]' : 'bg-[#B58863] shadow-[0_0_8px_#B58863] animate-pulse'}`} />
+            <span className={`w-2.5 h-2.5 rounded-full ${isPaused ? 'bg-amber-400 animate-pulse' : 'bg-[#B58863] shadow-[0_0_8px_#B58863] animate-pulse'}`} />
             <span className="text-sm font-bold tracking-[0.25em] uppercase text-[#D3C3B9]">
-              {isCompleted ? 'COMPLETE' : activity}
+              {isCompleted ? 'COMPLETE' : isPaused ? 'PAUSED' : activity}
             </span>
           </div>
 
+          {isPaused && (
+            <div className="flex items-center space-x-2 px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span>
+                {pauseRemainingSecs !== null
+                  ? `Auto-resumes in ${formatPauseTime(pauseRemainingSecs)}`
+                  : 'Auto-resumes in 5:00'}
+              </span>
+              <span className="text-[10px] text-amber-400/70 font-normal">
+                (Max 5 min)
+              </span>
+            </div>
+          )}
+
           <div className="text-[11px] uppercase tracking-[0.3em] text-[#A79E9C] opacity-50 font-medium">
-            Deep Work Mode &middot; Stay Focused
+            {isPaused ? 'Session Paused · Timer Suspended' : 'Deep Work Mode · Stay Focused'}
           </div>
         </div>
 

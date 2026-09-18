@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { Camera, CameraOff, Lock, ShieldCheck, RefreshCw, AlertCircle, Eye, UserCheck } from 'lucide-react';
 
 export function CameraMonitoringCard({
@@ -13,8 +13,8 @@ export function CameraMonitoringCard({
   const internalVideoRef = useRef(null);
   const videoRef = externalVideoRef || internalVideoRef;
 
-  // Callback ref: fires when DOM node mounts
-  const handleVideoRef = (node) => {
+  // Stable callback ref: directly updates ref when DOM node mounts or unmounts
+  const handleVideoRef = useCallback((node) => {
     if (externalVideoRef) {
       externalVideoRef.current = node;
     }
@@ -32,7 +32,7 @@ export function CameraMonitoringCard({
         });
       }
     }
-  };
+  }, [externalVideoRef, stream]);
 
   // Effect to attach stream if stream updates while video is already mounted
   useEffect(() => {

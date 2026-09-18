@@ -108,7 +108,7 @@ export function useObjectDetection({
   useEffect(() => {
     let isSubscribed = true;
 
-    if (isCameraActive && isVideoReady) {
+    if (isCameraActive) {
       console.log('[ObjectHook] initialization requested');
 
       if (modelStatus === 'READY') {
@@ -121,20 +121,10 @@ export function useObjectDetection({
       setModelStatus('LOADING');
       setError(null);
 
-      const timeoutId = setTimeout(() => {
-        if (isSubscribed && modelStatus !== 'READY') {
-          console.error('[ObjectHook] initialization failed: timed out after 10s');
-          setModelStatus('ERROR');
-          setError('Object model initialization timed out after 10000ms');
-        }
-      }, 10000);
-
       getObjectDetector()
         .then((instance) => {
           if (isSubscribed) {
-            clearTimeout(timeoutId);
-            console.log('[ObjectHook] getObjectDetector() returned');
-            console.log('[ObjectHook] detector instance exists:', Boolean(instance));
+            console.log('[ObjectHook] getObjectDetector() returned, instance exists:', Boolean(instance));
             console.log('[ObjectHook] initialization completed');
             setModelStatus('READY');
             setError(null);
@@ -142,9 +132,8 @@ export function useObjectDetection({
         })
         .catch((err) => {
           if (isSubscribed) {
-            clearTimeout(timeoutId);
             const errMsg = err.message || String(err);
-            console.error('[ObjectHook] initialization failed:', errMsg);
+            console.error('[ObjectHook] initialization failed:', errMsg, err.stack);
             setModelStatus('ERROR');
             setError(`Failed to initialize ObjectDetector: ${errMsg}`);
             setDebugStats((prev) => ({ ...prev, lastError: errMsg }));
@@ -153,7 +142,6 @@ export function useObjectDetection({
 
       return () => {
         isSubscribed = false;
-        clearTimeout(timeoutId);
       };
     } else {
       setModelStatus('IDLE');
@@ -185,7 +173,7 @@ export function useObjectDetection({
       if (personTrackerRef.current) personTrackerRef.current.reset();
       if (eventEngineRef.current) eventEngineRef.current.reset();
     }
-  }, [isCameraActive, isVideoReady]);
+  }, [isCameraActive]);
 
   // 2. Periodic Inference Loop Effect
   useEffect(() => {
@@ -198,7 +186,7 @@ export function useObjectDetection({
 
     const intervalId = setInterval(async () => {
       const video = videoRef?.current;
-      if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0 || video.paused || video.ended) {
+      if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0 || video.paused || video.ended || (video.currentTime === 0 && !video.seeking)) {
         return;
       }
 

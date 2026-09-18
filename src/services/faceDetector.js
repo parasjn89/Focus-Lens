@@ -9,41 +9,51 @@ const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/was
 const MODEL_ASSET_PATH = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
 
 /**
- * Creates FaceDetector instance trying GPU delegate first with a 3000ms race timeout before falling back to CPU.
+ * Creates FaceDetector instance trying GPU delegate first with a 20000ms race timeout before falling back to CPU.
  */
-async function createFaceDetectorWithOptions(vision, options, timeoutMs = 3000) {
+async function createFaceDetectorWithOptions(vision, options, timeoutMs = 20000) {
+  console.log('[Vision] FaceDetector - exact model asset URL:', options.baseOptions?.modelAssetPath);
+  console.log('[Vision] FaceDetector - runningMode:', options.runningMode);
+
   // 1. Try GPU delegate with timeout if requested
   if (options.baseOptions?.delegate === 'GPU') {
     try {
-      console.log('[Vision] face model creation started (delegate: GPU)');
+      console.log('[Vision] FaceDetector - model creation started (delegate: GPU)');
       const gpuPromise = FaceDetector.createFromOptions(vision, options);
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error(`GPU delegate creation timed out after ${timeoutMs}ms`)), timeoutMs)
       );
       const instance = await Promise.race([gpuPromise, timeoutPromise]);
-      console.log('[Vision] face model creation succeeded (delegate: GPU)');
+      console.log('[Vision] FaceDetector - model creation succeeded (delegate: GPU)');
       return { instance, delegate: 'GPU' };
     } catch (gpuErr) {
       console.warn(`[Vision] FaceDetector GPU delegate failed or timed out (${gpuErr.message}). Falling back to CPU...`);
+      console.warn('[Vision] FaceDetector GPU caught exception stack:', gpuErr.stack);
     }
   }
 
   // 2. CPU fallback
-  console.log('[Vision] face model creation started (delegate: CPU)');
-  const cpuOptions = {
-    ...options,
-    baseOptions: {
-      ...options.baseOptions,
-      delegate: 'CPU',
-    },
-  };
-  const cpuPromise = FaceDetector.createFromOptions(vision, cpuOptions);
-  const cpuTimeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`CPU delegate creation timed out after ${timeoutMs * 2}ms`)), timeoutMs * 2)
-  );
-  const instance = await Promise.race([cpuPromise, cpuTimeoutPromise]);
-  console.log('[Vision] face model creation succeeded (delegate: CPU)');
-  return { instance, delegate: 'CPU' };
+  try {
+    console.log('[Vision] FaceDetector - model creation started (delegate: CPU)');
+    const cpuOptions = {
+      ...options,
+      baseOptions: {
+        ...options.baseOptions,
+        delegate: 'CPU',
+      },
+    };
+    const cpuPromise = FaceDetector.createFromOptions(vision, cpuOptions);
+    const cpuTimeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`CPU delegate creation timed out after ${timeoutMs * 2}ms`)), timeoutMs * 2)
+    );
+    const instance = await Promise.race([cpuPromise, cpuTimeoutPromise]);
+    console.log('[Vision] FaceDetector - model creation succeeded (delegate: CPU)');
+    return { instance, delegate: 'CPU' };
+  } catch (cpuErr) {
+    console.error('[Vision] FaceDetector - caught exception message:', cpuErr.message);
+    console.error('[Vision] FaceDetector - caught exception stack:', cpuErr.stack);
+    throw cpuErr;
+  }
 }
 
 /**
@@ -54,13 +64,13 @@ export function getFaceDetector() {
   if (detectorInstance) return Promise.resolve(detectorInstance);
   if (initPromise) return initPromise;
 
-  console.log('[Vision] face initialization started');
+  console.log('[Vision] FaceDetector - initialization started');
 
   initPromise = (async () => {
     try {
-      console.log('[Vision] face WASM/fileset loading started');
+      console.log('[Vision] FaceDetector - FilesetResolver creation started');
       const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-      console.log('[Vision] face WASM/fileset loaded');
+      console.log('[Vision] FaceDetector - FilesetResolver creation succeeded');
 
       const options = {
         baseOptions: {
@@ -71,14 +81,14 @@ export function getFaceDetector() {
         minDetectionConfidence: 0.3,
       };
 
-      const result = await createFaceDetectorWithOptions(vision, options, 3000);
+      const result = await createFaceDetectorWithOptions(vision, options, 20000);
       detectorInstance = result.instance;
       delegateUsed = result.delegate;
 
-      console.log(`[Vision] face model READY (delegate: ${delegateUsed})`);
+      console.log(`[Vision] FaceDetector - model READY (delegate: ${delegateUsed})`);
       return detectorInstance;
     } catch (err) {
-      console.error('[Vision] face initialization FAILED:', err.name, err.message, err.stack);
+      console.error('[Vision] FaceDetector - initialization FAILED:', err.name, err.message, err.stack);
       initPromise = null; // Clear lock so subsequent retries are permitted
       throw err;
     }
@@ -91,10 +101,9 @@ export function getFaceDetector() {
  * Ensures timestamp is strictly increasing for detectForVideo calls.
  */
 function getMonotonicTimestamp() {
-  const now = performance.now();
-  const ts = Math.max(now, lastTimestamp + 1);
-  lastTimestamp = ts;
-  return Math.round(ts);
+  const now = Math.round(performance.now());
+  lastTimestamp = Math.max(now, lastTimestamp + 1);
+  return lastTimestamp;
 }
 
 /**

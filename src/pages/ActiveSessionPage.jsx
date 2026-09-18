@@ -18,15 +18,23 @@ import { CameraMonitoringCard } from '../components/CameraMonitoringCard';
 import { ScreenMonitorCard } from '../components/ScreenMonitorCard';
 import { AIMonitoringCard } from '../components/AIMonitoringCard';
 import { FuturisticTimer } from '../components/FuturisticTimer';
+import { PauseConfirmModal } from '../components/PauseConfirmModal';
+import { AutoResumeNoticeModal } from '../components/AutoResumeNoticeModal';
 
 export function ActiveSessionPage({
   sessionInfo,
   remainingSeconds,
   isPaused,
+  pauseStartedAt = null,
   onPause,
   onResume,
   onEndSession,
   onUpdateSessionSegments,
+  isPauseConfirmOpen = false,
+  onConfirmPause,
+  onCancelPause,
+  autoResumeNotice = null,
+  onDismissAutoResumeNotice,
 }) {
   const { activity, durationMinutes, initialStreams } = sessionInfo || { activity: 'Focus Session', durationMinutes: 25 };
   const totalSeconds = durationMinutes * 60;
@@ -91,11 +99,14 @@ export function ActiveSessionPage({
   });
 
   // 5. Object Detection Hook
-      const {
+  const {
     phoneState,
     phoneConfidence,
     personState,
     personCount,
+    rawPersonCount,
+    personOnPhoneCount,
+    isPersonOnPhoneScreen,
     modelStatus: objectModelStatus,
     inferenceStatus: objectInferenceStatus,
     error: objectModelError,
@@ -108,7 +119,7 @@ export function ActiveSessionPage({
   });
 
   // 6. Head Orientation Hook
-    const {
+  const {
     orientation: headOrientation,
     confidence: headConfidence,
     metrics: headMetrics,
@@ -124,7 +135,7 @@ export function ActiveSessionPage({
   });
 
   // 8. Activity Analyzer Hook
-    const {
+  const {
     currentActivity,
     activityLabel,
     activitySegments,
@@ -135,6 +146,9 @@ export function ActiveSessionPage({
     isFacePresent: faceState === 'FACE_PRESENT',
     isPhonePresent: phoneState === 'PHONE_PRESENT',
     personCount,
+    rawPersonCount,
+    personOnPhoneCount,
+    isPersonOnPhoneScreen,
     headOrientation,
     isScreenActive,
     screenActivity,
@@ -148,6 +162,9 @@ export function ActiveSessionPage({
       facePresent: faceState === 'FACE_PRESENT',
       phonePresent: phoneState === 'PHONE_PRESENT',
       personCount,
+      rawPersonCount,
+      personOnPhoneCount,
+      isPersonOnPhoneScreen,
       headOrientation,
     },
     screen: {
@@ -275,6 +292,7 @@ export function ActiveSessionPage({
         remainingSeconds={remainingSeconds}
         progressPercent={progressPercent}
         isPaused={isPaused}
+        pauseStartedAt={pauseStartedAt}
         activity={activityLabel}
         onPause={onPause}
         onResume={onResume}
@@ -388,7 +406,20 @@ export function ActiveSessionPage({
           onRunLandmarkerTest={() => runSingleLandmarkerTest(videoRef.current)}
         />
       </div>
-      
+
+      {/* 5-Minute Maximum Pause Warning & Confirmation Modal */}
+      <PauseConfirmModal
+        isOpen={isPauseConfirmOpen}
+        onConfirm={onConfirmPause}
+        onCancel={onCancelPause}
+      />
+
+      {/* 5-Minute Auto-Resume Notification Modal */}
+      <AutoResumeNoticeModal
+        isOpen={Boolean(autoResumeNotice)}
+        message={autoResumeNotice}
+        onDismiss={onDismissAutoResumeNotice}
+      />
     </div>
   );
 }

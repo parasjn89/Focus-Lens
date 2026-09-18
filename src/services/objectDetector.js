@@ -9,39 +9,49 @@ const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/was
 const MODEL_ASSET_PATH = 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite';
 
 /**
- * Creates ObjectDetector instance trying GPU delegate first with a 3000ms race timeout before falling back to CPU.
+ * Creates ObjectDetector instance trying GPU delegate first with a 20000ms race timeout before falling back to CPU.
  */
-async function createObjectDetectorWithOptions(vision, options, timeoutMs = 3000) {
+async function createObjectDetectorWithOptions(vision, options, timeoutMs = 20000) {
+  console.log('[Vision] ObjectDetector - exact model asset URL:', options.baseOptions?.modelAssetPath);
+  console.log('[Vision] ObjectDetector - runningMode:', options.runningMode);
+
   if (options.baseOptions?.delegate === 'GPU') {
     try {
-      console.log('[Vision] object model creation started (delegate: GPU)');
+      console.log('[Vision] ObjectDetector - model creation started (delegate: GPU)');
       const gpuPromise = ObjectDetector.createFromOptions(vision, options);
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error(`GPU delegate creation timed out after ${timeoutMs}ms`)), timeoutMs)
       );
       const instance = await Promise.race([gpuPromise, timeoutPromise]);
-      console.log('[Vision] object model creation succeeded (delegate: GPU)');
+      console.log('[Vision] ObjectDetector - model creation succeeded (delegate: GPU)');
       return { instance, delegate: 'GPU' };
     } catch (gpuErr) {
       console.warn(`[Vision] ObjectDetector GPU delegate failed or timed out (${gpuErr.message}). Falling back to CPU...`);
+      console.warn('[Vision] ObjectDetector GPU caught exception stack:', gpuErr.stack);
     }
   }
 
-  console.log('[Vision] object model creation started (delegate: CPU)');
-  const cpuOptions = {
-    ...options,
-    baseOptions: {
-      ...options.baseOptions,
-      delegate: 'CPU',
-    },
-  };
-  const cpuPromise = ObjectDetector.createFromOptions(vision, cpuOptions);
-  const cpuTimeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`CPU delegate creation timed out after ${timeoutMs * 2}ms`)), timeoutMs * 2)
-  );
-  const instance = await Promise.race([cpuPromise, cpuTimeoutPromise]);
-  console.log('[Vision] object model creation succeeded (delegate: CPU)');
-  return { instance, delegate: 'CPU' };
+  try {
+    console.log('[Vision] ObjectDetector - model creation started (delegate: CPU)');
+    const cpuOptions = {
+      ...options,
+      baseOptions: {
+        ...options.baseOptions,
+        delegate: 'CPU',
+      },
+    };
+    const cpuPromise = ObjectDetector.createFromOptions(vision, cpuOptions);
+    const cpuTimeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`CPU delegate creation timed out after ${timeoutMs * 2}ms`)), timeoutMs * 2)
+    );
+    const instance = await Promise.race([cpuPromise, cpuTimeoutPromise]);
+    console.log('[Vision] ObjectDetector - model creation succeeded (delegate: CPU)');
+    return { instance, delegate: 'CPU' };
+  } catch (cpuErr) {
+    console.error('[Vision] ObjectDetector - caught exception message:', cpuErr.message);
+    console.error('[Vision] ObjectDetector - caught exception stack:', cpuErr.stack);
+    throw cpuErr;
+  }
 }
 
 /**
@@ -51,13 +61,13 @@ export function getObjectDetector() {
   if (detectorInstance) return Promise.resolve(detectorInstance);
   if (initPromise) return initPromise;
 
-  console.log('[Vision] object initialization started');
+  console.log('[Vision] ObjectDetector - initialization started');
 
   initPromise = (async () => {
     try {
-      console.log('[Vision] object WASM/fileset loading started');
+      console.log('[Vision] ObjectDetector - FilesetResolver creation started');
       const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-      console.log('[Vision] object WASM/fileset loaded');
+      console.log('[Vision] ObjectDetector - FilesetResolver creation succeeded');
 
       const options = {
         baseOptions: {
@@ -68,14 +78,14 @@ export function getObjectDetector() {
         runningMode: 'VIDEO'
       };
 
-      const result = await createObjectDetectorWithOptions(vision, options, 3000);
+      const result = await createObjectDetectorWithOptions(vision, options, 20000);
       detectorInstance = result.instance;
       delegateUsed = result.delegate;
 
-      console.log(`[Vision] object model READY (delegate: ${delegateUsed})`);
+      console.log(`[Vision] ObjectDetector - model READY (delegate: ${delegateUsed})`);
       return detectorInstance;
     } catch (err) {
-      console.error('[Vision] object initialization FAILED:', err.name, err.message, err.stack);
+      console.error('[Vision] ObjectDetector - initialization FAILED:', err.name, err.message, err.stack);
       initPromise = null;
       throw err;
     }
@@ -85,10 +95,9 @@ export function getObjectDetector() {
 }
 
 function getMonotonicTimestamp() {
-  const now = performance.now();
-  const ts = Math.max(now, lastTimestamp + 1);
-  lastTimestamp = ts;
-  return Math.round(ts);
+  const now = Math.round(performance.now());
+  lastTimestamp = Math.max(now, lastTimestamp + 1);
+  return lastTimestamp;
 }
 
 /**

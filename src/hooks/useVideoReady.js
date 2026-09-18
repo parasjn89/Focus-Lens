@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 /**
  * Custom React hook to monitor an HTMLVideoElement and expose an explicit `isVideoReady` state and video telemetry.
@@ -27,8 +27,13 @@ export function useVideoReady(videoRef, stream, isCameraActive) {
     hasSrcObject: false,
   });
 
+  const missingVideoCountRef = useRef(0);
+  const prevTimeRef = useRef(-1);
+  const isAdvancingRef = useRef(false);
+
   useEffect(() => {
     let checkInterval = null;
+    let attachedVideo = null;
 
     if (!isCameraActive || !stream) {
       setIsVideoReady(false);
@@ -39,14 +44,32 @@ export function useVideoReady(videoRef, stream, isCameraActive) {
         paused: true,
         hasSrcObject: false,
       });
+      missingVideoCountRef.current = 0;
+      prevTimeRef.current = -1;
+      isAdvancingRef.current = false;
       return;
     }
 
     const checkReadiness = () => {
       const video = videoRef?.current;
       if (!video) {
-        setIsVideoReady(false);
+        missingVideoCountRef.current += 1;
+        // Only mark unready if absent for more than 3 consecutive checks (600ms), to prevent brief re-render glitches
+        if (missingVideoCountRef.current > 3) {
+          setIsVideoReady(false);
+        }
         return;
+      }
+
+      missingVideoCountRef.current = 0;
+
+      // Attach DOM event listeners dynamically once video element mounts
+      if (attachedVideo !== video) {
+        if (attachedVideo) {
+          detachListeners(attachedVideo);
+        }
+        attachListeners(video);
+        attachedVideo = video;
       }
 
       const hasSrcObject = Boolean(video.srcObject);
@@ -55,6 +78,12 @@ export function useVideoReady(videoRef, stream, isCameraActive) {
       const videoHeight = video.videoHeight;
       const paused = video.paused;
       const ended = video.ended;
+      const currentTime = video.currentTime || 0;
+
+      if (currentTime > prevTimeRef.current || (currentTime > 0 && !paused)) {
+        isAdvancingRef.current = true;
+      }
+      prevTimeRef.current = currentTime;
 
       const ready = Boolean(
         hasSrcObject &&
@@ -62,7 +91,8 @@ export function useVideoReady(videoRef, stream, isCameraActive) {
         videoWidth > 0 &&
         videoHeight > 0 &&
         !paused &&
-        !ended
+        !ended &&
+        (currentTime > 0 || isAdvancingRef.current)
       );
 
       setVideoStats({
@@ -92,14 +122,10 @@ export function useVideoReady(videoRef, stream, isCameraActive) {
       }
     };
 
-    // Immediate check
-    checkReadiness();
-
-    const videoNode = videoRef?.current;
-
     const handleLoadedMetadata = () => {
-      if (videoNode) {
-        console.log(`[Video] loadedmetadata (${videoNode.videoWidth}x${videoNode.videoHeight})`);
+      const video = videoRef?.current;
+      if (video) {
+        console.log(`[Video] loadedmetadata (${video.videoWidth}x${video.videoHeight})`);
       }
       checkReadiness();
     };
@@ -114,33 +140,41 @@ export function useVideoReady(videoRef, stream, isCameraActive) {
       checkReadiness();
     };
 
-    if (videoNode) {
-      videoNode.addEventListener('loadedmetadata', handleLoadedMetadata);
-      videoNode.addEventListener('canplay', handleCanPlay);
-      videoNode.addEventListener('playing', handlePlaying);
-      videoNode.addEventListener('pause', checkReadiness);
-      videoNode.addEventListener('ended', checkReadiness);
-      videoNode.addEventListener('resize', checkReadiness);
+    const attachListeners = (node) => {
+      node.addEventListener('loadedmetadata', handleLoadedMetadata);
+      node.addEventListener('canplay', handleCanPlay);
+      node.addEventListener('playing', handlePlaying);
+      node.addEventListener('timeupdate', checkReadiness);
+      node.addEventListener('pause', checkReadiness);
+      node.addEventListener('ended', checkReadiness);
+      node.addEventListener('resize', checkReadiness);
+    };
 
-      // Periodic check interval to ensure ready state updates promptly
-      checkInterval = setInterval(checkReadiness, 200);
+    const detachListeners = (node) => {
+      node.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      node.removeEventListener('canplay', handleCanPlay);
+      node.removeEventListener('playing', handlePlaying);
+      node.removeEventListener('timeupdate', checkReadiness);
+      node.removeEventListener('pause', checkReadiness);
+      node.removeEventListener('ended', checkReadiness);
+      node.removeEventListener('resize', checkReadiness);
+    };
 
-      return () => {
-        videoNode.removeEventListener('loadedmetadata', handleLoadedMetadata);
-        videoNode.removeEventListener('canplay', handleCanPlay);
-        videoNode.removeEventListener('playing', handlePlaying);
-        videoNode.removeEventListener('pause', checkReadiness);
-        videoNode.removeEventListener('ended', checkReadiness);
-        videoNode.removeEventListener('resize', checkReadiness);
-        if (checkInterval) clearInterval(checkInterval);
-      };
-    } else {
-      // Poll until video ref mounts
-      checkInterval = setInterval(checkReadiness, 200);
-      return () => {
-        if (checkInterval) clearInterval(checkInterval);
-      };
-    }
+    // Immediate check
+    checkReadiness();
+
+    // Periodic check interval
+    checkInterval = setInterval(checkReadiness, 200);
+
+    return () => {
+      if (attachedVideo) {
+        detachListeners(attachedVideo);
+        attachedVideo = null;
+      }
+      if (checkInterval) {
+        clearInterval(checkInterval);
+      }
+    };
   }, [videoRef, stream, isCameraActive]);
 
   return { isVideoReady, videoStats };

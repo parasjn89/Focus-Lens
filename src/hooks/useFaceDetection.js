@@ -63,7 +63,7 @@ export function useFaceDetection({
   useEffect(() => {
     let isSubscribed = true;
 
-    if (isCameraActive && isVideoReady) {
+    if (isCameraActive) {
       console.log('[FaceHook] initialization requested');
 
       if (modelStatus === 'READY') {
@@ -76,20 +76,10 @@ export function useFaceDetection({
       setModelStatus('LOADING');
       setModelError(null);
 
-      const timeoutId = setTimeout(() => {
-        if (isSubscribed && modelStatus !== 'READY') {
-          console.error('[FaceHook] initialization failed: timed out after 10s');
-          setModelStatus('ERROR');
-          setModelError('Face model initialization timed out after 10000ms');
-        }
-      }, 10000);
-
       getFaceDetector()
         .then((instance) => {
           if (isSubscribed) {
-            clearTimeout(timeoutId);
-            console.log('[FaceHook] getFaceDetector() returned');
-            console.log('[FaceHook] detector instance exists:', Boolean(instance));
+            console.log('[FaceHook] getFaceDetector() returned, instance exists:', Boolean(instance));
             console.log('[FaceHook] initialization completed');
             setModelStatus('READY');
             setModelError(null);
@@ -97,9 +87,8 @@ export function useFaceDetection({
         })
         .catch((err) => {
           if (isSubscribed) {
-            clearTimeout(timeoutId);
             const errMsg = err.message || String(err);
-            console.error('[FaceHook] initialization failed:', errMsg);
+            console.error('[FaceHook] initialization failed:', errMsg, err.stack);
             setModelStatus('ERROR');
             setModelError(`Failed to initialize FaceDetector: ${errMsg}`);
             setDebugStats((prev) => ({ ...prev, lastError: errMsg }));
@@ -108,7 +97,6 @@ export function useFaceDetection({
 
       return () => {
         isSubscribed = false;
-        clearTimeout(timeoutId);
       };
     } else {
       setModelStatus('IDLE');
@@ -132,7 +120,7 @@ export function useFaceDetection({
         trackerRef.current.reset();
       }
     }
-  }, [isCameraActive, isVideoReady]);
+  }, [isCameraActive]);
 
   // 2. Periodic Inference Loop Effect
   useEffect(() => {
@@ -146,7 +134,7 @@ export function useFaceDetection({
     const intervalId = setInterval(async () => {
       const video = videoRef?.current;
 
-      if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0 || video.paused || video.ended) {
+      if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0 || video.paused || video.ended || (video.currentTime === 0 && !video.seeking)) {
         if (video && isSubscribed) {
           setDebugStats((prev) => ({
             ...prev,

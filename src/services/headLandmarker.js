@@ -9,39 +9,49 @@ const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/was
 const MODEL_ASSET_PATH = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 /**
- * Creates FaceLandmarker instance trying GPU delegate first with a 3000ms race timeout before falling back to CPU.
+ * Creates FaceLandmarker instance trying GPU delegate first with a 20000ms race timeout before falling back to CPU.
  */
-async function createLandmarkerWithOptions(vision, options, timeoutMs = 3000) {
+async function createLandmarkerWithOptions(vision, options, timeoutMs = 20000) {
+  console.log('[Vision] FaceLandmarker - exact model asset URL:', options.baseOptions?.modelAssetPath);
+  console.log('[Vision] FaceLandmarker - runningMode:', options.runningMode);
+
   if (options.baseOptions?.delegate === 'GPU') {
     try {
-      console.log('[Vision] landmarker model creation started (delegate: GPU)');
+      console.log('[Vision] FaceLandmarker - model creation started (delegate: GPU)');
       const gpuPromise = FaceLandmarker.createFromOptions(vision, options);
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error(`GPU delegate creation timed out after ${timeoutMs}ms`)), timeoutMs)
       );
       const instance = await Promise.race([gpuPromise, timeoutPromise]);
-      console.log('[Vision] landmarker model creation succeeded (delegate: GPU)');
+      console.log('[Vision] FaceLandmarker - model creation succeeded (delegate: GPU)');
       return { instance, delegate: 'GPU' };
     } catch (gpuErr) {
       console.warn(`[Vision] FaceLandmarker GPU delegate failed or timed out (${gpuErr.message}). Falling back to CPU...`);
+      console.warn('[Vision] FaceLandmarker GPU caught exception stack:', gpuErr.stack);
     }
   }
 
-  console.log('[Vision] landmarker model creation started (delegate: CPU)');
-  const cpuOptions = {
-    ...options,
-    baseOptions: {
-      ...options.baseOptions,
-      delegate: 'CPU',
-    },
-  };
-  const cpuPromise = FaceLandmarker.createFromOptions(vision, cpuOptions);
-  const cpuTimeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`CPU delegate creation timed out after ${timeoutMs * 2}ms`)), timeoutMs * 2)
-  );
-  const instance = await Promise.race([cpuPromise, cpuTimeoutPromise]);
-  console.log('[Vision] landmarker model creation succeeded (delegate: CPU)');
-  return { instance, delegate: 'CPU' };
+  try {
+    console.log('[Vision] FaceLandmarker - model creation started (delegate: CPU)');
+    const cpuOptions = {
+      ...options,
+      baseOptions: {
+        ...options.baseOptions,
+        delegate: 'CPU',
+      },
+    };
+    const cpuPromise = FaceLandmarker.createFromOptions(vision, cpuOptions);
+    const cpuTimeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`CPU delegate creation timed out after ${timeoutMs * 2}ms`)), timeoutMs * 2)
+    );
+    const instance = await Promise.race([cpuPromise, cpuTimeoutPromise]);
+    console.log('[Vision] FaceLandmarker - model creation succeeded (delegate: CPU)');
+    return { instance, delegate: 'CPU' };
+  } catch (cpuErr) {
+    console.error('[Vision] FaceLandmarker - caught exception message:', cpuErr.message);
+    console.error('[Vision] FaceLandmarker - caught exception stack:', cpuErr.stack);
+    throw cpuErr;
+  }
 }
 
 /**
@@ -51,13 +61,13 @@ export function getFaceLandmarker() {
   if (landmarkerInstance) return Promise.resolve(landmarkerInstance);
   if (initPromise) return initPromise;
 
-  console.log('[Vision] landmarker initialization started');
+  console.log('[Vision] FaceLandmarker - initialization started');
 
   initPromise = (async () => {
     try {
-      console.log('[Vision] landmarker WASM/fileset loading started');
+      console.log('[Vision] FaceLandmarker - FilesetResolver creation started');
       const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-      console.log('[Vision] landmarker WASM/fileset loaded');
+      console.log('[Vision] FaceLandmarker - FilesetResolver creation succeeded');
 
       const options = {
         baseOptions: {
@@ -69,14 +79,14 @@ export function getFaceLandmarker() {
         numFaces: 1
       };
 
-      const result = await createLandmarkerWithOptions(vision, options, 3000);
+      const result = await createLandmarkerWithOptions(vision, options, 20000);
       landmarkerInstance = result.instance;
       delegateUsed = result.delegate;
 
-      console.log(`[Vision] landmarker model READY (delegate: ${delegateUsed})`);
+      console.log(`[Vision] FaceLandmarker - model READY (delegate: ${delegateUsed})`);
       return landmarkerInstance;
     } catch (err) {
-      console.error('[Vision] landmarker initialization FAILED:', err.name, err.message, err.stack);
+      console.error('[Vision] FaceLandmarker - initialization FAILED:', err.name, err.message, err.stack);
       initPromise = null;
       throw err;
     }
@@ -86,10 +96,9 @@ export function getFaceLandmarker() {
 }
 
 function getMonotonicTimestamp() {
-  const now = performance.now();
-  const ts = Math.max(now, lastTimestamp + 1);
-  lastTimestamp = ts;
-  return Math.round(ts);
+  const now = Math.round(performance.now());
+  lastTimestamp = Math.max(now, lastTimestamp + 1);
+  return lastTimestamp;
 }
 
 /**
