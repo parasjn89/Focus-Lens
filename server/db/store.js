@@ -418,7 +418,7 @@ export const dbStore = {
     }
 
     const newSession = {
-      id: crypto.randomUUID(),
+      id: id || crypto.randomUUID(),
       userId,
       selectedActivity,
       plannedDurationMs,

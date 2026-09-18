@@ -11,7 +11,7 @@ const CARDS = [
   {
     id: '02',
     title: 'Focus',
-    desc: 'Optionally enable camera, microphone, or screen sharing for AI-based activity detection.',
+    desc: 'Optionally enable camera or screen sharing for AI-based activity detection.',
     icon: Camera
   },
   {
@@ -91,10 +91,10 @@ export function HowItWorksCarousel() {
   };
 
   return (
-    <div className="w-full bg-[#10232A] py-24 flex flex-col items-center relative overflow-hidden">
+    <div className="w-full bg-[#10232A] py-12 flex flex-col items-center relative overflow-hidden">
       
       {/* Headings */}
-      <div className="text-center mb-16 px-4 z-10">
+      <div className="text-center mb-8 px-4 z-10">
         <p className="text-brand-sand text-xs font-semibold tracking-[0.2em] uppercase mb-4">
           Simple Steps. A Bigger Impact.
         </p>
@@ -191,7 +191,7 @@ export function HowItWorksCarousel() {
                 {card.desc}
               </p>
 
-              <div className={`mt-auto w-10 h-0.5 rounded-full transition-colors duration-500 ${isActive ? 'bg-brand-sand' : 'bg-brand-slate/30'}`}></div>
+              {/* <div className={`mt-auto w-10 h-0.5 rounded-full transition-colors duration-500 ${isActive ? 'bg-brand-sand' : 'bg-brand-slate/30'}`}></div> */}
             </div>
           );
         })}

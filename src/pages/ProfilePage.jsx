@@ -664,7 +664,7 @@ export function ProfilePage({ onNavigate }) {
           <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
           <div>
             <span className="font-semibold text-white">Zero-Knowledge Privacy Guaranteed:</span>
-            {' '}Your account stores only session metadata and activity scores. Webcam video, screenshots, and audio buffers are processed 100% locally on your machine and are never transmitted or stored.
+            {' '}Your account stores only session metadata and activity scores. Webcam video and screenshots are processed 100% locally on your machine and are never transmitted or stored.
           </div>
         </div>
 

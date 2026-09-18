@@ -194,7 +194,7 @@ export function FocusCoachPage({ onStartRecommendedSession, onNewSession, onNavi
             <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
             <div>
               <span className="font-semibold text-slate-200">100% Deterministic & Privacy-Preserving Engine:</span>
-              {' '}Focus Coach recommendations are calculated entirely from your stored session metadata without external AI services or raw camera/microphone data processing.
+              {' '}Focus Coach recommendations are calculated entirely from your stored session metadata without external AI services or raw camera data processing.
             </div>
           </div>
         </div>

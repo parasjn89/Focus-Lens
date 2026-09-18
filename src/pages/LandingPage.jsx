@@ -35,14 +35,14 @@ export function LandingPage({ onStartSetup }) {
   const [ctaRef, ctaVisible] = useScrollReveal(0.1);
 
   return (
-    <div className="font-sans pb-20">
-      
+    <div className="font-sans pb-0">
+
       {/* 1. HERO SECTION */}
       <ScrollStackSection zIndex={10} bgClass="bg-[#10151A]">
         <section id="product" className="relative pt-24 pb-12 px-6 lg:px-8 max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-8">
           {/* Left Content */}
-          <div 
-            ref={heroRef} 
+          <div
+            ref={heroRef}
             className={`flex-1 transition-all duration-1000 ease-out transform ${heroVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}
           >
             <div className="inline-block px-3 py-1 mb-6 rounded-full border border-brand-sand/30 bg-brand-sand/10 text-brand-sand text-xs font-semibold tracking-wider uppercase">
@@ -80,7 +80,7 @@ export function LandingPage({ onStartSetup }) {
                 <div className="w-3 h-3 rounded-full bg-amber-400/80"></div>
                 <div className="w-3 h-3 rounded-full bg-emerald-400/80"></div>
               </div>
-              
+
               {/* Mock Dashboard */}
               <div className="space-y-6">
                 <div className="flex justify-between items-end">
@@ -126,10 +126,10 @@ export function LandingPage({ onStartSetup }) {
 
                 {/* Timeline */}
                 <div className="h-2 w-full bg-brand-slate/30 rounded-full overflow-hidden flex">
-                  <div className="h-full bg-purple-500" style={{width: '75%'}}></div>
-                  <div className="h-full bg-yellow-600" style={{width: '10%'}}></div>
-                  <div className="h-full bg-red-400/60" style={{width: '5%'}}></div>
-                  <div className="h-full bg-pink-700" style={{width: '10%'}}></div>
+                  <div className="h-full bg-purple-500" style={{ width: '75%' }}></div>
+                  <div className="h-full bg-yellow-600" style={{ width: '10%' }}></div>
+                  <div className="h-full bg-red-400/60" style={{ width: '5%' }}></div>
+                  <div className="h-full bg-pink-700" style={{ width: '10%' }}></div>
                 </div>
               </div>
             </div>
@@ -154,40 +154,40 @@ export function LandingPage({ onStartSetup }) {
         <section id="features" ref={aiRef} className="max-w-7xl mx-auto px-6 py-12 flex flex-col lg:flex-row items-center gap-10">
           <div className={`flex-1 transition-all duration-1000 transform ${aiVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-12'}`}>
             <h2 className="text-3xl lg:text-4xl font-bold text-white mb-6 leading-tight">
-              AI That Understands <br/> Your Study Sessions
+              AI That Understands <br /> Your Study Sessions
             </h2>
             <p className="text-brand-gray text-lg leading-relaxed mb-8">
               FocusLens detects observable activities like studying, phone presence, multiple people, being away from the desk, head direction, and speech-like activity — all processed locally on your device.
             </p>
             <ul className="space-y-4">
-              <li className="flex items-center space-x-3 text-brand-beige text-sm"><Video className="w-5 h-5 text-brand-sand"/> <span>Camera observation</span></li>
-              <li className="flex items-center space-x-3 text-brand-beige text-sm"><Mic className="w-5 h-5 text-brand-sand"/> <span>Microphone observation</span></li>
-              <li className="flex items-center space-x-3 text-brand-beige text-sm"><Monitor className="w-5 h-5 text-brand-sand"/> <span>Screen share tracking</span></li>
+              <li className="flex items-center space-x-3 text-brand-beige text-sm"><Video className="w-5 h-5 text-brand-sand" /> <span>Camera observation</span></li>
+              <li className="flex items-center space-x-3 text-brand-beige text-sm"><Mic className="w-5 h-5 text-brand-sand" /> <span>Microphone observation</span></li>
+              <li className="flex items-center space-x-3 text-brand-beige text-sm"><Monitor className="w-5 h-5 text-brand-sand" /> <span>Screen share tracking</span></li>
             </ul>
           </div>
-          
+
           <div className={`flex-1 w-full relative transition-all duration-1000 delay-300 transform ${aiVisible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-12'}`}>
             {/* Abstract representation of student studying */}
             <div className="aspect-square max-h-[500px] w-full rounded-3xl bg-[#10232A] border border-brand-slate/40 relative overflow-hidden flex items-center justify-center shadow-2xl group">
               {/* Background Image of Boy Studying */}
               <div className="absolute inset-0 bg-[url('/boy-studying.png')] bg-cover bg-center bg-no-repeat opacity-60 mix-blend-screen transition-transform duration-1000 group-hover:scale-105"></div>
-              
+
               {/* Vignette/Shadow Overlay for contrast */}
               <div className="absolute inset-0 bg-gradient-to-tr from-[#161616]/90 via-[#10232A]/40 to-transparent pointer-events-none"></div>
-              
+
               {/* Floating Labels */}
               <div className="absolute top-[20%] left-[10%] px-4 py-2 bg-[#161616]/80 backdrop-blur-md border border-brand-slate rounded-lg text-xs text-white shadow-xl animate-[pulse_4s_ease-in-out_infinite] transition-all duration-300 hover:shadow-[0_0_15px_#B58863] hover:border-brand-sand hover:scale-105 hover:z-10 cursor-default">
                 <span className="flex items-center"><span className="w-2 h-2 rounded-full bg-brand-sand mr-2"></span>Studying</span>
               </div>
-              
+
               <div className="absolute bottom-[25%] right-[10%] px-4 py-2 bg-[#161616]/80 backdrop-blur-md border border-brand-slate rounded-lg text-xs text-white shadow-xl animate-[pulse_4s_ease-in-out_infinite_1s] transition-all duration-300 hover:shadow-[0_0_15px_#B58863] hover:border-brand-sand hover:scale-105 hover:z-10 cursor-default">
                 <span className="flex items-center"><span className="w-2 h-2 rounded-full bg-brand-sand mr-2"></span>At Desk</span>
               </div>
-              
+
               <div className="absolute top-[45%] left-[30%] px-4 py-2 bg-[#161616]/80 backdrop-blur-md border border-brand-slate rounded-lg text-xs text-white shadow-xl animate-[pulse_4s_ease-in-out_infinite_2s] transition-all duration-300 hover:shadow-[0_0_15px_#60a5fa] hover:border-blue-400 hover:scale-105 hover:z-10 cursor-default">
                 <span className="flex items-center"><span className="w-2 h-2 rounded-full bg-blue-400 mr-2"></span>No Phone Detected</span>
               </div>
-              
+
               <div className="absolute bottom-[15%] left-[40%] px-4 py-2 bg-[#161616]/80 backdrop-blur-md border border-brand-slate rounded-lg text-xs text-white shadow-xl animate-[pulse_4s_ease-in-out_infinite_3s] transition-all duration-300 hover:shadow-[0_0_15px_#B58863] hover:border-brand-sand hover:scale-105 hover:z-10 cursor-default">
                 <span className="flex items-center"><span className="w-2 h-2 rounded-full bg-brand-sand mr-2"></span>Looking at Screen</span>
               </div>
@@ -195,7 +195,7 @@ export function LandingPage({ onStartSetup }) {
               <div className="absolute top-[35%] right-[20%] px-4 py-2 bg-[#161616]/80 backdrop-blur-md border border-brand-slate rounded-lg text-xs text-white shadow-xl animate-[pulse_4s_ease-in-out_infinite_1.5s] transition-all duration-300 hover:shadow-[0_0_15px_#A79E9C] hover:border-brand-gray hover:scale-105 hover:z-10 cursor-default">
                 <span className="flex items-center"><span className="w-2 h-2 rounded-full bg-brand-gray mr-2"></span>Posture: Upright</span>
               </div>
-              
+
               <div className="absolute top-[65%] right-[30%] px-4 py-2 bg-[#161616]/80 backdrop-blur-md border border-brand-slate rounded-lg text-xs text-white shadow-xl animate-[pulse_4s_ease-in-out_infinite_2.5s] transition-all duration-300 hover:shadow-[0_0_15px_#A79E9C] hover:border-brand-gray hover:scale-105 hover:z-10 cursor-default">
                 <span className="flex items-center"><span className="w-2 h-2 rounded-full bg-brand-gray mr-2"></span>Single Person</span>
               </div>
@@ -231,11 +231,11 @@ export function LandingPage({ onStartSetup }) {
                 <p className="text-2xl font-light text-white">4h 25m</p>
               </div>
             </div>
-            
+
             {/* Mock Chart Area */}
             <div className="h-48 w-full border-b border-l border-brand-slate/40 relative flex items-end justify-between px-4 pb-4 pt-10 gap-2">
               {[40, 65, 45, 80, 55, 90, 75].map((height, i) => (
-                <div key={i} className="w-full bg-brand-slate hover:bg-brand-sand transition-colors rounded-t-sm relative group" style={{height: `${height}%`}}>
+                <div key={i} className="w-full bg-brand-slate hover:bg-brand-sand transition-colors rounded-t-sm relative group" style={{ height: `${height}%` }}>
                   <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#161616] border border-brand-slate text-xs px-2 py-1 rounded text-white">{height}%</div>
                 </div>
               ))}
@@ -252,15 +252,15 @@ export function LandingPage({ onStartSetup }) {
         <section id="privacy" ref={privacyRef} className="py-14 relative overflow-hidden">
           {/* Background glow for depth */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-brand-sand/5 blur-[120px] rounded-full pointer-events-none -z-10"></div>
-          
+
           <div className="max-w-6xl mx-auto px-6">
             <div className={`text-center mb-16 transition-all duration-1000 transform ${privacyVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
               <h2 className="text-4xl md:text-5xl font-bold text-white mb-6 tracking-tight">Your Focus. <span className="text-brand-sand">Your Data.</span></h2>
               <p className="text-brand-gray text-lg max-w-2xl mx-auto">We built FocusLens with a fundamental belief: your study habits are yours alone. Zero cloud tracking, zero compromises.</p>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-              
+
               {/* Main Feature - Large Card */}
               <div className={`col-span-1 md:col-span-7 p-10 rounded-3xl bg-[#161616] border border-brand-slate/40 hover:border-brand-sand/50 transition-colors duration-500 relative overflow-hidden group transform ${privacyVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'}`}>
                 <div className="absolute top-0 right-0 w-64 h-64 bg-brand-sand/10 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/4 group-hover:bg-brand-sand/20 transition-colors duration-700"></div>
@@ -278,7 +278,7 @@ export function LandingPage({ onStartSetup }) {
                   <div className="mt-10 h-36 rounded-xl bg-[#090D10] border border-brand-slate/20 relative overflow-hidden flex flex-col justify-end p-4 font-mono text-[11px] text-brand-gray/50 leading-relaxed shadow-[inset_0_4px_20px_rgba(0,0,0,0.5)]">
                     {/* Top fade for scrolling effect illusion */}
                     <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-[#090D10] to-transparent z-10 pointer-events-none"></div>
-                    
+
                     <div className="z-0 space-y-1.5 animate-[pulse_4s_ease-in-out_infinite]">
                       <p className="text-brand-gray/40">{`[system] Activating privacy-preserving core...`}</p>
                       <p>{`[module] Presence detection running locally.`}</p>
@@ -286,7 +286,7 @@ export function LandingPage({ onStartSetup }) {
                       <p className="text-brand-beige/80">{`[stream] Analyzing browser video feed...`}</p>
                       <p className="text-brand-sand font-medium flex items-center mt-2">{`[status] Zero data transmitted. 100% SECURE `} <span className="inline-block w-1.5 h-1.5 ml-2 bg-brand-sand rounded-full animate-pulse shadow-[0_0_8px_#B58863]"></span></p>
                     </div>
-                    
+
                     <div className="absolute bottom-0 left-0 right-0 h-px bg-brand-sand/30 shadow-[0_0_15px_#B58863]"></div>
                   </div>
                 </div>
@@ -294,7 +294,7 @@ export function LandingPage({ onStartSetup }) {
 
               {/* Side Features - Stacked Cards */}
               <div className="col-span-1 md:col-span-5 flex flex-col gap-6">
-                
+
                 {/* Top Right Card */}
                 <div className={`flex-1 p-8 rounded-3xl bg-brand-slate/10 border border-brand-slate/30 hover:bg-brand-slate/20 transition-all duration-500 transform ${privacyVisible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-12 delay-100'}`}>
                   <Shield className="w-8 h-8 text-white mb-6" />
@@ -309,7 +309,7 @@ export function LandingPage({ onStartSetup }) {
                   <Activity className="w-8 h-8 text-brand-beige mb-6" />
                   <h3 className="text-xl font-bold text-white mb-3">You Stay In Control</h3>
                   <p className="text-brand-gray text-sm leading-relaxed">
-                    Opt-in to which sensors you want to use. Toggle camera, microphone, or screen tracking independently.
+                    Opt-in to which sensors you want to use. Toggle camera or screen tracking independently.
                   </p>
                 </div>
 

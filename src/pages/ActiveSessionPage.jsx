@@ -7,7 +7,6 @@ import { useScreenShare } from '../hooks/useScreenShare';
 import { useFaceDetection } from '../hooks/useFaceDetection';
 import { useObjectDetection } from '../hooks/useObjectDetection';
 import { useHeadOrientation } from '../hooks/useHeadOrientation';
-import { useMicrophone } from '../hooks/useMicrophone';
 import { useScreenClassifier } from '../hooks/useScreenClassifier';
 import { useActivityAnalyzer } from '../hooks/useActivityAnalyzer';
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../services/activityAnalyzer';
@@ -17,11 +16,8 @@ import { testObjectModelInit, runSingleObjectTest } from '../services/objectDete
 import { testLandmarkerInit, runSingleLandmarkerTest } from '../services/headLandmarker';
 import { CameraMonitoringCard } from '../components/CameraMonitoringCard';
 import { ScreenMonitorCard } from '../components/ScreenMonitorCard';
-import { MicrophoneMonitoringCard } from '../components/MicrophoneMonitoringCard';
 import { AIMonitoringCard } from '../components/AIMonitoringCard';
-import { LiveSessionSummaryCard } from '../components/LiveSessionSummaryCard';
-import { EventTimelinePlaceholder } from '../components/EventTimelinePlaceholder';
-
+import { FuturisticTimer } from '../components/FuturisticTimer';
 
 export function ActiveSessionPage({
   sessionInfo,
@@ -30,8 +26,6 @@ export function ActiveSessionPage({
   onPause,
   onResume,
   onEndSession,
-  eventLogs,
-  onAddEventLog,
   onUpdateSessionSegments,
 }) {
   const { activity, durationMinutes, initialStreams } = sessionInfo || { activity: 'Focus Session', durationMinutes: 25 };
@@ -70,15 +64,7 @@ export function ActiveSessionPage({
   } = useScreenShare({ initialStream: initialStreams?.screenStream });
 
   // 3. Screen Classifier Hook (2000ms periodic canvas snapshot analysis)
-  const handleScreenActivityStateChange = useCallback((evt) => {
-    if (onAddEventLog && evt) {
-      const label = `Screen: ${SCREEN_ACTIVITY_LABELS[evt.activity] || evt.activity}`;
-      const desc = `Local screen content classified as ${SCREEN_ACTIVITY_LABELS[evt.activity] || evt.activity} (${Math.round((evt.confidence || 0.85) * 100)}% confidence).`;
-      onAddEventLog(label, desc);
-    }
-  }, [onAddEventLog]);
-
-  const {
+    const {
     screenActivity,
     confidence: screenConfidence,
     metrics: screenMetrics,
@@ -87,28 +73,10 @@ export function ActiveSessionPage({
     screenVideoRef,
     isScreenActive,
     analysisIntervalMs: 2000,
-    onStateChangeEvent: handleScreenActivityStateChange,
   });
 
-  // Handle screen state change event logging
-  useEffect(() => {
-    if (onAddEventLog && isScreenActive) {
-      onAddEventLog('Screen Monitoring Enabled', `Sharing context: ${screenSourceType}`);
-    }
-  }, [isScreenActive, screenSourceType, onAddEventLog]);
-
-  // 4. Face Detection Hook
-  const handleFaceStateChange = useCallback((evt) => {
-    if (onAddEventLog) {
-      const label = evt.type === 'FACE_PRESENT' ? 'Person Present' : 'Person Absent';
-      const desc = evt.type === 'FACE_PRESENT'
-        ? `User observed in camera feed (Confidence: ${Math.round((evt.confidence || 0.9) * 100)}%)`
-        : 'No face observed in camera feed for debounced threshold window.';
-      onAddEventLog(label, desc);
-    }
-  }, [onAddEventLog]);
-
-  const {
+    // 4. Face Detection Hook
+    const {
     detectionState: faceState,
     confidence: faceConfidence,
     modelStatus: faceModelStatus,
@@ -120,35 +88,10 @@ export function ActiveSessionPage({
     isCameraActive,
     isVideoReady,
     detectionIntervalMs: 500,
-    onStateChangeEvent: handleFaceStateChange,
   });
 
   // 5. Object Detection Hook
-  const handleObjectObservationChange = useCallback((evt) => {
-    if (onAddEventLog && evt) {
-      if (evt.type === 'PHONE_PRESENT') {
-        onAddEventLog('Phone Interference', `Cell phone detected in camera view (${Math.round((evt.confidence || 0.85) * 100)}% confidence).`);
-      } else if (evt.type === 'PHONE_ABSENT') {
-        onAddEventLog('Phone Removed', 'Cell phone no longer observed in frame.');
-      } else if (evt.state === 'MULTIPLE_PEOPLE') {
-        onAddEventLog('Multiple People Observed', `${evt.count} people detected in camera view.`);
-      } else if (evt.state === 'ONE_PERSON' && evt.stateChanged) {
-        onAddEventLog('Single Person Observed', 'Returned to 1 person in frame.');
-      }
-    }
-  }, [onAddEventLog]);
-
-  const handleSpanCompleted = useCallback((span) => {
-    if (onAddEventLog && span) {
-      if (span.type === 'PHONE_PRESENT') {
-        onAddEventLog('Phone Span Event', `Cell phone interference observed for ${span.durationSeconds}s duration.`);
-      } else if (span.type === 'MULTIPLE_PEOPLE') {
-        onAddEventLog('Multiple People Span', `Second person present for ${span.durationSeconds}s duration.`);
-      }
-    }
-  }, [onAddEventLog]);
-
-  const {
+      const {
     phoneState,
     phoneConfidence,
     personState,
@@ -162,24 +105,10 @@ export function ActiveSessionPage({
     isCameraActive,
     isVideoReady,
     detectionIntervalMs: 500,
-    onObservationEvent: handleObjectObservationChange,
-    onSpanCompletedEvent: handleSpanCompleted,
   });
 
   // 6. Head Orientation Hook
-  const handleHeadStateChange = useCallback((evt) => {
-    if (onAddEventLog && evt) {
-      let desc = `Head orientation: ${evt.orientation}`;
-      if (evt.orientation === 'FORWARD') desc = 'Head oriented forward toward camera/screen.';
-      else if (evt.orientation === 'LEFT') desc = 'Head turned to the left.';
-      else if (evt.orientation === 'RIGHT') desc = 'Head turned to the right.';
-      else if (evt.orientation === 'DOWN') desc = 'Head tilted downward.';
-
-      onAddEventLog(`Head ${evt.orientation.toLowerCase()}`, desc);
-    }
-  }, [onAddEventLog]);
-
-  const {
+    const {
     orientation: headOrientation,
     confidence: headConfidence,
     metrics: headMetrics,
@@ -192,44 +121,10 @@ export function ActiveSessionPage({
     isCameraActive,
     isVideoReady,
     detectionIntervalMs: 500,
-    onStateChangeEvent: handleHeadStateChange,
-  });
-
-  // 7. Microphone Hook
-  const handleSpeechStateChange = useCallback((evt) => {
-    if (onAddEventLog && evt) {
-      if (evt.activity === 'SPEECH_LIKE') {
-        onAddEventLog('Speech Activity Detected', 'Speech-like audio activity detected locally on microphone input.');
-      } else if (evt.activity === 'SILENCE') {
-        onAddEventLog('Silence Restored', 'Audio returned to silent baseline.');
-      }
-    }
-  }, [onAddEventLog]);
-
-  const {
-    stream: micStream,
-    isMicrophoneActive,
-    isLoading: isMicLoading,
-    error: micError,
-    speechState,
-    isSpeechDetected,
-    audioLevel,
-    debugStats: micDebugStats,
-    startMicrophone,
-    stopMicrophone,
-  } = useMicrophone({
-    initialStream: initialStreams?.micStream,
-    onSpeechStateChangeEvent: handleSpeechStateChange,
   });
 
   // 8. Activity Analyzer Hook
-  const handleActivityChanged = useCallback((newActivity) => {
-    if (onAddEventLog) {
-      onAddEventLog('Activity State', `Inferred Activity: ${ACTIVITY_LABELS[newActivity] || newActivity}`);
-    }
-  }, [onAddEventLog]);
-
-  const {
+    const {
     currentActivity,
     activityLabel,
     activitySegments,
@@ -245,11 +140,6 @@ export function ActiveSessionPage({
     screenActivity,
     screenConfidence,
     screenSourceType,
-    isMicrophoneActive,
-    speechState,
-    isSpeechDetected,
-    audioLevel,
-    onActivityChanged: handleActivityChanged,
   });
 
   // Combined data sources payload abstraction for multi-modal activity classifier
@@ -264,11 +154,6 @@ export function ActiveSessionPage({
       activity: screenActivity,
       confidence: screenConfidence,
       sourceType: screenSourceType,
-    },
-    audio: {
-      isMicrophoneActive,
-      speechState,
-      audioLevel,
     }
   };
 
@@ -279,20 +164,18 @@ export function ActiveSessionPage({
     }
   }, [activitySegments, onUpdateSessionSegments]);
 
-  // Stop camera, screen share, and microphone on countdown completion
+  // Stop camera and screen share on countdown completion
   useEffect(() => {
     if (remainingSeconds <= 0) {
       if (isCameraActive) stopCamera();
       if (isScreenActive) stopScreenShare();
-      if (isMicrophoneActive) stopMicrophone();
     }
-  }, [remainingSeconds, isCameraActive, isScreenActive, isMicrophoneActive, stopCamera, stopScreenShare, stopMicrophone]);
+  }, [remainingSeconds, isCameraActive, isScreenActive, stopCamera, stopScreenShare]);
 
   // Manual End Session wrapper
   const handleManualEndSession = () => {
     stopCamera();
     stopScreenShare();
-    stopMicrophone();
     onEndSession();
   };
 
@@ -351,7 +234,6 @@ export function ActiveSessionPage({
                     const next = Math.max(0, (sessionInfo.goalProgress || 0) - 1);
                     sessionInfo.goalProgress = next;
                     sessionInfo.goalCompleted = sessionInfo.targetValue ? next >= sessionInfo.targetValue : false;
-                    if (onAddEventLog) onAddEventLog('Goal Progress Updated', `Progress set to ${next}/${sessionInfo.targetValue}`);
                   }}
                   className="w-7 h-7 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 flex items-center justify-center font-bold text-base transition-colors"
                   title="Decrease Completed Count"
@@ -367,7 +249,6 @@ export function ActiveSessionPage({
                     const next = Math.min(sessionInfo.targetValue || 1000, (sessionInfo.goalProgress || 0) + 1);
                     sessionInfo.goalProgress = next;
                     sessionInfo.goalCompleted = sessionInfo.targetValue ? next >= sessionInfo.targetValue : false;
-                    if (onAddEventLog) onAddEventLog('Goal Progress Updated', `Progress set to ${next}/${sessionInfo.targetValue}`);
                   }}
                   className="w-7 h-7 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 flex items-center justify-center font-bold text-base transition-colors"
                   title="Increase Completed Count"
@@ -389,68 +270,18 @@ export function ActiveSessionPage({
         </div>
       )}
 
-      {/* Main Hero Timer Display Container */}
-      <div className="glass-panel p-8 sm:p-12 rounded-3xl border border-slate-800 text-center relative overflow-hidden flex flex-col items-center justify-center">
-        {/* Glow halo behind timer */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-brand-600/15 blur-[100px] rounded-full pointer-events-none" />
-
-        {/* Status Badge */}
-        <div className="mb-2 inline-flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-semibold bg-slate-900 border border-slate-800">
-          <span className={`w-2 h-2 rounded-full ${isPaused ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400 animate-pulse'}`} />
-          <span className={isPaused ? 'text-amber-400' : 'text-emerald-400'}>
-            {isPaused ? 'Session Paused' : 'Session In Progress'}
-          </span>
-        </div>
-
-        {/* Inferred Activity Note */}
-        <p className="text-[11px] text-slate-400 mb-2 italic">
-          Activity is inferred from observable signals.
-        </p>
-
-        {/* Large Countdown Timer */}
-        <div className="my-1">
-          <span className="text-6xl sm:text-8xl font-extrabold tracking-tight text-white font-mono timer-glow select-none">
-            {formatSecondsToTime(remainingSeconds)}
-          </span>
-        </div>
-
-        {/* Progress Bar */}
-        <div className="w-full max-w-md bg-slate-900 rounded-full h-2 my-6 overflow-hidden border border-slate-800/80">
-          <div
-            className="bg-gradient-to-r from-brand-600 to-indigo-400 h-full transition-all duration-1000 ease-linear rounded-full"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-
-        {/* Control Buttons (Pause, Resume, End) */}
-        <div className="flex items-center justify-center gap-4 mt-2">
-          {isPaused ? (
-            <button
-              onClick={onResume}
-              className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm shadow-lg shadow-emerald-600/20 flex items-center space-x-2 transition-all hover:scale-105"
-            >
-              <Play className="w-4 h-4 fill-current" />
-              <span>Resume</span>
-            </button>
-          ) : (
-            <button
-              onClick={onPause}
-              className="px-6 py-3 rounded-xl bg-amber-600/90 hover:bg-amber-500 text-white font-semibold text-sm shadow-lg shadow-amber-600/20 flex items-center space-x-2 transition-all hover:scale-105"
-            >
-              <Pause className="w-4 h-4 fill-current" />
-              <span>Pause</span>
-            </button>
-          )}
-
-          <button
-            onClick={handleManualEndSession}
-            className="px-6 py-3 rounded-xl bg-slate-800 hover:bg-rose-950 hover:text-rose-300 hover:border-rose-800/50 text-slate-300 font-semibold text-sm border border-slate-700 flex items-center space-x-2 transition-all"
-          >
-            <Square className="w-4 h-4 fill-current" />
-            <span>End Session</span>
-          </button>
-        </div>
-      </div>
+      {/* Futuristic 3D Timer Container */}
+      <FuturisticTimer
+        remainingSeconds={remainingSeconds}
+        progressPercent={progressPercent}
+        isPaused={isPaused}
+        activity={activityLabel}
+        onPause={onPause}
+        onResume={onResume}
+        onEndSession={handleManualEndSession}
+        isCameraActive={isCameraActive}
+        isScreenActive={isScreenActive}
+      />
 
       {/* CURRENT ACTIVITY Hero Card (Milestone 9) */}
       <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800 space-y-4">
@@ -496,7 +327,7 @@ export function ActiveSessionPage({
       </div>
 
       {/* Grid: Camera Monitoring, Screen Monitor, AI Monitoring, Live Timeline */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <CameraMonitoringCard
           stream={cameraStream}
           isCameraActive={isCameraActive}
@@ -516,17 +347,6 @@ export function ActiveSessionPage({
           onEnableScreen={startScreenShare}
           onDisableScreen={stopScreenShare}
           videoRef={screenVideoRef}
-        />
-
-        <MicrophoneMonitoringCard
-          isMicrophoneActive={isMicrophoneActive}
-          isLoading={isMicLoading}
-          error={micError}
-          speechState={speechState}
-          audioLevel={audioLevel}
-          debugStats={micDebugStats}
-          onEnableMicrophone={startMicrophone}
-          onDisableMicrophone={stopMicrophone}
         />
 
         <AIMonitoringCard
@@ -567,21 +387,8 @@ export function ActiveSessionPage({
           onTestLandmarkerInit={testLandmarkerInit}
           onRunLandmarkerTest={() => runSingleLandmarkerTest(videoRef.current)}
         />
-
-
-        <LiveSessionSummaryCard
-          activitySegments={activitySegments}
-          currentActivityLabel={activityLabel}
-          isCameraActive={isCameraActive}
-        />
-
-        <EventTimelinePlaceholder
-          activity={activity}
-          events={eventLogs}
-          activitySegments={activitySegments}
-          sessionStartTime={sessionStartTimeRef.current}
-        />
       </div>
+      
     </div>
   );
 }

@@ -114,8 +114,6 @@ export function calculateFocusReplayMetrics(segments = [], sessionInfo = {}) {
         observationalReason = 'Face was not detected in camera view during this period.';
       } else if (seg.type === 'MULTIPLE_PEOPLE') {
         observationalReason = 'Multiple people were detected in camera view.';
-      } else if (seg.type === 'SPEECH_LIKE') {
-        observationalReason = 'Speech-like audio activity detected on microphone input.';
       } else if (seg.type === 'VIDEO_ACTIVITY') {
         observationalReason = 'Video playback detected on shared screen.';
       } else if (seg.type === 'BROWSER_ACTIVITY') {

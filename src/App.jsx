@@ -372,6 +372,7 @@ function AppContent() {
     isFinalizingRef.current = true;
     setIsTimerRunning(false);
     setIsTimerPaused(false);
+    pauseStartTimeRef.current = null;
 
     const scheduledSeconds = sessionConfig.durationMinutes * 60;
     let actualSecondsSpent = scheduledSeconds;
@@ -570,7 +571,7 @@ function AppContent() {
         )}
 
         {/* Main View Router */}
-        <main className={`flex-1 ${isAppView ? 'overflow-y-auto relative z-0' : ''}`}>
+        <main className={`flex-1 ${isAppView ? 'overflow-y-auto relative z-0' : ''} ${!isAppView && currentView !== 'landing' ? 'pt-28 pb-12' : ''}`}>
         {currentView === 'landing' && (
           <LandingPage onStartSetup={() => handleNavigate('setup')} />
         )}

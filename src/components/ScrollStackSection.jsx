@@ -1,130 +1,152 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect } from 'react';
 
-/**
- * ScrollStackSection — Premium scroll-stacking with ZERO scroll interference.
- *
- * Structure:
- *   Outer wrapper: position: relative, height: 110vh
- *   Inner section: position: sticky, top: 0, height: 100vh
- *
- * The 10vh "extra" gives the next section just enough runway to begin
- * overlapping before the sticky element releases. This is intentionally
- * small so the user NEVER feels stuck.
- *
- * The previous section subtly scales down (1 → 0.97) and fades (1 → 0.92)
- * as the next section slides up. No blur. No snap. No scroll control.
- */
 export function ScrollStackSection({ children, zIndex, bgClass = 'bg-[#10151A]', isLast = false }) {
   const outerRef = useRef(null);
-  const [scale, setScale] = useState(1);
-  const [opacity, setOpacity] = useState(1);
-
-  const updateStyles = useCallback(() => {
-    if (!outerRef.current || isLast) return;
-
-    const rect = outerRef.current.getBoundingClientRect();
-    const vh = window.innerHeight;
-
-    // The sticky element is pinned at top:0. Once the outer wrapper's top
-    // goes negative, the sticky element is "active" and the next section
-    // is starting to overlap. We measure how far into the overlap we are.
-    //
-    // rect.top goes from 0 → -extraHeight as the user scrolls.
-    // extraHeight = outerHeight - vh = 110vh - 100vh = ~10vh
-    //
-    // We want the scale/opacity to kick in only during this overlap window.
-    const extraHeight = outerRef.current.offsetHeight - vh;
-
-    if (extraHeight <= 0 || rect.top >= 0) {
-      // Section hasn't started overlapping yet — full size
-      setScale(1);
-      setOpacity(1);
-      return;
-    }
-
-    if (rect.top < -extraHeight) {
-      // Section fully covered by the next — keep at minimum values
-      setScale(0.97);
-      setOpacity(0.92);
-      return;
-    }
-
-    // In the active overlap window: interpolate
-    const progress = Math.abs(rect.top) / extraHeight; // 0 → 1
-    const clampedProgress = Math.min(1, Math.max(0, progress));
-
-    const isMobile = window.innerWidth < 768;
-    const minScale = isMobile ? 0.98 : 0.97;
-    const minOpacity = isMobile ? 0.96 : 0.92;
-
-    setScale(1 - clampedProgress * (1 - minScale));
-    setOpacity(1 - clampedProgress * (1 - minOpacity));
-  }, [isLast]);
+  const incomingRef = useRef(null);
+  const contentRef = useRef(null);
 
   useEffect(() => {
-    if (isLast) return;
+    let rafId;
 
-    let rafId = null;
+    // Spring variables
+    let currentScale = 1;
+    let currentOpacity = 1;
+    let currentBrightness = 1;
 
-    const onScroll = () => {
-      // Cancel any pending frame to avoid queuing up multiple updates
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(updateStyles);
+    let inScale = 0.96;
+    let inOpacity = 0.90;
+    let inTranslateY = 0; // Keeping translateY at 0 and relying on native scroll + spring scale for the heavy feel
+
+    const tick = () => {
+      if (!outerRef.current) return;
+
+      const vh = window.innerHeight;
+      const rect = outerRef.current.getBoundingClientRect();
+      const top = rect.top;
+
+      // ==========================================
+      // PHASE 1: OUTGOING (This section is pinned, next is sliding over)
+      // The next section enters when top reaches -0.5vh (50vh pause over)
+      // The next section fully covers when top reaches -1.5vh (100vh overlap)
+      // ==========================================
+      let targetScale = 1;
+      let targetOpacity = 1;
+      let targetBrightness = 1;
+
+      if (!isLast) {
+        if (top <= -0.5 * vh && top >= -1.5 * vh) {
+          const p = (Math.abs(top) - 0.5 * vh) / vh; // 0 to 1
+          targetScale = 1 - (p * 0.04); // 1 to 0.96
+          targetOpacity = 1 - (p * 0.12); // 1 to 0.88
+          targetBrightness = 1 - (p * 0.15); // 1 to 0.85
+        } else if (top < -1.5 * vh) {
+          targetScale = 0.96;
+          targetOpacity = 0.88;
+          targetBrightness = 0.85;
+        }
+      }
+
+      // ==========================================
+      // PHASE 2: INCOMING (This section is sliding up natively)
+      // Enters at top = vh. Fully covers at top = 0.
+      // ==========================================
+      let targetInScale = 1;
+      let targetInOpacity = 1;
+
+      if (top > 0 && top <= vh) {
+        const p = (vh - top) / vh; // 0 (at bottom) to 1 (at top)
+        targetInScale = 0.98 + (p * 0.02);
+        targetInOpacity = 0.94 + (p * 0.06);
+      } else if (top > vh) {
+        // Below screen
+        targetInScale = 0.98;
+        targetInOpacity = 0.94;
+      }
+
+      // ==========================================
+      // SPRING PHYSICS (Lerp)
+      // ==========================================
+      const lerp = (curr, target, speed) => curr + (target - curr) * speed;
+      
+      currentScale = lerp(currentScale, targetScale, 0.08);
+      currentOpacity = lerp(currentOpacity, targetOpacity, 0.08);
+      currentBrightness = lerp(currentBrightness, targetBrightness, 0.08);
+
+      inScale = lerp(inScale, targetInScale, 0.06); 
+      inOpacity = lerp(inOpacity, targetInOpacity, 0.08);
+
+      // ==========================================
+      // APPLY DOM TRANSFORMS
+      // ==========================================
+      if (contentRef.current && !isLast) {
+        contentRef.current.style.transform = `scale(${currentScale}) translateZ(-10px)`;
+        contentRef.current.style.opacity = currentOpacity.toFixed(3);
+        contentRef.current.style.filter = `brightness(${currentBrightness.toFixed(3)})`;
+      }
+
+      if (incomingRef.current) {
+        incomingRef.current.style.transform = `translateY(${inTranslateY}px) scale(${inScale}) translateZ(0)`;
+        incomingRef.current.style.opacity = inOpacity.toFixed(3);
+      }
+
+      rafId = requestAnimationFrame(tick);
     };
 
-    window.addEventListener('scroll', onScroll, { passive: true });
-    updateStyles(); // run once on mount
-
-    return () => {
-      window.removeEventListener('scroll', onScroll);
-      if (rafId) cancelAnimationFrame(rafId);
-    };
-  }, [isLast, updateStyles]);
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [isLast]);
 
   if (isLast) {
-    // Last section: normal document flow, no sticky magic needed
     return (
-      <div className={`relative w-full ${bgClass}`} style={{ zIndex }}>
-        {children}
+      <div 
+        ref={outerRef} 
+        className={`relative w-full ${bgClass}`} 
+        style={{ zIndex, minHeight: '100vh' }}
+      >
+        <div ref={incomingRef} className="w-full h-full will-change-transform" style={{ minHeight: '100vh' }}>
+          <div className="w-full h-full flex flex-col justify-center" style={{ minHeight: '100vh' }}>
+            {children}
+          </div>
+        </div>
       </div>
     );
   }
 
+  // Layout math:
+  // H (Layout Height) = 150vh (50vh clean pause + 100vh overlap)
+  // W (Wrapper Height) = 250vh (keeps element pinned perfectly during pause & overlap)
+  // MB (Margin Bottom) = H - W = -100vh
+
   return (
-    // Outer wrapper: slightly taller than 100vh to create the overlap window.
-    // 110vh = 100vh (visible) + 10vh (overlap scroll distance).
-    // Keep this small — the user should NOT feel stuck here.
     <div
       ref={outerRef}
       className="relative w-full"
       style={{
-        height: '110vh',
+        height: '250vh',
+        marginBottom: '-100vh',
         zIndex,
+        perspective: '1200px',
+        transformStyle: 'preserve-3d'
       }}
     >
-      {/* Sticky inner: locks to the top of the viewport */}
       <div
-        className={`sticky top-0 w-full overflow-hidden ${bgClass}`}
-        style={{
-          height: '100vh',
-          // No transition here — transforms are driven directly by scroll position.
-          // Adding CSS transitions to scroll-driven values causes the "rubber band" lag.
-        }}
+        className={`sticky top-0 w-full ${bgClass}`}
+        style={{ minHeight: '100svh' }}
       >
         <div
+          ref={incomingRef}
           className="w-full h-full will-change-transform"
-          style={{
-            transform: `scale(${scale}) translateZ(0)`,
-            opacity,
-            transformOrigin: 'center top',
-          }}
+          style={{ transformOrigin: 'center bottom', minHeight: '100svh' }}
         >
-          {/* Content wrapper — NO overflow-y-auto here.
-               A nested scroller inside a sticky element creates two competing
-               scroll contexts, causing the "stuck" feel on trackpads & mobile.
-               Content must fit within 100vh. */}
-          <div className="w-full h-full flex flex-col justify-center">
-            {children}
+          <div
+            ref={contentRef}
+            className="w-full h-full will-change-transform"
+            style={{ transformOrigin: 'center top' }}
+          >
+            {/* The child content wrapper */}
+            <div className="w-full h-full flex flex-col justify-center">
+              {children}
+            </div>
           </div>
         </div>
       </div>

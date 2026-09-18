@@ -7,7 +7,6 @@ export const ACTIVITY_TYPES = {
   VIDEO_ACTIVITY: 'VIDEO_ACTIVITY',
   BROWSER_ACTIVITY: 'BROWSER_ACTIVITY',
   DOCUMENT_ACTIVITY: 'DOCUMENT_ACTIVITY',
-  SPEECH_LIKE: 'SPEECH_LIKE',
   UNKNOWN: 'UNKNOWN',
 };
 
@@ -20,12 +19,11 @@ export const ACTIVITY_LABELS = {
   VIDEO_ACTIVITY: 'Video activity',
   BROWSER_ACTIVITY: 'Browser activity',
   DOCUMENT_ACTIVITY: 'Document activity',
-  SPEECH_LIKE: 'Speech-like audio activity',
   UNKNOWN: 'Unknown',
 };
 
 /**
- * Evaluates camera, screen, and audio observational signals using a transparent evidence scoring system.
+ * Evaluates camera and screen observational signals using a transparent evidence scoring system.
  * 
  * Priority Precedence:
  * 1. PHONE_ACTIVITY (Phone detected)
@@ -36,15 +34,13 @@ export const ACTIVITY_LABELS = {
  * 6. VIDEO_ACTIVITY (Screen = VIDEO)
  * 7. DOCUMENT_ACTIVITY (Screen = DOCUMENT + Face present)
  * 8. BROWSER_ACTIVITY (Screen = BROWSER)
- * 9. SPEECH_LIKE (Microphone active + sustained speech-like audio energy)
- * 10. UNKNOWN (Camera off / conflicting signals)
+ * 9. UNKNOWN (Camera off / conflicting signals)
  * 
  * @param {Object} cameraSignals
  * @param {Object} screenSignals
- * @param {Object} audioSignals
  * @returns {{ type: string, label: string, evidenceScore: number | null, confidenceType: string, contributingSignals: string[], explanation: string[] }}
  */
-export function classifyMultimodalActivity(cameraSignals = {}, screenSignals = {}, audioSignals = {}) {
+export function classifyMultimodalActivity(cameraSignals = {}, screenSignals = {}) {
   const {
     isCameraActive = false,
     isFacePresent = false,
@@ -61,13 +57,6 @@ export function classifyMultimodalActivity(cameraSignals = {}, screenSignals = {
     screenConfidence = null,
     sourceType = 'unknown',
   } = screenSignals;
-
-  const {
-    isMicrophoneActive = false,
-    speechState = 'SILENCE',
-    isSpeechDetected = false,
-    audioLevel = 0,
-  } = audioSignals;
 
   // Priority 1: Phone Activity
   if (isCameraActive && isPhonePresent) {
@@ -220,19 +209,7 @@ export function classifyMultimodalActivity(cameraSignals = {}, screenSignals = {
     };
   }
 
-  // Priority 9: Speech-like Audio Activity (Microphone active + sustained speech-like audio energy)
-  if (isMicrophoneActive && (isSpeechDetected || speechState === 'SPEECH_LIKE')) {
-    return {
-      type: ACTIVITY_TYPES.SPEECH_LIKE,
-      label: ACTIVITY_LABELS.SPEECH_LIKE,
-      evidenceScore: 0.85,
-      confidenceType: 'heuristic',
-      contributingSignals: ['SPEECH_LIKE_AUDIO'],
-      explanation: ['Sustained speech-like audio activity detected locally on microphone input'],
-    };
-  }
-
-  // Priority 10: Unknown / Unclassified
+  // Priority 9: Unknown / Unclassified
   return {
     type: ACTIVITY_TYPES.UNKNOWN,
     label: ACTIVITY_LABELS.UNKNOWN,
@@ -347,14 +324,13 @@ export function createActivityTracker({
     },
 
     /**
-     * Updates activity state based on current camera, screen, and audio signals.
+     * Updates activity state based on current camera and screen signals.
      * @param {Object} cameraSignals 
      * @param {Object} screenSignals 
-     * @param {Object} audioSignals
      * @param {number} [timestamp=Date.now()]
      */
-    updateMultimodalSignals: (cameraSignals, screenSignals = {}, audioSignals = {}, timestamp = Date.now()) => {
-      const classification = classifyMultimodalActivity(cameraSignals, screenSignals, audioSignals);
+    updateMultimodalSignals: (cameraSignals, screenSignals = {}, timestamp = Date.now()) => {
+      const classification = classifyMultimodalActivity(cameraSignals, screenSignals);
       const newType = classification.type;
 
       if (!activeSegment) {

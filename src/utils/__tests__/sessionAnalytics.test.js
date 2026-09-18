@@ -121,12 +121,11 @@ describe('Session Analytics Unit Tests', () => {
     assert.strictEqual(exportedJSON.statistics.totalActiveSeconds, 3600);
     assert.strictEqual(exportedJSON.activitySegments.length, 1);
 
-    // Verify privacy enforcement: NO raw video, canvas, screenshot, or audio properties exist
+    // Verify privacy enforcement: NO raw video, canvas, or screenshot properties exist
     assert.strictEqual(exportedJSON.video, undefined);
     assert.strictEqual(exportedJSON.canvas, undefined);
     assert.strictEqual(exportedJSON.screenshot, undefined);
     assert.strictEqual(exportedJSON.imageData, undefined);
-    assert.strictEqual(exportedJSON.audio, undefined);
   });
 
   it('generateMockSessionData generates valid 120-minute mock session', () => {
