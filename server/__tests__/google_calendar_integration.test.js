@@ -10,6 +10,7 @@ import {
 } from '../services/googleCalendar.js';
 import { decryptToken, encryptToken } from '../utils/encryption.js';
 import { config } from '../config/env.js';
+import { pool } from '../db/client.js';
 
 test('Google Calendar Integration Test Suite', async (t) => {
   let app;
@@ -245,14 +246,24 @@ test('Google Calendar Integration Test Suite', async (t) => {
     assert.equal(verifyOAuthState('invalid_random_string', userA.id), false);
     assert.equal(verifyOAuthState(null, userA.id), false);
 
-    // Callback with tampered state redirects to calendar with error
+    // Callback with tampered state redirects to frontend calendar with error
     const res = await app.inject({
       method: 'GET',
       url: `/api/integrations/google-calendar/callback?code=mock_code&state=${encodeURIComponent(tamperedState)}`,
       headers: { cookie: cookieA },
     });
     assert.equal(res.statusCode, 302);
-    assert.ok(res.headers.location.includes('google=error'));
+    assert.ok(res.headers.location.startsWith(config.frontendUrl));
+    assert.ok(res.headers.location.includes('/calendar?google=error'));
+
+    // Callback with user cancellation/denial redirects to frontend calendar?google=denied
+    const deniedRes = await app.inject({
+      method: 'GET',
+      url: '/api/integrations/google-calendar/callback?error=access_denied',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(deniedRes.statusCode, 302);
+    assert.equal(deniedRes.headers.location, `${config.frontendUrl}/calendar?google=denied`);
   });
 
   await t.test('5. OAuth callback stores connection for the correct user with encrypted tokens', async () => {
@@ -264,7 +275,7 @@ test('Google Calendar Integration Test Suite', async (t) => {
     });
 
     assert.equal(res.statusCode, 302);
-    assert.equal(res.headers.location, '/calendar?google=connected');
+    assert.equal(res.headers.location, `${config.frontendUrl}/calendar?google=connected`);
 
     // Verify record in database
     const conn = await dbStore.getGoogleCalendarConnection(userA.id);
@@ -539,4 +550,50 @@ test('Google Calendar Integration Test Suite', async (t) => {
     assert.ok(actualStartedAtMs <= afterCall + 2000);
     assert.equal(sessionData.goalText, 'DSA Problem Solving');
   });
+
+  await t.test('15. Connect request without configured credentials returns clear 500 error message', async () => {
+    const savedClientId = config.googleClientId;
+    try {
+      config.googleClientId = '';
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/integrations/google-calendar/connect',
+        headers: { cookie: cookieA },
+      });
+      assert.equal(res.statusCode, 500);
+      const data = JSON.parse(res.payload);
+      assert.ok(data.message.includes('Google OAuth is not configured. GOOGLE_CLIENT_ID is missing.'));
+    } finally {
+      config.googleClientId = savedClientId;
+    }
+  });
+
+  await t.test('16. Alias route /api/google-calendar/connect works identically', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/google-calendar/connect',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(res.statusCode, 200);
+    const data = JSON.parse(res.payload);
+    assert.ok(data.url);
+    assert.ok(data.url.includes('https://accounts.google.com/o/oauth2/v2/auth'));
+  });
+
+  await t.test('17. Connect request with redirect=true redirects directly to Google auth URL', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/integrations/google-calendar/connect?redirect=true',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(res.statusCode, 302);
+    assert.ok(res.headers.location);
+    assert.ok(res.headers.location.includes('https://accounts.google.com/o/oauth2/v2/auth'));
+  });
+
+  setGoogleApiFetchOverride(null);
+  if (app) await app.close();
+  await pool.end();
 });
+
+

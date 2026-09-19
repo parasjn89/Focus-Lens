@@ -17,6 +17,23 @@ export async function getGoogleCalendarConnectUrl() {
 }
 
 /**
+ * Initiates the Google OAuth 2.0 authorization flow:
+ * Requests the authorization URL from backend and redirects the browser to Google OAuth.
+ *
+ * @returns {Promise<{ url: string }>}
+ */
+export async function connectGoogleCalendar() {
+  const data = await getGoogleCalendarConnectUrl();
+  if (data && data.url) {
+    if (typeof window !== 'undefined') {
+      window.location.href = data.url;
+    }
+    return data;
+  }
+  throw new Error(data?.message || 'No authorization URL returned from server.');
+}
+
+/**
  * Fetches user's accessible Google calendars.
  * Returns { calendars: Array<{ id, summary, description, primary, timeZone }>, selectedCalendarId: string }
  */

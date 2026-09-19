@@ -22,6 +22,7 @@ import {
   CalendarDays,
   MapPin,
   AlertTriangle,
+  AlertCircle,
   LayoutGrid,
   List as ListIcon,
   CalendarRange
@@ -30,6 +31,7 @@ import { fetchCalendarMonth } from '../api/sessionApi.js';
 import {
   fetchGoogleCalendarStatus,
   getGoogleCalendarConnectUrl,
+  connectGoogleCalendar,
   fetchGoogleCalendars,
   selectGoogleCalendar,
   fetchGoogleCalendarEvents,
@@ -210,17 +212,13 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
   }, [currentYearMonth]);
 
   const handleConnectGoogle = async () => {
+    if (isGoogleLoading) return;
     setIsGoogleLoading(true);
     setGoogleError(null);
     try {
-      const res = await getGoogleCalendarConnectUrl();
-      if (res.url) {
-        window.location.href = res.url;
-      } else {
-        throw new Error('No authorization URL returned from server.');
-      }
+      await connectGoogleCalendar();
     } catch (err) {
-      console.error('Failed to get Google authorization URL:', err);
+      console.error('Failed to initiate Google authorization:', err);
       setGoogleError(err.message || 'Failed to initiate Google authorization.');
       setIsGoogleLoading(false);
     }
@@ -583,6 +581,38 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
             className="underline font-semibold hover:text-white"
           >
             Retry
+          </button>
+        </div>
+      )}
+
+      {googleNotice && (
+        <div
+          className={`p-3.5 rounded-2xl border text-xs flex items-center justify-between transition-all ${
+            googleNotice.type === 'success'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+              : googleNotice.type === 'warning'
+              ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+              : googleNotice.type === 'info'
+              ? 'bg-sky-500/10 border-sky-500/30 text-sky-300'
+              : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+          }`}
+        >
+          <div className="flex items-center space-x-2">
+            {googleNotice.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : googleNotice.type === 'warning' ? (
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span className="font-medium">{googleNotice.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setGoogleNotice(null)}
+            className="text-slate-400 hover:text-white text-base px-1"
+          >
+            ×
           </button>
         </div>
       )}
@@ -997,20 +1027,65 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
               )}
             </div>
 
+            {/* Error message if error occurred while connected */}
+            {googleStatus.connected && googleError && (
+              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-start flex items-start justify-between gap-2">
+                <div className="flex items-start space-x-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <p className="text-[11px] font-medium text-rose-300 leading-tight">
+                    {googleError}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setGoogleError(null)}
+                  className="text-rose-400 hover:text-rose-200 text-xs shrink-0"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
             {!googleStatus.connected ? (
-              <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-2 text-center">
+              <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-3 text-center">
                 <CalendarDays className="w-6 h-6 text-slate-500 mx-auto" />
-                <p className="text-xs text-slate-300 font-medium">Google Calendar not connected</p>
-                <p className="text-[11px] text-slate-500">
-                  Connect to view your scheduled Google Calendar events.
-                </p>
+                <div>
+                  <p className="text-xs text-slate-300 font-medium">Google Calendar not connected</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Connect to view your scheduled Google Calendar events.
+                  </p>
+                </div>
+
+                {googleError && (
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-start">
+                    <div className="flex items-start space-x-2">
+                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-medium text-rose-300 leading-tight">
+                          {googleError}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setGoogleError(null)}
+                        className="text-rose-400 hover:text-rose-200 text-xs shrink-0"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={handleConnectGoogle}
                   disabled={isGoogleLoading}
-                  className="mt-1 w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
+                  className="mt-1 w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                 >
-                  {isGoogleLoading ? 'Connecting...' : 'Connect Google Calendar'}
+                  {isGoogleLoading && (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                  )}
+                  <span>{isGoogleLoading ? 'Connecting...' : 'Connect Google Calendar'}</span>
                 </button>
               </div>
             ) : selectedDayGoogleEvents.length === 0 ? (

@@ -10,10 +10,14 @@ import {
   listGoogleCalendarEvents,
 } from '../services/googleCalendar.js';
 import { decryptToken, encryptToken } from '../utils/encryption.js';
+import { config } from '../config/env.js';
 
 function resolveUserId(request) {
   if (request.user && request.user.id) {
     return request.user.id;
+  }
+  if (request.session && request.session.userId) {
+    return request.session.userId;
   }
   const err = new Error('Authentication required. Please log in.');
   err.statusCode = 401;
@@ -62,7 +66,7 @@ export async function googleCalendarCallback(request, reply) {
   // Handle user cancellation or denial
   if (error) {
     request.log.warn({ googleError: error }, 'Google OAuth authorization denied by user.');
-    return reply.redirect('/calendar?google=denied');
+    return reply.redirect(`${config.frontendUrl}/calendar?google=denied`);
   }
 
   if (!code || !state) {
@@ -76,17 +80,14 @@ export async function googleCalendarCallback(request, reply) {
   // Validate state against authenticated user
   const authenticatedUserId = request.user?.id || request.session?.userId;
   if (!authenticatedUserId) {
-    return reply.status(401).send({
-      statusCode: 401,
-      error: 'Unauthorized',
-      message: 'Session expired during OAuth authorization. Please log in again.',
-    });
+    request.log.warn('Session expired or unauthenticated during OAuth callback.');
+    return reply.redirect(`${config.frontendUrl}/calendar?google=error&message=${encodeURIComponent('Session expired during OAuth authorization. Please log in again.')}`);
   }
 
   const isValidState = verifyOAuthState(state, authenticatedUserId);
   if (!isValidState) {
     request.log.warn({ state, authenticatedUserId }, 'Invalid or expired OAuth state detected.');
-    return reply.redirect('/calendar?google=error&message=Invalid+OAuth+state');
+    return reply.redirect(`${config.frontendUrl}/calendar?google=error&message=Invalid+OAuth+state`);
   }
 
   try {
@@ -113,10 +114,10 @@ export async function googleCalendarCallback(request, reply) {
     });
 
     request.log.info({ userId: authenticatedUserId, email }, 'Google Calendar connected successfully.');
-    return reply.redirect('/calendar?google=connected');
+    return reply.redirect(`${config.frontendUrl}/calendar?google=connected`);
   } catch (err) {
     request.log.error(err, 'Failed to complete Google OAuth exchange.');
-    return reply.redirect('/calendar?google=error&message=Authentication+failed');
+    return reply.redirect(`${config.frontendUrl}/calendar?google=error&message=Authentication+failed`);
   }
 }
 
