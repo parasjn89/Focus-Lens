@@ -137,6 +137,8 @@ export async function detectObjectsInVideo(videoElement) {
 
         if (normalizedLabel === 'cell phone') {
           console.log(`[ObjectDetector Raw] Raw phone detection: rawLabel="${rawLabel}", score=${category.score.toFixed(3)}, box=[${Math.round(bbox.originX)}, ${Math.round(bbox.originY)}, ${Math.round(bbox.width)}, ${Math.round(bbox.height)}]`);
+        } else if (normalizedLabel === 'person') {
+          console.log(`[ObjectDetector Raw] Raw person detection: score=${category.score.toFixed(3)}, box=[x:${Math.round(bbox.originX)}, y:${Math.round(bbox.originY)}, w:${Math.round(bbox.width)}, h:${Math.round(bbox.height)}]`);
         }
 
         normalizedObjects.push({
@@ -153,6 +155,11 @@ export async function detectObjectsInVideo(videoElement) {
         });
       }
     });
+
+    const personDets = normalizedObjects.filter((o) => o.label === 'person');
+    if (personDets.length > 1) {
+      console.log(`[ObjectDetector Raw] Multi-person raw detections (${personDets.length} in frame):`, personDets.map((p) => `conf=${p.confidence}, box=[${p.boundingBox.x},${p.boundingBox.y},${p.boundingBox.width}x${p.boundingBox.height}]`).join(' | '));
+    }
 
     return normalizedObjects;
   } catch (err) {

@@ -107,6 +107,7 @@ export function createPersonTracker({
         currentState,
         count: currentStableCount,
         rawCount,
+        duplicatePersonCount: spatialRes.duplicatePersonCount || 0,
         personOnPhoneCount,
         isPersonOnPhoneScreen: personOnPhoneCount > 0,
         confidence: currentStableCount > 0 ? maxConfidence : null,

@@ -21,6 +21,7 @@ export function useObjectDetection({
   const [personState, setPersonState] = useState(PERSON_STATES.NO_PERSON);
   const [personCount, setPersonCount] = useState(0); // Real physical person count
   const [rawPersonCount, setRawPersonCount] = useState(0);
+  const [duplicatePersonCount, setDuplicatePersonCount] = useState(0);
   const [personOnPhoneCount, setPersonOnPhoneCount] = useState(0);
   const [isPersonOnPhoneScreen, setIsPersonOnPhoneScreen] = useState(false);
   const [personConfidence, setPersonConfidence] = useState(null);
@@ -54,6 +55,8 @@ export function useObjectDetection({
   });
 
   const statsRef = useRef({ attempts: 0, successes: 0, errors: 0 });
+  const isProcessingRef = useRef(false);
+  const lastVideoTimeRef = useRef(-1);
 
   const phoneTrackerRef = useRef(null);
   const personTrackerRef = useRef(null);
@@ -151,9 +154,12 @@ export function useObjectDetection({
       setPersonState(PERSON_STATES.NO_PERSON);
       setPersonCount(0);
       setRawPersonCount(0);
+      setDuplicatePersonCount(0);
       setPersonOnPhoneCount(0);
       setIsPersonOnPhoneScreen(false);
       setPersonConfidence(null);
+      isProcessingRef.current = false;
+      lastVideoTimeRef.current = -1;
 
       statsRef.current = { attempts: 0, successes: 0, errors: 0 };
       setDebugStats({
@@ -162,6 +168,7 @@ export function useObjectDetection({
         errors: 0,
         rawPeople: 0,
         realPeople: 0,
+        duplicatePeople: 0,
         onPhonePeople: 0,
         rawPhones: 0,
         lastRawPhoneConfidence: null,
@@ -190,6 +197,18 @@ export function useObjectDetection({
         return;
       }
 
+      // Guard against concurrent overlapping inference ticks
+      if (isProcessingRef.current) {
+        return;
+      }
+
+      // Guard against re-processing stalled/frozen video frames
+      if (video.currentTime === lastVideoTimeRef.current && video.currentTime > 0) {
+        return;
+      }
+      lastVideoTimeRef.current = video.currentTime;
+      isProcessingRef.current = true;
+
       statsRef.current.attempts += 1;
       const currentAttempt = statsRef.current.attempts;
       if (currentAttempt === 1 || currentAttempt % 20 === 0) {
@@ -207,24 +226,26 @@ export function useObjectDetection({
           setPhoneState((prev) => (prev !== phoneRes.currentState ? phoneRes.currentState : prev));
           setPhoneConfidence((prev) => (prev !== phoneRes.confidence ? phoneRes.confidence : prev));
 
-          // Process person tracker (includes spatial filtering)
+          // Process person tracker (includes spatial filtering and overlap deduplication)
           const personRes = personTrackerRef.current.processObjects(detectedObjects);
           setPersonState((prev) => (prev !== personRes.currentState ? personRes.currentState : prev));
           setPersonCount((prev) => (prev !== personRes.count ? personRes.count : prev));
           setRawPersonCount((prev) => (prev !== personRes.rawCount ? personRes.rawCount : prev));
+          setDuplicatePersonCount((prev) => (prev !== (personRes.duplicatePersonCount || 0) ? (personRes.duplicatePersonCount || 0) : prev));
           setPersonOnPhoneCount((prev) => (prev !== personRes.personOnPhoneCount ? personRes.personOnPhoneCount : prev));
           setIsPersonOnPhoneScreen((prev) => (prev !== personRes.isPersonOnPhoneScreen ? personRes.isPersonOnPhoneScreen : prev));
           setPersonConfidence((prev) => (prev !== personRes.confidence ? personRes.confidence : prev));
 
           const rawPeople = personRes.rawCount || 0;
           const realPeople = personRes.count || 0;
+          const duplicatePeople = personRes.duplicatePersonCount || 0;
           const onPhonePeople = personRes.personOnPhoneCount || 0;
           const phoneObjects = detectedObjects.filter((o) => o.label === 'cell phone');
           const phoneCount = phoneObjects.length;
           const maxRawPhoneConf = phoneCount > 0 ? Math.max(...phoneObjects.map((p) => p.confidence)) : null;
 
           if (currentAttempt === 1 || currentAttempt % 20 === 0) {
-            console.log(`[ObjectHook] raw people = ${rawPeople}, real people = ${realPeople}, on-phone people = ${onPhonePeople}, raw phones = ${phoneCount} (maxConf: ${maxRawPhoneConf ? maxRawPhoneConf.toFixed(2) : 'N/A'})`);
+            console.log(`[ObjectHook] raw people = ${rawPeople}, real people = ${realPeople}, duplicate people = ${duplicatePeople}, on-phone people = ${onPhonePeople}, raw phones = ${phoneCount} (maxConf: ${maxRawPhoneConf ? maxRawPhoneConf.toFixed(2) : 'N/A'})`);
           }
 
           if (currentAttempt === 1 || currentAttempt % 4 === 0) {
@@ -234,6 +255,7 @@ export function useObjectDetection({
               errors: statsRef.current.errors,
               rawPeople,
               realPeople,
+              duplicatePeople,
               onPhonePeople,
               rawPhones: phoneCount,
               lastRawPhoneConfidence: maxRawPhoneConf,
@@ -253,6 +275,8 @@ export function useObjectDetection({
             lastError: err.message || String(err),
           }));
         }
+      } finally {
+        isProcessingRef.current = false;
       }
     }, detectionIntervalMs);
 
@@ -283,6 +307,7 @@ export function useObjectDetection({
     personState,
     personCount, // Real physical person count
     rawPersonCount,
+    duplicatePersonCount,
     personOnPhoneCount,
     isPersonOnPhoneScreen,
     personConfidence,
