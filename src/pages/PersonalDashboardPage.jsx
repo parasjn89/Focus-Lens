@@ -1,17 +1,35 @@
-import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Clock, BookOpen, Smartphone, HelpCircle, ChevronRight, Award, Flame, RefreshCw, Calendar, Target, Compass, MoreHorizontal, Paperclip, Bell, Folder } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Clock, Flame, RefreshCw, Compass, Filter, ChevronDown, Check, ChevronRight } from 'lucide-react';
 import { apiFetch } from '../api/client';
-import { WeeklyActivityChart } from '../components/WeeklyActivityChart';
 import { useAuth } from '../context/AuthContext';
 
 export function PersonalDashboardPage({ onSelectSession, onNewSession, onNavigate }) {
   const { user } = useAuth();
   const [dashboardData, setDashboardData] = useState(null);
-  const [coachPreview, setCoachPreview] = useState(null);
   const [consistencyData, setConsistencyData] = useState(null);
   const [recommendationData, setRecommendationData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Category filter state: 'ALL' | 'Study' | 'Coding' | 'Other'
+  const [selectedCategory, setSelectedCategory] = useState('ALL');
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const filterRef = useRef(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (filterRef.current && !filterRef.current.contains(event.target)) {
+        setIsFilterOpen(false);
+      }
+    }
+    if (isFilterOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isFilterOpen]);
 
   const fetchDashboard = async () => {
     setIsLoading(true);
@@ -19,8 +37,6 @@ export function PersonalDashboardPage({ onSelectSession, onNewSession, onNavigat
     try {
       const res = await apiFetch('/api/analytics/dashboard');
       setDashboardData(res.dashboard);
-      const coachRes = await apiFetch('/api/analytics/focus-coach').catch(() => null);
-      if (coachRes) setCoachPreview(coachRes);
       const consistencyRes = await apiFetch('/api/analytics/consistency', {
         headers: {
           'X-Timezone-Offset': new Date().getTimezoneOffset().toString(),
@@ -49,65 +65,192 @@ export function PersonalDashboardPage({ onSelectSession, onNewSession, onNavigat
     return `${mins}m`;
   };
 
-  const formatDate = (isoString) => {
-    if (!isoString) return 'Recent';
-    const date = new Date(isoString);
-    return date.toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
   if (isLoading) {
     return (
       <div className="py-24 text-center text-slate-400">
-        <RefreshCw className="w-8 h-8 animate-spin mx-auto text-brand-400 mb-3" />
-        <p className="text-sm font-medium">Calculating personal focus analytics...</p>
+        <RefreshCw className="w-8 h-8 animate-spin mx-auto text-cyan-400 mb-3" />
+        <p className="text-sm font-medium">Loading personal focus dashboard...</p>
       </div>
     );
   }
 
   const today = dashboardData?.today || {};
-  const weekly = dashboardData?.weekly || {};
-  const monthly = dashboardData?.monthly || {};
-  const recentSessions = dashboardData?.recentSessions || [];
+
+  // Compute category-filtered metrics for Today's Focus
+  let displayFocusSeconds = today.totalActiveSec || 0;
+  let displayCategoryLabel = 'All Work';
+
+  if (selectedCategory === 'Study') {
+    displayFocusSeconds = today.totalStudyLikeSec || 0;
+    displayCategoryLabel = 'Study';
+  } else if (selectedCategory === 'Coding') {
+    displayFocusSeconds = today.totalCodingSec || 0;
+    displayCategoryLabel = 'Coding';
+  } else if (selectedCategory === 'Other') {
+    displayFocusSeconds = Math.max(0, (today.totalActiveSec || 0) - ((today.totalStudyLikeSec || 0) + (today.totalCodingSec || 0)));
+    displayCategoryLabel = 'Other';
+  }
+
+  const focusPercentage = today.studyPercentage !== undefined ? today.studyPercentage : 100;
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-8">
       
-      {/* Top Section: Header & Action Bar */}
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-8">
+      {/* =========================================
+          1. HEADER
+      ========================================= */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-2 border-b border-slate-800/60 relative z-20">
         <div>
-          <h1 className="text-4xl font-semibold text-white tracking-tight mb-2">Focus Better Today !</h1>
-          <p className="text-slate-400 max-w-md text-sm">
-            Welcome back, <span className="font-semibold text-white">{user?.name || user?.email}</span>. Management and planning in a simple and attractive style will bring you success.
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+            Focus Better Today!
+          </h1>
+          <p className="text-sm text-slate-400 font-medium mt-1">
+            Welcome back, <span className="font-semibold text-white">{user?.name || user?.email || 'Focus Champion'}</span>.
           </p>
         </div>
 
-        <div className="flex items-center space-x-3">
-          <div className="flex space-x-2 bg-navy-800/80 p-1 rounded-xl border border-slate-700/50">
-            <button className="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/20 text-emerald-400 flex items-center space-x-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+        {/* Action Controls: All Work, Filter, Refresh, New task */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center space-x-1.5 bg-slate-900/80 p-1 rounded-xl border border-slate-800/80 backdrop-blur-md shadow-sm relative z-20">
+            {/* All Work Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCategory('ALL');
+                setIsFilterOpen(false);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center space-x-1.5 transition cursor-pointer ${
+                selectedCategory === 'ALL'
+                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Show all focus activity"
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${selectedCategory === 'ALL' ? 'bg-emerald-400' : 'bg-slate-500'}`} />
               <span>All Work</span>
             </button>
-            <button className="px-4 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition">
-              Study
-            </button>
-            <button className="px-4 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition">
-              Coding
-            </button>
+
+            {/* Filter Dropdown */}
+            <div className="relative z-30" ref={filterRef}>
+              <button
+                type="button"
+                onClick={() => setIsFilterOpen(prev => !prev)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center space-x-1.5 transition cursor-pointer ${
+                  selectedCategory !== 'ALL'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-semibold'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                }`}
+                aria-expanded={isFilterOpen}
+                aria-haspopup="true"
+                title="Filter by category"
+              >
+                <Filter className="w-3.5 h-3.5" />
+                <span>{selectedCategory !== 'ALL' ? selectedCategory : 'Filter'}</span>
+                <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isFilterOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Glassmorphic Dropdown Popover */}
+              {isFilterOpen && (
+                <div className="absolute right-0 top-full mt-2 w-44 rounded-xl bg-slate-900/95 backdrop-blur-xl border border-slate-800 shadow-2xl p-1.5 z-50 text-xs animate-in fade-in zoom-in-95 duration-150">
+                  <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-800/80 mb-1">
+                    Categories
+                  </div>
+
+                  {/* 1. Study */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory('Study');
+                      setIsFilterOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left transition cursor-pointer ${
+                      selectedCategory === 'Study'
+                        ? 'bg-cyan-500/20 text-cyan-300 font-semibold'
+                        : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                      <span>Study</span>
+                    </div>
+                    {selectedCategory === 'Study' && <Check className="w-3.5 h-3.5 text-cyan-400" />}
+                  </button>
+
+                  {/* 2. Coding */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory('Coding');
+                      setIsFilterOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left transition cursor-pointer ${
+                      selectedCategory === 'Coding'
+                        ? 'bg-cyan-500/20 text-cyan-300 font-semibold'
+                        : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-teal-400" />
+                      <span>Coding</span>
+                    </div>
+                    {selectedCategory === 'Coding' && <Check className="w-3.5 h-3.5 text-cyan-400" />}
+                  </button>
+
+                  {/* 3. Other */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory('Other');
+                      setIsFilterOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left transition cursor-pointer ${
+                      selectedCategory === 'Other'
+                        ? 'bg-cyan-500/20 text-cyan-300 font-semibold'
+                        : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      <span>Other</span>
+                    </div>
+                    {selectedCategory === 'Other' && <Check className="w-3.5 h-3.5 text-cyan-400" />}
+                  </button>
+
+                  {/* Clear filter / Show All Work */}
+                  {selectedCategory !== 'ALL' && (
+                    <div className="pt-1 mt-1 border-t border-slate-800/80">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCategory('ALL');
+                          setIsFilterOpen(false);
+                        }}
+                        className="w-full flex items-center justify-center py-1.5 text-[11px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-md transition cursor-pointer"
+                      >
+                        Show All Work
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Refresh Button */}
           <button
+            type="button"
             onClick={fetchDashboard}
-            className="w-10 h-10 rounded-xl bg-navy-800/80 border border-slate-700/50 flex items-center justify-center text-slate-400 hover:text-white transition"
+            className="w-9 h-9 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-center text-slate-400 hover:text-white hover:border-slate-700 transition cursor-pointer shadow-sm"
+            title="Refresh dashboard"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
+
+          {/* New Task Button */}
           <button
+            type="button"
             onClick={onNewSession}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-700 to-brand-500 text-white text-sm font-semibold shadow-lg shadow-brand-500/30 hover:scale-105 transition-transform"
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-500 hover:from-cyan-500 hover:to-teal-400 text-white text-xs sm:text-sm font-semibold shadow-md shadow-cyan-950/30 hover:scale-[1.02] active:scale-[0.98] transition cursor-pointer"
           >
             New task
           </button>
@@ -115,460 +258,285 @@ export function PersonalDashboardPage({ onSelectSession, onNewSession, onNavigat
       </div>
 
       {error && (
-        <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">
+        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">
           {error}
         </div>
       )}
 
-      {/* COMPACT CARDS FROM origin/main */}
-      {/* Focus Points & Level Card */}
-      {dashboardData?.focusPoints && (
-        <div className="mt-8 p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-brand-500/30 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-            <Award className="w-36 h-36 text-brand-400" />
-          </div>
+      {/* =========================================
+          MAIN CALM WORKSPACE LAYOUT
+      ========================================= */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start relative z-0">
+        
+        {/* LEFT COLUMN: TODAY'S FOCUS (PRIMARY) + FOCUS STREAK (COMPACT) */}
+        <div className="lg:col-span-2 min-w-0 space-y-6">
+          
+          {/* 2. TODAY'S FOCUS — PRIMARY SECTION */}
+          <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-b from-slate-900/70 to-slate-950/80 backdrop-blur-xl border border-slate-800/80 shadow-xl space-y-6 relative overflow-hidden">
+            {/* Ambient subtle glow */}
+            <div className="absolute top-0 right-0 w-72 h-72 bg-cyan-500/5 rounded-full blur-3xl pointer-events-none" />
 
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-            <div className="space-y-1.5">
-              <div className="flex items-center space-x-2">
-                <div className="px-2.5 py-1 rounded-full bg-brand-500/20 border border-brand-500/30 text-brand-300 text-xs font-bold flex items-center space-x-1.5">
-                  <Award className="w-3.5 h-3.5 text-brand-400" />
-                  <span>Focus Points System</span>
-                </div>
-              </div>
-
-              <div className="flex items-baseline space-x-3 pt-1">
-                <span className="text-4xl font-extrabold text-white tracking-tight">
-                  {dashboardData.focusPoints.total || 0}
-                </span>
-                <span className="text-sm font-semibold text-slate-400">Total Focus Points</span>
-              </div>
-
-              <div className="flex items-center space-x-2 text-xs text-slate-400 pt-1">
-                <span>Today: <strong className="text-emerald-400 font-bold">+{dashboardData.focusPoints.today || 0} pts</strong></span>
-                <span>•</span>
-                <span>This Week: <strong className="text-brand-300 font-bold">+{dashboardData.focusPoints.weekly || 0} pts</strong></span>
-              </div>
-            </div>
-
-            {/* Level Badge & Progress */}
-            <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 min-w-[280px] space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-400 font-medium">Current Level</span>
-                <span className="text-xs px-3 py-1 rounded-full bg-brand-600/30 text-brand-300 border border-brand-500/40 font-extrabold tracking-wide uppercase">
-                  {dashboardData.focusPoints.levelInfo?.level || 'Beginner'}
+            <div className="flex items-center justify-between relative z-10">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse ring-4 ring-cyan-500/20" />
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                  Today's Focus
                 </span>
               </div>
-
-              {!dashboardData.focusPoints.levelInfo?.isMaxLevel ? (
-                <div>
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium mb-1.5">
-                    <span>Progress to {dashboardData.focusPoints.levelInfo?.nextLevel}</span>
-                    <span className="font-mono text-slate-200">
-                      {dashboardData.focusPoints.levelInfo?.pointsInLevel || 0} / {(dashboardData.focusPoints.levelInfo?.pointsInLevel || 0) + (dashboardData.focusPoints.levelInfo?.pointsToNextLevel || 0)} pts
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                    <div
-                      className="bg-gradient-to-r from-brand-500 to-emerald-400 h-full transition-all duration-500"
-                      style={{ width: `${dashboardData.focusPoints.levelInfo?.progressPercent || 0}%` }}
-                    />
-                  </div>
-                  <div className="text-[11px] text-slate-400 text-right mt-1.5 font-medium">
-                    <span className="text-emerald-400 font-bold">{dashboardData.focusPoints.levelInfo?.pointsToNextLevel} points</span> to {dashboardData.focusPoints.levelInfo?.nextLevel}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-xs text-emerald-400 font-bold pt-1 text-center">
-                  Highest Rank Achieved — Focus Master
-                </div>
+              {selectedCategory !== 'ALL' && (
+                <span className="text-[11px] font-mono font-medium px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/25 text-cyan-300">
+                  {displayCategoryLabel}
+                </span>
               )}
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* Focus Streak Compact Dashboard Card */}
-      {consistencyData && (
-        <div className="mt-6 p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-amber-950/30 to-slate-950 border border-amber-500/30 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center space-x-3">
-            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 shrink-0">
-              <Flame className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">FOCUS STREAK</span>
-                {consistencyData.todayFocused && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    ✓ Focus day complete
-                  </span>
-                )}
-              </div>
-              <div className="flex items-baseline space-x-3 mt-1">
-                <span className="text-2xl font-black text-white flex items-center">
-                  🔥 {consistencyData.currentStreak} {consistencyData.currentStreak === 1 ? 'day' : 'days'}
+            {/* Big Focus Numbers */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-2 relative z-10">
+              {/* Total Focus Time */}
+              <div className="space-y-1">
+                <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block">
+                  Total Focus Time
                 </span>
-                <span className="text-xs text-slate-400">
-                  Best: <strong className="text-amber-300 font-bold">{consistencyData.bestStreak} days</strong>
+                <span className="text-3xl sm:text-4xl font-mono font-extrabold text-white tracking-tight block">
+                  {formatSeconds(displayFocusSeconds)}
+                </span>
+                <span className="text-[11px] text-slate-500 block">
+                  {selectedCategory === 'ALL' ? 'Across all categories today' : `Today's ${displayCategoryLabel.toLowerCase()} time`}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                This week: <strong className="text-slate-200">{consistencyData.thisWeek?.focusDays || 0} / {consistencyData.thisWeek?.eligibleDays || 7} focus days</strong>
-              </p>
-            </div>
-          </div>
 
-          <button
-            onClick={() => onNavigate && onNavigate('consistency')}
-            className="flex items-center space-x-1.5 text-xs font-semibold px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white shadow-md shadow-amber-600/20 transition-all shrink-0 self-end sm:self-center"
-          >
-            <span>View Consistency</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Adaptive Session Recommendation Compact Card */}
-      {recommendationData && (
-        <div className="mt-6 p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-emerald-950/40 to-slate-950 border border-emerald-500/30 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="flex items-start space-x-4">
-            <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
-              <Compass className="w-6 h-6" />
-            </div>
-            <div className="space-y-1">
-              <div className="flex items-center space-x-2">
-                <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">NEXT SESSION RECOMMENDATION</span>
-                {recommendationData.available && recommendationData.recommendation?.confidence && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    {recommendationData.recommendation.confidence} confidence
-                  </span>
-                )}
+              {/* Sessions Count */}
+              <div className="space-y-1">
+                <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block">
+                  Sessions Completed
+                </span>
+                <span className="text-3xl sm:text-4xl font-mono font-extrabold text-slate-200 tracking-tight block">
+                  {today.sessionCount || 0}
+                </span>
+                <span className="text-[11px] text-slate-500 block">
+                  Focused intervals logged
+                </span>
               </div>
 
-              {recommendationData.available ? (
-                <>
-                  <div className="flex items-baseline space-x-2">
-                    <span className="text-2xl font-black text-white">
-                      {recommendationData.recommendation.durationMinutes} minutes
-                    </span>
-                    {recommendationData.recommendation.goalText && (
-                      <span className="text-sm font-medium text-slate-300">
-                        • {recommendationData.recommendation.goalText}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-300 italic">
-                    "{recommendationData.recommendation.reason}"
-                  </p>
-                </>
-              ) : (
-                <>
-                  <h4 className="text-base font-bold text-slate-200">Complete a few more sessions</h4>
-                  <p className="text-xs text-slate-400">
-                    FocusLens needs at least 5 completed sessions to personalize recommendations. ({recommendationData.sessionsCompleted || 0}/5 completed)
-                  </p>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 shrink-0 self-end md:self-center">
-            <button
-              onClick={() => onNavigate && onNavigate('recommendations')}
-              className="flex items-center space-x-1.5 text-xs font-semibold px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white shadow-md shadow-emerald-900/30 transition-all"
-            >
-              <span>View Recommendation</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Focus Coach Card */}
-      {coachPreview && !coachPreview.insufficientData && (
-        <div className="mt-6 p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-950 border border-indigo-500/30 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center space-x-3">
-            <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 shrink-0">
-              <Compass className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Focus Coach Suggestion</span>
+              {/* Focus Score / Progress */}
+              <div className="space-y-1">
+                <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block">
+                  Focus Score
+                </span>
+                <span className="text-3xl sm:text-4xl font-mono font-extrabold text-teal-400 tracking-tight block">
+                  {focusPercentage}%
+                </span>
+                <span className="text-[11px] text-slate-500 block">
+                  Productive ratio
+                </span>
               </div>
-              <h3 className="text-sm font-bold text-white mt-0.5">{coachPreview.recommendation}</h3>
-              <p className="text-xs text-slate-400 mt-0.5">{coachPreview.reason}</p>
+            </div>
+
+            {/* Focus Progress Bar */}
+            <div className="pt-2 relative z-10 space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-400 font-medium">
+                <span>Daily Focus Progress</span>
+                <span className="font-mono text-cyan-400 font-semibold">{focusPercentage}%</span>
+              </div>
+              <div className="w-full bg-slate-800/80 rounded-full h-2 overflow-hidden">
+                <div 
+                  className="bg-gradient-to-r from-cyan-500 to-teal-400 h-full rounded-full transition-all duration-700" 
+                  style={{ width: `${Math.min(100, Math.max(5, focusPercentage))}%` }} 
+                />
+              </div>
             </div>
           </div>
 
-          <button
-            onClick={() => onNavigate && onNavigate('coach')}
-            className="flex items-center space-x-1.5 text-xs font-semibold px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 transition-all shrink-0 self-end sm:self-center"
-          >
-            <span>View Focus Coach</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Goal Sessions Summary Card */}
-      {dashboardData?.goals && dashboardData.goals.totalGoalSessions > 0 && (
-        <div className="mt-6 p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center space-x-3">
-            <div className="p-2.5 rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-400 shrink-0">
-              <Target className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-white">Goal Sessions Summary</h3>
-              <p className="text-xs text-slate-400">Tracked performance across goal-based focus sessions</p>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-6 text-xs font-medium">
-            <div className="text-center sm:text-left">
-              <span className="text-slate-400 block text-[11px]">Goal Sessions</span>
-              <span className="text-lg font-black text-white font-mono">{dashboardData.goals.totalGoalSessions}</span>
-            </div>
-            <div className="w-px h-8 bg-slate-800 hidden sm:block" />
-            <div className="text-center sm:text-left">
-              <span className="text-slate-400 block text-[11px]">Goals Completed</span>
-              <span className="text-lg font-black text-emerald-400 font-mono">{dashboardData.goals.goalsCompleted}</span>
-            </div>
-            <div className="w-px h-8 bg-slate-800 hidden sm:block" />
-            <div className="text-center sm:text-left">
-              <span className="text-slate-400 block text-[11px]">Completion Rate</span>
-              <span className="text-lg font-black text-brand-300 font-mono">{dashboardData.goals.completionRate}%</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Deep Work & Personal Best (from origin/main) */}
-      {dashboardData?.deepWork && (
-        <div className="mt-6 p-6 rounded-2xl bg-slate-900/80 border border-emerald-500/30 shadow-xl space-y-4 mb-8">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center space-x-2">
-              <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+          {/* 3. FOCUS STREAK — COMPACT */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-slate-900/50 backdrop-blur-xl border border-slate-800/80 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center space-x-3.5">
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 shrink-0">
                 <Flame className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-white">Deep Work Performance</h3>
-                <p className="text-xs text-slate-400">Longest uninterrupted study-like activity</p>
+                <div className="flex items-center space-x-2">
+                  <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">
+                    Focus Streak
+                  </span>
+                  {consistencyData?.todayFocused && (
+                    <span className="text-[10px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      ✓ Focused today
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-baseline space-x-2 mt-0.5">
+                  <span className="text-xl font-extrabold text-white font-mono">
+                    {consistencyData?.currentStreak || 0} {consistencyData?.currentStreak === 1 ? 'day' : 'days'}
+                  </span>
+                </div>
               </div>
             </div>
 
-            <span className="text-xs font-mono font-bold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              Personal Record Metrics
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-            {/* Today's Longest Deep Work Block */}
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800">
-              <span className="text-slate-400 font-medium block">Longest Deep Work Block (Today)</span>
-              <span className="text-2xl font-black text-emerald-400 font-mono block mt-1">
-                {dashboardData.deepWork.todayLongestText || '0m 0s'}
-              </span>
-              <span className="text-[10px] text-slate-500 block mt-1">Today's best continuous focus</span>
-            </div>
-
-            {/* This Week's Longest Block */}
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800">
-              <span className="text-slate-400 font-medium block">This Week's Longest Block</span>
-              <span className="text-2xl font-black text-brand-300 font-mono block mt-1">
-                {dashboardData.deepWork.weeklyLongestText || '0m 0s'}
-              </span>
-              <span className="text-[10px] text-slate-500 block mt-1">Past 7 days continuous peak</span>
-            </div>
-
-            {/* Personal Best */}
-            <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-950/50 to-slate-950 border border-emerald-500/40">
-              <span className="text-emerald-300 font-bold block">Personal Best</span>
-              <span className="text-2xl font-black text-white font-mono block mt-1">
-                {dashboardData.deepWork.personalBestText || '0m 0s'}
-              </span>
-              <span className="text-[10px] text-emerald-400/80 block mt-1">
-                All-time longest uninterrupted focus block across completed sessions
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Main Grid Layout (from HEAD feature/ui-polish) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Left Column (Main Tasks/Sessions) */}
-        <div className="lg:col-span-2 min-w-0 space-y-6">
-          
-          {/* Today Overview Stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="glass-panel p-4 rounded-2xl">
-              <div className="text-slate-400 text-xs mb-1">Sessions Today</div>
-              <div className="text-2xl font-bold text-white">{today.sessionCount || 0}</div>
-            </div>
-            <div className="glass-panel p-4 rounded-2xl">
-              <div className="text-slate-400 text-xs mb-1">Active Time</div>
-              <div className="text-2xl font-bold text-amber-400">{formatSeconds(today.totalActiveSec)}</div>
-            </div>
-            <div className="glass-panel p-4 rounded-2xl">
-              <div className="text-slate-400 text-xs mb-1">Study/Code</div>
-              <div className="text-2xl font-bold text-emerald-400">{formatSeconds((today.totalStudyLikeSec || 0) + (today.totalCodingSec || 0))}</div>
-            </div>
-            <div className="glass-panel p-4 rounded-2xl">
-              <div className="text-slate-400 text-xs mb-1">Distractions</div>
-              <div className="text-2xl font-bold text-rose-400">{formatSeconds(today.totalPhoneSec)}</div>
-            </div>
-          </div>
-
-          {/* Recent Sessions List styled as tasks */}
-          <div className="space-y-4">
-            {recentSessions.length === 0 ? (
-              <div className="glass-panel p-8 text-center rounded-3xl">
-                <p className="text-slate-400">No recent session data available.</p>
+            <div className="flex items-center space-x-6 text-xs text-slate-400 border-t sm:border-t-0 sm:border-l border-slate-800/80 pt-3 sm:pt-0 sm:pl-6">
+              <div>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Best Streak</span>
+                <span className="font-semibold text-slate-200 font-mono text-sm">{consistencyData?.bestStreak || 0} days</span>
               </div>
-            ) : (
-              recentSessions.map((session, idx) => {
-                const actualSec = Math.round((session.actualDurationMs || session.plannedDurationMs || 0) / 1000);
-                const progress = session.plannedDurationMs ? Math.min(100, Math.round(((session.actualDurationMs || 0) / session.plannedDurationMs) * 100)) : 100;
-                
-                // Determine styling based on index to mix it up like the design
-                const isHighlight = idx === 1;
-
-                return (
-                  <div
-                    key={session.id}
-                    onClick={() => onSelectSession(session)}
-                    className={`glass-panel p-6 rounded-3xl cursor-pointer relative overflow-hidden group transition-all hover:-translate-y-1 ${
-                      isHighlight ? 'bg-brand-900/40 border-brand-500/30 shadow-lg shadow-brand-500/10' : ''
-                    }`}
-                  >
-                    {isHighlight && (
-                      <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-brand-600/30 to-transparent pointer-events-none" />
-                    )}
-
-                    <div className="flex justify-between items-start mb-4 relative z-10">
-                      <div className="flex items-center space-x-2 text-xs text-brand-400">
-                        <span className={`w-2 h-2 rounded-full ${isHighlight ? 'bg-brand-400' : 'bg-brand-500'}`}></span>
-                        <span>{formatDate(session.startedAt || session.createdAt)}</span>
-                      </div>
-                      <div className="flex space-x-2">
-                        {isHighlight && (
-                          <div className="flex items-center space-x-1 bg-navy-800/80 px-2 py-1 rounded-lg text-[10px] text-slate-300">
-                            <Folder className="w-3 h-3" />
-                            <span>6 Files</span>
-                          </div>
-                        )}
-                        <button className="w-8 h-8 rounded-full bg-navy-800/80 flex items-center justify-center text-slate-400 hover:text-white transition">
-                          {isHighlight ? <Bell className="w-3.5 h-3.5" /> : <Paperclip className="w-3.5 h-3.5" />}
-                        </button>
-                        <button className="w-8 h-8 rounded-full bg-navy-800/80 flex items-center justify-center text-slate-400 hover:text-white transition">
-                          <MoreHorizontal className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-4 mb-3 relative z-10">
-                      {isHighlight && (
-                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-400 to-indigo-600 flex items-center justify-center shadow-lg">
-                          <BookOpen className="w-6 h-6 text-white" />
-                        </div>
-                      )}
-                      <div>
-                        <h3 className="text-xl font-bold text-white group-hover:text-brand-300 transition-colors">
-                          {session.selectedActivity || 'Focus Session'}
-                        </h3>
-                        <p className="text-xs text-slate-400 mt-1 line-clamp-1">
-                          Description : {session.description || 'completed deep work session for productivity...'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2 text-xs text-slate-500 mb-6 relative z-10">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>Duration: {formatSeconds(actualSec)}</span>
-                    </div>
-
-                    <div className="flex items-center justify-between relative z-10">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs text-slate-400 mr-2">Participants :</span>
-                        <span className="px-2 py-1 bg-navy-800 rounded-md text-[10px] text-slate-300 border border-slate-700">Design team</span>
-                      </div>
-                      
-                      <div className="flex items-center space-x-4">
-                        <div className="flex items-center space-x-3">
-                          <span className="text-xs text-slate-400">Progress :</span>
-                          <div className="w-32 h-2.5 bg-navy-950 rounded-full overflow-hidden border border-slate-800">
-                            <div className="h-full bg-gradient-to-r from-brand-500 to-brand-300 rounded-full" style={{ width: `${progress}%` }}></div>
-                          </div>
-                        </div>
-                        <span className="px-2 py-1 bg-navy-800 rounded-md text-[10px] text-white border border-slate-700 font-medium">%{progress}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
+              <div>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider block">This Week</span>
+                <span className="font-semibold text-slate-200 font-mono text-sm">
+                  {consistencyData?.thisWeek?.focusDays || 0} / {consistencyData?.thisWeek?.eligibleDays || 7} days
+                </span>
+              </div>
+            </div>
           </div>
+
         </div>
 
-        {/* Right Column (Widgets) */}
+        {/* RIGHT COLUMN: NEXT SESSION (COMPACT) + MINIMAL SHORTCUTS */}
         <div className="lg:col-span-1 min-w-0 space-y-6">
           
-          {/* Note Widget */}
-          <div className="glass-panel p-6 rounded-3xl relative overflow-hidden bg-brand-900/30 border-brand-500/20">
-            <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-brand-400/10 to-transparent pointer-events-none" />
-            <div className="flex justify-between items-start mb-4 relative z-10">
-              <h3 className="text-white font-semibold">Monthly summary</h3>
-              <button className="w-8 h-8 rounded-full bg-navy-900/80 flex items-center justify-center text-slate-300 hover:text-white transition border border-slate-700">
-                <Calendar className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <p className="text-sm text-slate-300 leading-relaxed mb-6 relative z-10">
-              Going to the company and <strong className="text-white">planning meetings</strong> for the month ahead 🎯
-            </p>
-            
-            <div className="flex flex-col space-y-3 relative z-10">
-              <div className="flex justify-between items-center bg-navy-950/50 p-2.5 rounded-xl border border-slate-700/30">
-                <span className="text-xs text-slate-400">Total Active</span>
-                <span className="text-sm font-bold text-white">{formatSeconds(monthly.metrics?.totalActiveSec)}</span>
-              </div>
-              <div className="flex justify-between items-center bg-navy-950/50 p-2.5 rounded-xl border border-slate-700/30">
-                <span className="text-xs text-slate-400">Study Ratio</span>
-                <span className="text-sm font-bold text-brand-400">{monthly.metrics?.studyPercentage || 0}%</span>
-              </div>
-            </div>
-          </div>
+          {/* 4. NEXT SESSION (VISUAL & ENGAGING RECOMMENDATION) */}
+          <div className="relative overflow-hidden p-6 rounded-3xl bg-gradient-to-b from-slate-900/80 via-slate-900/60 to-slate-950/80 backdrop-blur-xl border border-cyan-500/20 hover:border-cyan-500/35 shadow-xl shadow-cyan-950/20 transition-all duration-300 group space-y-5">
+            {/* Ambient soft glow & inner highlight */}
+            <div className="absolute -top-12 -right-12 w-40 h-40 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-teal-500/5 rounded-full blur-2xl pointer-events-none" />
+            <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-cyan-400/[0.04] to-transparent pointer-events-none" />
 
-          {/* Activity Chart Widget */}
-          <div className="glass-panel p-5 sm:p-6 rounded-3xl min-w-0">
-            <div className="flex items-start justify-between gap-3 mb-5 min-w-0">
-              <div className="min-w-0 flex-1">
-                <h3 className="text-white font-semibold text-lg leading-tight mb-0.5">Activity</h3>
-                <p className="text-xs text-amber-400 font-medium truncate">
-                  {weekly.days?.reduce((acc, curr) => acc + (curr.sessionCount || 0), 0) || 0} Tasks Completed 👏
+            {/* TOP ROW */}
+            <div className="flex items-start justify-between relative z-10">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500/20 to-teal-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-sm shadow-cyan-950/50">
+                  <Compass className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white tracking-wide">Next Session</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">Recommended for peak focus</p>
+                </div>
+              </div>
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider uppercase bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-sm shadow-cyan-950/30">
+                {recommendationData?.available && recommendationData.recommendation?.confidence
+                  ? recommendationData.recommendation.confidence
+                  : 'HIGH'}
+              </span>
+            </div>
+
+            {/* MAIN CONTENT & DECORATIVE FOCUS TIMER VISUAL */}
+            <div className="relative z-10 flex items-center justify-between gap-4 pt-1">
+              {/* Left: Duration and Insight */}
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="text-3xl sm:text-4xl font-extrabold text-white font-mono tracking-tight flex items-baseline gap-1.5">
+                  <span>
+                    {recommendationData?.available && recommendationData.recommendation?.durationMinutes
+                      ? recommendationData.recommendation.durationMinutes
+                      : 25}
+                  </span>
+                  <span className="text-base sm:text-lg font-sans font-semibold text-cyan-400">min</span>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed italic line-clamp-3">
+                  "{recommendationData?.available && recommendationData.recommendation?.reason
+                    ? recommendationData.recommendation.reason
+                    : 'Your recent sessions produce strong focus around 26 minutes.'}"
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => onNavigate && onNavigate('weekly-review')}
-                className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-brand-900/40 hover:bg-brand-900/70 border border-brand-500/30 text-xs text-white transition-all cursor-pointer shrink-0"
-                title="View Weekly Review"
-              >
-                <span>Weekly review</span>
-                <span className="w-5 h-5 rounded-full bg-gradient-to-r from-brand-500 to-indigo-500 flex items-center justify-center">
-                  <ChevronRight className="w-3 h-3 text-white" />
-                </span>
-              </button>
+
+              {/* Right: Elegant circular timer / clock illustration */}
+              <div className="relative shrink-0 w-20 h-20 sm:w-22 sm:h-22 flex items-center justify-center pointer-events-none select-none">
+                {/* Ambient circular soft glow */}
+                <div className="absolute inset-0 rounded-full bg-cyan-500/10 blur-xl motion-safe:animate-pulse" style={{ animationDuration: '4s' }} />
+
+                <svg viewBox="0 0 100 100" className="w-full h-full relative z-10 drop-shadow-[0_0_12px_rgba(6,182,212,0.15)]">
+                  <defs>
+                    <linearGradient id="recTimerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.8" />
+                      <stop offset="100%" stopColor="#14b8a6" stopOpacity="0.3" />
+                    </linearGradient>
+                    <radialGradient id="recGlassGlow" cx="50%" cy="50%" r="50%">
+                      <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.12" />
+                      <stop offset="100%" stopColor="#06b6d4" stopOpacity="0" />
+                    </radialGradient>
+                  </defs>
+
+                  {/* Abstract inner glass fill */}
+                  <circle cx="50" cy="50" r="42" fill="url(#recGlassGlow)" />
+
+                  {/* Outer subtle ticks / track with slow ambient rotation */}
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="44"
+                    fill="none"
+                    stroke="rgba(148, 163, 184, 0.15)"
+                    strokeWidth="1.5"
+                    strokeDasharray="3 5"
+                    className="motion-safe:animate-[spin_90s_linear_infinite] origin-center"
+                  />
+
+                  {/* Background ring */}
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="36"
+                    fill="none"
+                    stroke="rgba(30, 41, 59, 0.6)"
+                    strokeWidth="3"
+                  />
+
+                  {/* Elegant Cyan/Teal Progress Arc */}
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="36"
+                    fill="none"
+                    stroke="url(#recTimerGrad)"
+                    strokeWidth="3"
+                    strokeDasharray="226"
+                    strokeDashoffset="75"
+                    strokeLinecap="round"
+                    transform="rotate(-90 50 50)"
+                  />
+
+                  {/* Center dial and hands */}
+                  <circle cx="50" cy="50" r="3" fill="#38bdf8" />
+                  <line x1="50" y1="50" x2="50" y2="28" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" opacity="0.85" />
+                  <line x1="50" y1="50" x2="64" y2="50" stroke="#2dd4bf" strokeWidth="1.5" strokeLinecap="round" opacity="0.75" />
+
+                  {/* Focus dial indicator dots */}
+                  <circle cx="50" cy="18" r="1.5" fill="#38bdf8" opacity="0.9" />
+                  <circle cx="82" cy="50" r="1.5" fill="#2dd4bf" opacity="0.6" />
+                  <circle cx="50" cy="82" r="1.5" fill="#94a3b8" opacity="0.4" />
+                  <circle cx="18" cy="50" r="1.5" fill="#94a3b8" opacity="0.4" />
+                </svg>
+              </div>
             </div>
-            
-            {/* The 7-Day Focus Activity card */}
-            <div className="w-full min-w-0">
-              <WeeklyActivityChart weeklyData={weekly.days || []} />
-            </div>
+
+            {/* CTA: Premium glass/gradient button */}
+            <button
+              type="button"
+              onClick={() => onNavigate && onNavigate('recommendations')}
+              className="relative z-10 w-full flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-500/15 via-teal-500/10 to-cyan-500/15 hover:from-cyan-500/25 hover:via-teal-500/20 hover:to-cyan-500/25 border border-cyan-500/30 hover:border-cyan-400/50 text-xs font-semibold text-cyan-200 hover:text-white shadow-sm shadow-cyan-950/50 hover:shadow-cyan-500/10 transition-all duration-200 cursor-pointer group/btn"
+            >
+              <span>View Recommendation</span>
+              <span className="text-cyan-400 group-hover/btn:translate-x-0.5 transition-transform duration-200">
+                &rarr;
+              </span>
+            </button>
           </div>
 
+          {/* Minimal Quick Action: Weekly Review shortcut */}
+          <button
+            type="button"
+            onClick={() => onNavigate && onNavigate('weekly-review')}
+            className="w-full flex items-center justify-between p-4 rounded-2xl bg-slate-900/40 hover:bg-slate-900/70 border border-slate-800/80 hover:border-slate-700/80 text-xs text-slate-400 hover:text-white transition group shrink-0 cursor-pointer shadow-sm"
+          >
+            <div className="flex items-center space-x-2.5">
+              <Clock className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+              <span className="font-semibold text-slate-300 group-hover:text-white transition-colors">
+                Weekly review
+              </span>
+            </div>
+            <ChevronRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 transition-transform group-hover:translate-x-0.5" />
+          </button>
+
         </div>
+
       </div>
+
     </div>
   );
 }
