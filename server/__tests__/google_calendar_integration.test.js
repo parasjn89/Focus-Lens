@@ -591,9 +591,62 @@ test('Google Calendar Integration Test Suite', async (t) => {
     assert.ok(res.headers.location.includes('https://accounts.google.com/o/oauth2/v2/auth'));
   });
 
+  await t.test('18. Strict Read-Only API architecture: No write/sync endpoints exist for calendar events', async () => {
+    // Assert attempts to create or modify events on Google Calendar route return 404/405
+    const postRes = await app.inject({
+      method: 'POST',
+      url: '/api/integrations/google-calendar/events',
+      headers: { cookie: cookieA },
+      payload: { title: 'Unauthorized Event Injection' },
+    });
+    assert.equal(postRes.statusCode, 404);
+
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: '/api/integrations/google-calendar/events/evt_123',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(deleteRes.statusCode, 404);
+  });
+
+  await t.test('19. Google Calendar UI read-only verification: CalendarPage has no event-level Start Session button', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const calendarPageCode = fs.readFileSync(path.resolve('src/pages/CalendarPage.jsx'), 'utf8');
+
+    // Verify no event-level Start Session buttons in Google events section
+    assert.equal(
+      calendarPageCode.includes('onNewSession({ activity:'),
+      false,
+      'Calendar events must NOT trigger onNewSession or create FocusLens sessions'
+    );
+    assert.equal(
+      calendarPageCode.includes('<span>Start Session</span>'),
+      false,
+      'Google Calendar event cards must not have a "Start Session" button'
+    );
+
+    // Verify Google event cards include read-only fields
+    assert.ok(calendarPageCode.includes('activeCalendarName'));
+    assert.ok(calendarPageCode.includes('ExternalLink'));
+    assert.ok(calendarPageCode.includes('formatEventTime(event)'));
+  });
+
+  await t.test('20. Manual "Launch Focus Session for Today" button is preserved', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const calendarPageCode = fs.readFileSync(path.resolve('src/pages/CalendarPage.jsx'), 'utf8');
+
+    assert.ok(
+      calendarPageCode.includes('Launch Focus Session for Today'),
+      'The manual Launch Focus Session for Today button must remain available'
+    );
+  });
+
   setGoogleApiFetchOverride(null);
   if (app) await app.close();
   await pool.end();
 });
+
 
 

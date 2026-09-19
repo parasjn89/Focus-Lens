@@ -303,6 +303,12 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
     return googleEvents.filter(evt => getEventDateStr(evt) === selectedDateStr);
   }, [googleEvents, selectedDateStr]);
 
+  // Active Google Calendar name
+  const activeCalendarName = useMemo(() => {
+    const cal = googleCalendars.find(c => c.id === googleStatus.selectedCalendarId);
+    return cal?.summary || (googleStatus.selectedCalendarId === 'primary' ? 'Primary Calendar' : 'Google Calendar');
+  }, [googleCalendars, googleStatus.selectedCalendarId]);
+
   // Map of dateStr -> count of Google Calendar events for calendar indicators
   const googleEventsCountByDate = useMemo(() => {
     const map = {};
@@ -1100,19 +1106,24 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
                 {selectedDayGoogleEvents.map(event => (
                   <div
                     key={event.id}
-                    className="p-3 rounded-2xl bg-slate-950/80 border border-emerald-500/20 space-y-2"
+                    className="p-3 rounded-2xl bg-slate-950/80 border border-emerald-500/20 space-y-2 hover:border-emerald-500/35 transition-colors shadow-sm"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-0.5">
+                      <div className="space-y-0.5 min-w-0 flex-1">
                         <div className="flex items-center space-x-1.5">
                           <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                          <h4 className="text-xs font-bold text-white leading-tight">
+                          <h4 className="text-xs font-bold text-white leading-tight truncate" title={event.title}>
                             {event.title}
                           </h4>
                         </div>
-                        <span className="text-[10px] text-emerald-300 font-mono block pl-3.5">
-                          {formatEventTime(event)}
-                        </span>
+                        <div className="flex items-center space-x-2 text-[10px] text-emerald-300 font-mono pl-3.5 flex-wrap gap-y-1">
+                          <span>{formatEventTime(event)}</span>
+                          {event.allDay && (
+                            <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-sans font-medium">
+                              All day
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       {event.htmlLink && (
@@ -1120,7 +1131,7 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
                           href={event.htmlLink}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-1 rounded-lg bg-slate-900 text-slate-400 hover:text-emerald-300 border border-slate-800 transition-colors shrink-0"
+                          className="p-1.5 rounded-lg bg-slate-900 text-slate-400 hover:text-emerald-300 border border-slate-800 transition-colors shrink-0"
                           title="Open in Google Calendar"
                         >
                           <ExternalLink className="w-3 h-3" />
@@ -1128,31 +1139,16 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
                       )}
                     </div>
 
-                    {event.location && (
-                      <div className="flex items-center space-x-1 text-[10px] text-slate-400 pl-3.5 truncate">
-                        <MapPin className="w-3 h-3 text-slate-500 shrink-0" />
-                        <span className="truncate">{event.location}</span>
-                      </div>
-                    )}
-
-                    {/* Action to launch focus session specifically for this event */}
-                    <div className="pt-2 border-t border-slate-900/80 flex items-center justify-end">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onNewSession) {
-                            onNewSession({
-                              activity: 'Studying',
-                              goalText: event.title,
-                              intention: `Context from Google Calendar event: "${event.title}"`,
-                            });
-                          }
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold flex items-center space-x-1 transition-all cursor-pointer"
-                      >
-                        <Play className="w-2.5 h-2.5 fill-current" />
-                        <span>Start Session</span>
-                      </button>
+                    <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-900/60 pl-3.5 text-[10px] text-slate-400">
+                      <span className="truncate text-slate-500 font-medium" title={activeCalendarName}>
+                        {activeCalendarName}
+                      </span>
+                      {event.location && (
+                        <div className="flex items-center space-x-1 truncate max-w-[140px]" title={event.location}>
+                          <MapPin className="w-2.5 h-2.5 text-slate-500 shrink-0" />
+                          <span className="truncate text-slate-400">{event.location}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
