@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { buildApp } from '../app.js';
 import { dbStore } from '../db/store.js';
 import { runMigrations } from '../db/migrate.js';
+import { pool } from '../db/client.js';
 
 test('Task Manager API, CRUD & User Isolation Test Suite', async (t) => {
   let app;
@@ -46,6 +47,7 @@ test('Task Manager API, CRUD & User Isolation Test Suite', async (t) => {
 
   t.after(async () => {
     if (app) await app.close();
+    await pool.end();
   });
 
   let task1Id = null;
