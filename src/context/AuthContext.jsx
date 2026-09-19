@@ -64,6 +64,19 @@ export function AuthProvider({ children }) {
     return res;
   };
 
+  const loginWithGoogle = async (idToken) => {
+    clearClientUserStorage();
+    const res = await apiFetch('/api/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ idToken }),
+    });
+
+    if (res.user) {
+      setUser(res.user);
+    }
+    return res;
+  };
+
   const register = async (username, name, email, password, verificationMethod = 'EMAIL', phoneNumber = '') => {
     clearClientUserStorage();
     const res = await apiFetch('/api/auth/register', {
@@ -230,6 +243,7 @@ export function AuthProvider({ children }) {
         isAuthenticated: !!user,
         isLoading,
         login,
+        loginWithGoogle,
         register,
         logout,
         updateProfile,

@@ -79,19 +79,59 @@ export const dbStore = {
     return null;
   },
 
-  async createUser({ username, email, name, passwordHash, anonymousId, phoneNumber, preferredVerificationMethod, verificationStatus, avatarUrl, avatarPublicId }) {
+  async getUserByGoogleId(googleId) {
+    if (!googleId) return null;
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      const rows = await db.select().from(users).where(eq(users.googleId, googleId)).limit(1);
+      return rows[0] || null;
+    }
+    for (const u of memoryUsers.values()) {
+      if (u.googleId === googleId) return u;
+    }
+    return null;
+  },
+
+  async linkGoogleAccount(userId, { googleId, avatarUrl } = {}) {
+    const isConnected = await checkDbConnection();
+    const updates = {
+      updatedAt: new Date(),
+      verificationStatus: 'VERIFIED',
+      emailVerifiedAt: new Date(),
+    };
+    if (googleId) updates.googleId = googleId;
+    if (avatarUrl) updates.avatarUrl = avatarUrl;
+
+    if (isConnected) {
+      const [updated] = await db.update(users)
+        .set(updates)
+        .where(eq(users.id, userId))
+        .returning();
+      return updated || null;
+    }
+
+    const user = memoryUsers.get(userId);
+    if (!user) return null;
+    const updated = { ...user, ...updates };
+    memoryUsers.set(userId, updated);
+    return updated;
+  },
+
+  async createUser({ username, email, name, passwordHash, googleId, anonymousId, phoneNumber, preferredVerificationMethod, verificationStatus, emailVerifiedAt, avatarUrl, avatarPublicId }) {
     const isConnected = await checkDbConnection();
     const values = {
       username: username ? username.toLowerCase().trim() : null,
       email: email ? email.toLowerCase().trim() : null,
       name: name || null,
       passwordHash: passwordHash || null,
+      googleId: googleId || null,
       anonymousId: anonymousId || null,
       phoneNumber: phoneNumber || null,
       preferredVerificationMethod: preferredVerificationMethod || 'EMAIL',
       verificationStatus: verificationStatus || 'UNVERIFIED',
       avatarUrl: avatarUrl || null,
       avatarPublicId: avatarPublicId || null,
+      emailVerifiedAt: emailVerifiedAt || null,
     };
 
     if (isConnected) {
@@ -122,7 +162,7 @@ export const dbStore = {
     const newUser = {
       id: crypto.randomUUID(),
       ...values,
-      emailVerifiedAt: null,
+      emailVerifiedAt: values.emailVerifiedAt || null,
       phoneVerifiedAt: null,
       verificationTokenHash: null,
       verificationExpiresAt: null,

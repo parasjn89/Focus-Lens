@@ -2,11 +2,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Eye, EyeOff, User, Mail, Lock, Phone, AlertCircle, ArrowRight, ShieldCheck, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { mapErrorToField } from '../utils/registrationValidation.js';
+import { FocusLensLogo } from '../components/FocusLensLogo.jsx';
+import { GoogleIcon } from '../components/GoogleIcon.jsx';
+import { signInWithGoogle } from '../lib/firebase.js';
 
 export { mapErrorToField };
 
 export function RegisterPage({ onNavigate, onRegisterSuccess }) {
-  const { register } = useAuth();
+  const { register, loginWithGoogle } = useAuth();
   const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -24,6 +27,29 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
   // Non-blocking toast notification
   const [toast, setToast] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
+
+  const handleGoogleSignUp = async () => {
+    setError(null);
+    setIsGoogleSubmitting(true);
+    try {
+      const { idToken } = await signInWithGoogle();
+      const res = await loginWithGoogle(idToken);
+      if (onRegisterSuccess) {
+        onRegisterSuccess('dashboard', { user: res?.user });
+      } else {
+        onNavigate('dashboard');
+      }
+    } catch (err) {
+      if (err.code === 'AUTH_CANCELLED') {
+        return;
+      }
+      setError(err.message || 'Unable to sign in with Google. Please try again.');
+      showToast(err.message || 'Unable to sign in with Google. Please try again.', 'error');
+    } finally {
+      setIsGoogleSubmitting(false);
+    }
+  };
 
   // Input refs for automatic focus & smooth scrolling
   const usernameInputRef = useRef(null);
@@ -199,8 +225,8 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
       )}
 
       <div className="text-center mb-8">
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-cyan-400 mx-auto flex items-center justify-center shadow-lg shadow-brand-500/20 mb-4">
-          <Eye className="w-7 h-7 text-white" />
+        <div className="flex justify-center mb-4">
+          <FocusLensLogo variant="icon" size="xl" isDecorative />
         </div>
         <h1 className="text-2xl font-bold text-white tracking-tight">Create FocusLens Account</h1>
         <p className="text-sm text-slate-400 mt-1">Start tracking your deep work with privacy guarantees</p>
@@ -218,6 +244,36 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
             <span>{error}</span>
           </div>
         )}
+
+        {/* Google Authentication Button */}
+        <button
+          type="button"
+          onClick={handleGoogleSignUp}
+          disabled={isSubmitting || isGoogleSubmitting}
+          className="w-full py-3 px-4 rounded-xl bg-slate-800/80 hover:bg-slate-750 border border-slate-700 hover:border-slate-600 text-white font-medium text-sm transition-all flex items-center justify-center space-x-3 disabled:opacity-50 hover:scale-[1.01] shadow-lg shadow-black/20"
+        >
+          {isGoogleSubmitting ? (
+            <>
+              <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin shrink-0" />
+              <span>Signing in with Google...</span>
+            </>
+          ) : (
+            <>
+              <GoogleIcon className="w-4 h-4 shrink-0" />
+              <span>Continue with Google</span>
+            </>
+          )}
+        </button>
+
+        {/* Aesthetic Divider */}
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-slate-800" />
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-slate-900 px-3 text-slate-500 font-medium">or register with email</span>
+          </div>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           {/* 1. Username Field */}

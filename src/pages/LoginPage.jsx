@@ -1,14 +1,39 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, Lock, Mail, AlertCircle, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { FocusLensLogo } from '../components/FocusLensLogo.jsx';
+import { GoogleIcon } from '../components/GoogleIcon.jsx';
+import { signInWithGoogle } from '../lib/firebase.js';
 
 export function LoginPage({ onNavigate, onLoginSuccess }) {
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    setError(null);
+    setIsGoogleSubmitting(true);
+    try {
+      const { idToken } = await signInWithGoogle();
+      const res = await loginWithGoogle(idToken);
+      if (onLoginSuccess) {
+        onLoginSuccess(res?.user);
+      } else {
+        onNavigate('dashboard');
+      }
+    } catch (err) {
+      if (err.code === 'AUTH_CANCELLED') {
+        return;
+      }
+      setError(err.message || 'Unable to sign in with Google. Please try again.');
+    } finally {
+      setIsGoogleSubmitting(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -39,8 +64,8 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
   return (
     <div className="max-w-md mx-auto px-4 py-16">
       <div className="text-center mb-8">
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-cyan-400 mx-auto flex items-center justify-center shadow-lg shadow-brand-500/20 mb-4">
-          <Eye className="w-7 h-7 text-white" />
+        <div className="flex justify-center mb-4">
+          <FocusLensLogo variant="icon" size="xl" isDecorative />
         </div>
         <h1 className="text-2xl font-bold text-white tracking-tight">Welcome Back</h1>
         <p className="text-sm text-slate-400 mt-1">Log in to access your personal focus session dashboard</p>
@@ -53,6 +78,36 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
             <span>{error}</span>
           </div>
         )}
+
+        {/* Google Authentication Button */}
+        <button
+          type="button"
+          onClick={handleGoogleSignIn}
+          disabled={isSubmitting || isGoogleSubmitting}
+          className="w-full py-3 px-4 rounded-xl bg-slate-800/80 hover:bg-slate-750 border border-slate-700 hover:border-slate-600 text-white font-medium text-sm transition-all flex items-center justify-center space-x-3 disabled:opacity-50 hover:scale-[1.01] shadow-lg shadow-black/20"
+        >
+          {isGoogleSubmitting ? (
+            <>
+              <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin shrink-0" />
+              <span>Signing in with Google...</span>
+            </>
+          ) : (
+            <>
+              <GoogleIcon className="w-4 h-4 shrink-0" />
+              <span>Continue with Google</span>
+            </>
+          )}
+        </button>
+
+        {/* Aesthetic Divider */}
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-slate-800" />
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-slate-900 px-3 text-slate-500 font-medium">or continue with email</span>
+          </div>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>

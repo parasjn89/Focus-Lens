@@ -10,6 +10,7 @@ import {
 import { sendEmailVerificationChallenge, sendEmailPasswordResetLink, sendEmailPasswordResetOtp } from '../services/emailService.js';
 import { sendSmsOtpChallenge, sendSmsPasswordResetOtp } from '../services/smsService.js';
 import { saveAvatar, deleteAvatarFile } from '../services/avatarStorageService.js';
+import { verifyFirebaseIdToken } from '../services/firebaseAuth.js';
 
 
 export function toSafeUser(user) {
@@ -354,6 +355,140 @@ export async function login(request, reply) {
       statusCode: 500,
       error: 'Internal Server Error',
       message: 'Failed to authenticate user.',
+    });
+  }
+}
+
+/**
+ * Generates a unique, URL-safe, database-compliant username for a Google account
+ */
+export async function generateUniqueUsername(name, email, dbStore) {
+  let base = '';
+  if (name && typeof name === 'string') {
+    base = name.toLowerCase().replace(/[^a-z0-9._]/g, '');
+  }
+  if (!base || base.length < 3) {
+    if (email && typeof email === 'string') {
+      const emailPrefix = email.split('@')[0] || '';
+      base = emailPrefix.toLowerCase().replace(/[^a-z0-9._]/g, '');
+    }
+  }
+  if (!base || base.length < 3) {
+    base = 'user_' + crypto.randomBytes(3).toString('hex');
+  }
+
+  // Ensure base length fits comfortably within 30 characters
+  base = base.slice(0, 24);
+
+  let candidate = base;
+  let counter = 1;
+
+  while (counter <= 100) {
+    const existing = await dbStore.getUserByUsername(candidate);
+    if (!existing) {
+      return candidate;
+    }
+    candidate = `${base}${counter}`;
+    if (candidate.length > 30) {
+      candidate = `${base.slice(0, 24)}${counter}`;
+    }
+    counter++;
+  }
+
+  return `user_${crypto.randomBytes(4).toString('hex')}`;
+}
+
+export const GoogleAuthSchema = z.object({
+  idToken: z.string().min(1, 'Firebase ID token is required.'),
+});
+
+// Handler: POST /api/auth/google
+export async function googleAuth(request, reply) {
+  try {
+    const body = GoogleAuthSchema.parse(request.body);
+    const decodedToken = await verifyFirebaseIdToken(body.idToken);
+
+    const email = decodedToken.email ? decodedToken.email.toLowerCase().trim() : null;
+    if (!email) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'Google account does not have an associated email address.',
+      });
+    }
+
+    const name = (decodedToken.name || '').trim();
+    const picture = decodedToken.picture || null;
+    const googleId = decodedToken.uid || null;
+    const emailVerified = Boolean(decodedToken.email_verified);
+
+    // Look up existing user by verified email
+    let user = await dbStore.getUserByEmail(email);
+
+    if (user) {
+      // Existing user found: sign into the existing account
+      // Link googleId and verify email without overwriting existing profile data
+      if (!user.googleId || user.verificationStatus !== 'VERIFIED') {
+        const updated = await dbStore.linkGoogleAccount(user.id, {
+          googleId: user.googleId || googleId,
+          avatarUrl: user.avatarUrl || picture,
+        });
+        if (updated) user = updated;
+      }
+
+      // Establish signed HTTP-only FocusLens session
+      request.session.userId = user.id;
+
+      return reply.send({
+        user: toSafeUser(user),
+        message: 'Logged in successfully with Google.',
+      });
+    }
+
+    // No existing user found: create a new FocusLens account
+    const username = await generateUniqueUsername(name, email, dbStore);
+
+    const newUser = await dbStore.createUser({
+      username,
+      name: name || username,
+      email,
+      passwordHash: null, // Google-authenticated account, no password required
+      googleId,
+      avatarUrl: picture,
+      preferredVerificationMethod: 'EMAIL',
+      verificationStatus: emailVerified ? 'VERIFIED' : 'UNVERIFIED',
+      emailVerifiedAt: emailVerified ? new Date() : null,
+    });
+
+    // Establish signed HTTP-only FocusLens session
+    request.session.userId = newUser.id;
+
+    return reply.status(201).send({
+      user: toSafeUser(newUser),
+      message: 'Account created and logged in with Google.',
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Validation Error',
+        message: err.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+
+    if (err.statusCode) {
+      return reply.status(err.statusCode).send({
+        statusCode: err.statusCode,
+        error: err.statusCode === 401 ? 'Unauthorized' : (err.statusCode === 400 ? 'Bad Request' : 'Internal Server Error'),
+        message: err.message,
+      });
+    }
+
+    request.log.error(err);
+    return reply.status(500).send({
+      statusCode: 500,
+      error: 'Internal Server Error',
+      message: err.message || 'Failed to authenticate with Google.',
     });
   }
 }

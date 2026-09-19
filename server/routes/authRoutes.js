@@ -1,6 +1,7 @@
 import {
   register,
   login,
+  googleAuth,
   logout,
   getCurrentUser,
   updateProfile,
@@ -26,6 +27,7 @@ import path from 'path';
 export async function authRoutes(fastify, options) {
   fastify.post('/api/auth/register', register);
   fastify.post('/api/auth/login', login);
+  fastify.post('/api/auth/google', googleAuth);
   fastify.post('/api/auth/logout', logout);
   fastify.get('/api/auth/check-username', checkUsername);
 
