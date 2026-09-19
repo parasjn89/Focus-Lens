@@ -1,6 +1,7 @@
 import React from 'react';
-import { Eye, LayoutDashboard, Calendar, MessageSquare, Activity, Settings, LogOut, CheckSquare } from 'lucide-react';
+import { LayoutDashboard, Calendar, MessageSquare, Activity, Settings, LogOut, CheckSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { FocusLensLogo } from './FocusLensLogo.jsx';
 
 export function Sidebar({ currentView, onNavigate }) {
   const { logout } = useAuth();
@@ -29,11 +30,13 @@ export function Sidebar({ currentView, onNavigate }) {
     <aside className="w-64 bg-navy-950/80 border-r border-slate-800/50 hidden md:flex flex-col h-screen shrink-0 relative backdrop-blur-2xl">
       <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-brand-900/10 to-transparent pointer-events-none" />
 
-      <div className="p-6 flex items-center space-x-3 cursor-pointer relative z-10" onClick={() => onNavigate('dashboard')}>
-        <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30">
-          <Eye className="w-5 h-5 text-white" />
-        </div>
-        <span className="text-xl font-bold tracking-tight text-white">FocusLens</span>
+      <div className="p-6 flex items-center cursor-pointer relative z-10" onClick={() => onNavigate('dashboard')}>
+        <FocusLensLogo
+          variant="horizontal"
+          size="md"
+          ariaLabel="FocusLens dashboard"
+          className="hover:opacity-90 transition-opacity"
+        />
       </div>
 
       <div className="flex-1 px-4 py-6 space-y-2 overflow-y-auto relative z-10">

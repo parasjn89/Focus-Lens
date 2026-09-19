@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Eye,
   LayoutDashboard,
   LogIn,
   Compass,
@@ -9,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserAvatar } from './UserAvatar.jsx';
+import { FocusLensLogo } from './FocusLensLogo.jsx';
 
 export function Navbar({ currentView, onNavigate, activeSession }) {
   const { user, isAuthenticated } = useAuth();
@@ -42,17 +42,14 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
           {/* LEFT: Logo and Brand */}
           <div
             onClick={() => onNavigate('landing')}
-            className="flex items-center space-x-3 cursor-pointer group flex-shrink-0"
+            className="flex items-center cursor-pointer group flex-shrink-0"
           >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-brand-500/20 group-hover:scale-105 transition-transform">
-              <Eye className="w-6 h-6 text-white" />
-            </div>
-
-            <div className="hidden sm:block">
-              <span className="text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-indigo-200">
-                FocusLens
-              </span>
-            </div>
+            <FocusLensLogo
+              variant="horizontal"
+              size="md"
+              ariaLabel="FocusLens home"
+              className="group-hover:opacity-90 transition-opacity"
+            />
           </div>
 
           {/* CENTER: Navigation Actions */}

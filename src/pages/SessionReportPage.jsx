@@ -18,6 +18,8 @@ import {
   Sliders,
   Compass,
   FileText,
+  BookMarked,
+  Check,
 } from 'lucide-react';
 import { apiFetch } from '../api/client.js';
 import { formatSecondsToTime, formatMinutesText } from '../utils/formatters.js';

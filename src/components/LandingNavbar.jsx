@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Eye } from 'lucide-react';
+import { FocusLensLogo } from './FocusLensLogo.jsx';
 
 export function LandingNavbar({ onNavigate }) {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -24,14 +24,14 @@ export function LandingNavbar({ onNavigate }) {
           {/* Left: Logo */}
           <div 
             onClick={() => onNavigate('landing')}
-            className="flex items-center space-x-3 cursor-pointer group"
+            className="flex items-center cursor-pointer group"
           >
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-tr from-brand-sand to-brand-beige flex items-center justify-center shadow-md transition-transform group-hover:scale-105">
-              <Eye className="w-5 h-5 text-brand-navy" />
-            </div>
-            <span className="text-xl font-bold tracking-tight text-white group-hover:text-brand-beige transition-colors">
-              FocusLens
-            </span>
+            <FocusLensLogo
+              variant="horizontal"
+              size="md"
+              ariaLabel="FocusLens home"
+              className="group-hover:opacity-90 transition-opacity"
+            />
           </div>
 
           {/* Center: Links (Hidden on mobile) */}
