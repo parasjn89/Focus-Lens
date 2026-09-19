@@ -15,9 +15,9 @@ describe('FocusLens Browser Navigation & History Synchronization Test Suite', ()
       assert.strictEqual(resolveViewFromLocation(loc), 'dashboard');
     });
 
-    it('resolves "/setup" and friendly alias "/tasks" to setup view', () => {
+    it('resolves "/setup" to setup view and "/tasks" to tasks view', () => {
       assert.strictEqual(resolveViewFromLocation({ pathname: '/setup', hash: '', search: '' }), 'setup');
-      assert.strictEqual(resolveViewFromLocation({ pathname: '/tasks', hash: '', search: '' }), 'setup');
+      assert.strictEqual(resolveViewFromLocation({ pathname: '/tasks', hash: '', search: '' }), 'tasks');
     });
 
     it('resolves "/recommendations" to recommendations view', () => {
@@ -48,7 +48,7 @@ describe('FocusLens Browser Navigation & History Synchronization Test Suite', ()
     it('resolves URL hashes correctly (#dashboard, #setup, #recommendations)', () => {
       assert.strictEqual(resolveViewFromLocation({ pathname: '/', hash: '#dashboard', search: '' }), 'dashboard');
       assert.strictEqual(resolveViewFromLocation({ pathname: '/', hash: '#setup', search: '' }), 'setup');
-      assert.strictEqual(resolveViewFromLocation({ pathname: '/', hash: '#tasks', search: '' }), 'setup');
+      assert.strictEqual(resolveViewFromLocation({ pathname: '/', hash: '#tasks', search: '' }), 'tasks');
       assert.strictEqual(resolveViewFromLocation({ pathname: '/', hash: '#recommendations', search: '' }), 'recommendations');
     });
   });
@@ -56,7 +56,7 @@ describe('FocusLens Browser Navigation & History Synchronization Test Suite', ()
   describe('2. Canonical Route Path Mapping Integrity', () => {
     it('defines bidirectional paths for all primary views', () => {
       const views = [
-        'landing', 'dashboard', 'setup', 'recommendations', 'history',
+        'landing', 'dashboard', 'tasks', 'setup', 'recommendations', 'history',
         'calendar', 'messages', 'options', 'profile', 'coach',
         'consistency', 'weekly-review', 'journal', 'login', 'register',
         'verify', 'forgot-password', 'report', 'active'

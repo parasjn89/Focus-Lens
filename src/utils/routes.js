@@ -9,6 +9,7 @@
 export const ROUTE_PATH_MAP = {
   landing: '/',
   dashboard: '/dashboard',
+  tasks: '/tasks',
   setup: '/setup',
   recommendations: '/recommendations',
   history: '/history',
@@ -30,7 +31,6 @@ export const ROUTE_PATH_MAP = {
 
 // Friendly aliases mapped to canonical view names
 export const PATH_ALIASES = {
-  tasks: 'setup',
   activity: 'history',
   settings: 'profile',
   'reset-password': 'forgot-password',
@@ -38,6 +38,7 @@ export const PATH_ALIASES = {
 
 // Map child views to their contextual parent in-app back destinations
 export const CONTEXTUAL_PARENT_MAP = {
+  tasks: 'dashboard',
   recommendations: 'dashboard',
   'weekly-review': 'dashboard',
   consistency: 'dashboard',

@@ -9,9 +9,10 @@ export function Topbar({ currentView }) {
   const getBreadcrumbs = () => {
     switch (currentView) {
       case 'dashboard': return 'Home / Dashboard';
+      case 'tasks': return 'Home / Tasks';
+      case 'setup': return 'Home / Focus Setup';
       case 'history': return 'Home / Activity';
       case 'profile': return 'Home / Settings';
-      case 'setup': return 'Home / Tasks';
       case 'recommendations': return 'Home / Recommendations';
       case 'coach': return 'Home / Focus Coach';
       case 'consistency': return 'Home / Consistency';

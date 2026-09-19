@@ -109,6 +109,20 @@ CREATE TABLE IF NOT EXISTS weekly_review_notes (
 CREATE INDEX IF NOT EXISTS idx_sessions_user_started ON sessions(user_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_segments_session_start ON activity_segments(session_id, start_time_ms);
 CREATE INDEX IF NOT EXISTS idx_weekly_notes_user_week ON weekly_review_notes(user_id, week_start_date);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  category TEXT NOT NULL DEFAULT 'Other',
+  completed BOOLEAN NOT NULL DEFAULT FALSE,
+  due_date TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_user_created ON tasks(user_id, created_at);
 `;
 
 export async function runMigrations() {

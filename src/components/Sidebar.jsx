@@ -8,7 +8,7 @@ export function Sidebar({ currentView, onNavigate }) {
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'setup', label: 'Tasks', icon: CheckSquare },
+    { id: 'tasks', label: 'Tasks', icon: CheckSquare },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'history', label: 'Activity', icon: Activity },
     { id: 'calendar', label: 'Calendar', icon: Calendar },

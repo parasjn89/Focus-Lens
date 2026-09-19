@@ -116,12 +116,35 @@ export const googleCalendarConnections = pgTable('google_calendar_connections', 
   idxGoogleCalUser: index('idx_google_cal_user').on(table.userId),
 }));
 
+// Tasks table (User tasks with categories: Study, Coding, Other)
+export const tasks = pgTable('tasks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  title: text('title').notNull(),
+  description: text('description'),
+  category: text('category').default('Other').notNull(), // Study, Coding, Other
+  completed: boolean('completed').default(false).notNull(),
+  dueDate: timestamp('due_date'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  idxTasksUserCreated: index('idx_tasks_user_created').on(table.userId, table.createdAt),
+}));
+
 // Drizzle Relations
 export const usersRelations = relations(users, ({ one, many }) => ({
   sessions: many(sessions),
+  tasks: many(tasks),
   passwordResets: many(passwordResets),
   weeklyReviewNotes: many(weeklyReviewNotes),
   googleCalendarConnection: one(googleCalendarConnections),
+}));
+
+export const tasksRelations = relations(tasks, ({ one }) => ({
+  user: one(users, {
+    fields: [tasks.userId],
+    references: [users.id],
+  }),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one, many }) => ({

@@ -8,6 +8,7 @@ import { Footer } from './components/Footer';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LandingPage } from './pages/LandingPage';
 import { SessionSetupPage } from './pages/SessionSetupPage';
+import { TaskManagerPage } from './pages/TaskManagerPage';
 import { ActiveSessionPage } from './pages/ActiveSessionPage';
 import { SessionReportPage } from './pages/SessionReportPage';
 import { SessionHistoryPage } from './pages/SessionHistoryPage';
@@ -24,7 +25,7 @@ import { WeeklyReviewPage } from './pages/WeeklyReviewPage';
 import { FocusJournalPage } from './pages/FocusJournalPage';
 import { CalendarPage } from './pages/CalendarPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { startSession, saveSessionSegments, finalizeSession, fetchSessionById } from './api/sessionApi';
+import { startSession, saveSessionSegments, finalizeSession, fetchSessionById, getLocalSessions, saveLocalSessions } from './api/sessionApi';
 import { initBackgroundSync } from './api/syncManager';
 import { ROUTE_PATH_MAP, PATH_ALIASES, resolveViewFromLocation } from './utils/routes';
 import { MAX_PAUSE_DURATION_MS, AUTO_RESUME_NOTIFICATION_MESSAGE } from './utils/sessionTimer';
@@ -78,20 +79,49 @@ function AppContent() {
   const handleNavigate = (view, options = {}) => {
     const { fromPopState = false, replace = false } = options;
 
-    const protectedViews = ['dashboard', 'profile', 'history', 'verify', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
+    const protectedViews = ['dashboard', 'tasks', 'profile', 'history', 'verify', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
     if (protectedViews.includes(view) && !isAuthenticated && !isLoading) {
       handleNavigate('login', { replace: true });
       return;
     }
     // Prevent unverified accounts from bypassing verification to access session/dashboard views
-    const unverifiedBlockedViews = ['dashboard', 'setup', 'history', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
+    const unverifiedBlockedViews = ['dashboard', 'tasks', 'setup', 'history', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
     if (isAuthenticated && user && user.verificationStatus !== 'VERIFIED' && unverifiedBlockedViews.includes(view)) {
       handleNavigate('verify', { replace: true });
       return;
     }
     if (currentView === 'active' && view !== 'active') {
+      if (isTimerRunning && !isFinalizingRef.current) {
+        isFinalizingRef.current = true;
+        const scheduledSeconds = sessionConfig.durationMinutes * 60;
+        const currentPauseMs = isTimerPaused && pausedAtRef.current ? (Date.now() - pausedAtRef.current) : 0;
+        const totalElapsedMs = timerStartedAtRef.current
+          ? Math.max(1000, Date.now() - timerStartedAtRef.current - (totalPausedMsRef.current + currentPauseMs))
+          : scheduledSeconds * 1000;
+        const actualSecondsSpent = Math.min(scheduledSeconds, Math.floor(totalElapsedMs / 1000));
+        const actualDurationMs = actualSecondsSpent * 1000;
+
+        const backendSession = activeBackendSessionRef.current || activeBackendSession;
+        const sessionId = backendSession?.id;
+        const segmentsToSave = activeSessionSegmentsRef.current?.length > 0
+          ? activeSessionSegmentsRef.current
+          : activeSessionSegments;
+
+        if (sessionId) {
+          saveSessionSegments(sessionId, segmentsToSave).catch(() => null);
+          finalizeSession(sessionId, {
+            actualDurationMs,
+            pausedDurationMs: totalPausedMsRef.current,
+            status: 'COMPLETED',
+            goalProgress: backendSession?.goalProgress ?? 0,
+            goalCompleted: backendSession?.goalCompleted ?? false,
+          }).catch(() => null);
+        }
+      }
+
       setIsTimerRunning(false);
       setIsTimerPaused(false);
+      pausedAtRef.current = null;
       setPauseStartedAt(null);
       setIsPauseConfirmOpen(false);
       if (autoResumeTimeoutRef.current) {
@@ -196,12 +226,12 @@ function AppContent() {
   // Keep unverified authenticated users on the verification view or redirect unauthenticated
   useEffect(() => {
     if (!isLoading) {
-      const protectedViews = ['dashboard', 'profile', 'history', 'verify', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
+      const protectedViews = ['dashboard', 'tasks', 'profile', 'history', 'verify', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
       if (protectedViews.includes(currentView) && !isAuthenticated) {
         handleNavigate('login', { replace: true });
         return;
       }
-      const unverifiedBlockedViews = ['dashboard', 'setup', 'history', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
+      const unverifiedBlockedViews = ['dashboard', 'tasks', 'setup', 'history', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
       if (isAuthenticated && user && user.verificationStatus !== 'VERIFIED' && unverifiedBlockedViews.includes(currentView)) {
         handleNavigate('verify', { replace: true });
       }
@@ -257,6 +287,66 @@ function AppContent() {
       if (intervalId) clearInterval(intervalId);
     };
   }, [isTimerRunning, isTimerPaused, sessionConfig.durationMinutes]);
+
+  // Lifecycle hook: finalize session when browser/tab unloads, closes, or reloads
+  useEffect(() => {
+    const handleUnloadCleanup = () => {
+      if (isTimerRunning && timerStartedAtRef.current && !isFinalizingRef.current) {
+        const scheduledSeconds = sessionConfig.durationMinutes * 60;
+        const currentPauseMs = isTimerPaused && pausedAtRef.current ? (Date.now() - pausedAtRef.current) : 0;
+        const totalElapsedMs = Math.max(1000, Date.now() - timerStartedAtRef.current - (totalPausedMsRef.current + currentPauseMs));
+        const actualSecondsSpent = Math.min(scheduledSeconds, Math.floor(totalElapsedMs / 1000));
+        const actualDurationMs = actualSecondsSpent * 1000;
+
+        const backendSession = activeBackendSessionRef.current || activeBackendSession;
+        const sessionId = backendSession?.id;
+
+        // 1. Finalize locally in localStorage immediately
+        try {
+          const localList = getLocalSessions();
+          const updatedLocal = localList.map(s => {
+            if (s.id === sessionId || (sessionId && s.backendId === sessionId)) {
+              return {
+                ...s,
+                status: 'COMPLETED',
+                actualDurationMs,
+                endedAt: new Date().toISOString(),
+              };
+            }
+            return s;
+          });
+          saveLocalSessions(updatedLocal);
+        } catch (e) {}
+
+        // 2. Transmit session finalization to backend via keepalive fetch
+        if (sessionId && !sessionId.startsWith('local_')) {
+          try {
+            const payload = JSON.stringify({
+              actualDurationMs,
+              pausedDurationMs: totalPausedMsRef.current,
+              status: 'COMPLETED',
+              endedAt: new Date().toISOString(),
+            });
+            if (typeof fetch !== 'undefined') {
+              fetch(`/api/sessions/${sessionId}/finalize`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: payload,
+                keepalive: true,
+              }).catch(() => null);
+            }
+          } catch (e) {}
+        }
+      }
+    };
+
+    window.addEventListener('pagehide', handleUnloadCleanup);
+    window.addEventListener('beforeunload', handleUnloadCleanup);
+    return () => {
+      window.removeEventListener('pagehide', handleUnloadCleanup);
+      window.removeEventListener('beforeunload', handleUnloadCleanup);
+    };
+  }, [isTimerRunning, isTimerPaused, sessionConfig.durationMinutes, activeBackendSession]);
 
   // Handler to initialize a new focus session
   const handleStartSession = ({ activity, durationMinutes, goalText = null, goalType = 'NONE', targetValue = null, targetUnit = null, initialStreams }) => {
@@ -693,6 +783,18 @@ function AppContent() {
           />
         )}
 
+        {currentView === 'tasks' && (
+          <TaskManagerPage
+            onStartSession={(task) => {
+              setPrefilledSetupConfig({
+                goalText: task.title,
+                activity: task.category === 'Coding' ? 'Coding' : task.category === 'Study' ? 'Studying' : 'Focus Session',
+              });
+              handleNavigate('setup');
+            }}
+          />
+        )}
+
         {currentView === 'active' && (
           <ActiveSessionPage
             sessionInfo={sessionConfig}
@@ -702,6 +804,7 @@ function AppContent() {
             onPause={handleRequestPause}
             onResume={handleResumeTimer}
             onEndSession={handleEndSession}
+            onRestart={() => handleStartSession(sessionConfig)}
             isPauseConfirmOpen={isPauseConfirmOpen}
             onConfirmPause={handleConfirmPause}
             onCancelPause={handleCancelPause}

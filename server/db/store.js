@@ -1,6 +1,6 @@
 import { eq, desc, gte, lte, and } from 'drizzle-orm';
 import { db, checkDbConnection } from './client.js';
-import { users, sessions, activitySegments, passwordResets, weeklyReviewNotes, googleCalendarConnections } from './schema.js';
+import { users, sessions, activitySegments, passwordResets, weeklyReviewNotes, googleCalendarConnections, tasks } from './schema.js';
 import crypto from 'crypto';
 
 // In-Memory Fallback Stores (used if PostgreSQL service is offline)
@@ -10,6 +10,7 @@ const memorySegments = [];
 const memoryPasswordResets = new Map();
 const memoryWeeklyNotes = new Map();
 const memoryGoogleCalendarConnections = new Map();
+const memoryTasks = new Map();
 
 export const dbStore = {
   // USER OPERATIONS
@@ -431,8 +432,119 @@ export const dbStore = {
   },
 
   // SESSION OPERATIONS
+  /**
+   * Helper to reconcile active sessions for a user.
+   * Genuinely running sessions (started recently within planned duration window, endedAt === null)
+   * remain ACTIVE. Stale sessions (planned duration + buffer elapsed, endedAt present, or superseded
+   * by a newer session) are reconciled to COMPLETED and persisted.
+   */
+  async reconcileActiveSessionsForUser(userId) {
+    if (!userId) return;
+    const isConnected = await checkDbConnection();
+    const now = Date.now();
+    const GRACE_PERIOD_MS = 10 * 60 * 1000; // 10 min allowance for pause auto-resume & network clock skew
+
+    if (isConnected) {
+      const activeRows = await db.select()
+        .from(sessions)
+        .where(and(eq(sessions.userId, userId), eq(sessions.status, 'ACTIVE')))
+        .orderBy(desc(sessions.startedAt));
+
+      if (!activeRows || activeRows.length === 0) return;
+
+      // Only the most recent unexpired session can possibly be genuinely active
+      for (let i = 0; i < activeRows.length; i++) {
+        const s = activeRows[i];
+        const startedMs = new Date(s.startedAt).getTime();
+        const plannedMs = Number(s.plannedDurationMs) || (25 * 60 * 1000);
+        const isExpired = (now - startedMs) > (plannedMs + GRACE_PERIOD_MS);
+        const isEnded = s.endedAt !== null;
+        const isSuperseded = i > 0; // A user can only run at most one active session at a time
+
+        if (isExpired || isEnded || isSuperseded) {
+          const actualDur = Number(s.actualDurationMs) > 0
+            ? Number(s.actualDurationMs)
+            : Math.min(plannedMs, Math.max(1000, now - startedMs));
+          const endedDate = s.endedAt ? new Date(s.endedAt) : new Date(startedMs + actualDur);
+
+          await db.update(sessions)
+            .set({
+              status: 'COMPLETED',
+              actualDurationMs: actualDur,
+              endedAt: endedDate,
+              updatedAt: new Date(),
+            })
+            .where(eq(sessions.id, s.id));
+        }
+      }
+      return;
+    }
+
+    // In-memory store
+    const activeMemSessions = Array.from(memorySessions.values())
+      .filter(s => s.userId === userId && s.status === 'ACTIVE')
+      .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+
+    for (let i = 0; i < activeMemSessions.length; i++) {
+      const s = activeMemSessions[i];
+      const startedMs = new Date(s.startedAt).getTime();
+      const plannedMs = Number(s.plannedDurationMs) || (25 * 60 * 1000);
+      const isExpired = (now - startedMs) > (plannedMs + GRACE_PERIOD_MS);
+      const isEnded = s.endedAt !== null;
+      const isSuperseded = i > 0;
+
+      if (isExpired || isEnded || isSuperseded) {
+        const actualDur = Number(s.actualDurationMs) > 0
+          ? Number(s.actualDurationMs)
+          : Math.min(plannedMs, Math.max(1000, now - startedMs));
+        const endedDate = s.endedAt ? new Date(s.endedAt) : new Date(startedMs + actualDur);
+
+        s.status = 'COMPLETED';
+        s.actualDurationMs = actualDur;
+        s.endedAt = endedDate;
+        s.updatedAt = new Date();
+      }
+    }
+  },
+
   async createSession({ id, userId, selectedActivity, plannedDurationMs, actualDurationMs = 0, startedAt, endedAt = null, status = 'ACTIVE', focusPoints = 0, goalText = null, goalType = 'NONE', targetValue = null, targetUnit = null, goalProgress = 0, goalCompleted = false, intention = null }) {
     const isConnected = await checkDbConnection();
+
+    // When starting a new ACTIVE session, automatically reconcile any previous active sessions for this user
+    if ((!status || status === 'ACTIVE') && userId) {
+      if (isConnected) {
+        const prevActive = await db.select()
+          .from(sessions)
+          .where(and(eq(sessions.userId, userId), eq(sessions.status, 'ACTIVE')));
+
+        for (const prev of prevActive) {
+          const prevStarted = new Date(prev.startedAt).getTime();
+          const prevPlanned = Number(prev.plannedDurationMs) || (25 * 60 * 1000);
+          const dur = Number(prev.actualDurationMs) > 0 ? Number(prev.actualDurationMs) : Math.min(prevPlanned, Math.max(1000, Date.now() - prevStarted));
+          await db.update(sessions)
+            .set({
+              status: 'COMPLETED',
+              actualDurationMs: dur,
+              endedAt: prev.endedAt ? new Date(prev.endedAt) : new Date(prevStarted + dur),
+              updatedAt: new Date(),
+            })
+            .where(eq(sessions.id, prev.id));
+        }
+      } else {
+        for (const prev of memorySessions.values()) {
+          if (prev.userId === userId && prev.status === 'ACTIVE') {
+            const prevStarted = new Date(prev.startedAt).getTime();
+            const prevPlanned = Number(prev.plannedDurationMs) || (25 * 60 * 1000);
+            const dur = Number(prev.actualDurationMs) > 0 ? Number(prev.actualDurationMs) : Math.min(prevPlanned, Math.max(1000, Date.now() - prevStarted));
+            prev.status = 'COMPLETED';
+            prev.actualDurationMs = dur;
+            prev.endedAt = prev.endedAt ? new Date(prev.endedAt) : new Date(prevStarted + dur);
+            prev.updatedAt = new Date();
+          }
+        }
+      }
+    }
+
     if (isConnected) {
       const [newSession] = await db.insert(sessions).values({
         ...(id ? { id } : {}),
@@ -487,6 +599,9 @@ export const dbStore = {
   },
 
   async getSessionsByUserId(userId, { limit = 20, offset = 0, from, to } = {}) {
+    // Reconcile any stale active sessions for this user before returning session history
+    await this.reconcileActiveSessionsForUser(userId);
+
     const isConnected = await checkDbConnection();
     if (isConnected) {
       let conditions = [eq(sessions.userId, userId)];
@@ -512,17 +627,57 @@ export const dbStore = {
 
   async getSessionByIdAndUser(id, userId) {
     const isConnected = await checkDbConnection();
+    let session = null;
+
     if (isConnected) {
       const rows = await db.select()
         .from(sessions)
         .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
         .limit(1);
-      return rows[0] || null;
+      session = rows[0] || null;
+    } else {
+      const s = memorySessions.get(id);
+      if (s && s.userId === userId) session = s;
     }
 
-    const s = memorySessions.get(id);
-    if (s && s.userId === userId) return s;
-    return null;
+    if (!session) return null;
+
+    // Check if an ACTIVE session is stale and needs reconciliation
+    if (session.status === 'ACTIVE') {
+      const now = Date.now();
+      const startedMs = new Date(session.startedAt).getTime();
+      const plannedMs = Number(session.plannedDurationMs) || (25 * 60 * 1000);
+      const isExpired = (now - startedMs) > (plannedMs + 10 * 60 * 1000);
+      const isEnded = session.endedAt !== null;
+
+      if (isExpired || isEnded) {
+        const actualDur = Number(session.actualDurationMs) > 0
+          ? Number(session.actualDurationMs)
+          : Math.min(plannedMs, Math.max(1000, now - startedMs));
+        const endedDate = session.endedAt ? new Date(session.endedAt) : new Date(startedMs + actualDur);
+
+        if (isConnected) {
+          const [updated] = await db.update(sessions)
+            .set({
+              status: 'COMPLETED',
+              actualDurationMs: actualDur,
+              endedAt: endedDate,
+              updatedAt: new Date(),
+            })
+            .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
+            .returning();
+          return updated || session;
+        } else {
+          session.status = 'COMPLETED';
+          session.actualDurationMs = actualDur;
+          session.endedAt = endedDate;
+          session.updatedAt = new Date();
+          return session;
+        }
+      }
+    }
+
+    return session;
   },
 
   async saveSegments(sessionId, userId, segments) {
@@ -938,6 +1093,135 @@ export const dbStore = {
       return true;
     }
     memoryGoogleCalendarConnections.delete(userId);
+    return true;
+  },
+
+  // TASK OPERATIONS
+  async createTask({ id, userId, title, description = null, category = 'Other', completed = false, dueDate = null }) {
+    if (!userId || !title) return null;
+    const isConnected = await checkDbConnection();
+    const now = new Date();
+    const values = {
+      id: id || crypto.randomUUID(),
+      userId,
+      title: title.trim(),
+      description: description ? description.trim() : null,
+      category: category || 'Other',
+      completed: Boolean(completed),
+      dueDate: dueDate ? new Date(dueDate) : null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    if (isConnected) {
+      const [newTask] = await db.insert(tasks).values(values).returning();
+      return newTask;
+    }
+
+    memoryTasks.set(values.id, { ...values });
+    return values;
+  },
+
+  async getTasksByUserId(userId, { category, search } = {}) {
+    if (!userId) return [];
+    const isConnected = await checkDbConnection();
+
+    if (isConnected) {
+      let queryConditions = [eq(tasks.userId, userId)];
+      if (category && category !== 'All Work' && category !== 'ALL') {
+        queryConditions.push(eq(tasks.category, category));
+      }
+
+      let userTasks = await db.select()
+        .from(tasks)
+        .where(and(...queryConditions))
+        .orderBy(desc(tasks.createdAt));
+
+      if (search && search.trim()) {
+        const term = search.toLowerCase().trim();
+        userTasks = userTasks.filter(t => 
+          (t.title && t.title.toLowerCase().includes(term)) ||
+          (t.description && t.description.toLowerCase().includes(term))
+        );
+      }
+
+      return userTasks;
+    }
+
+    // Memory fallback
+    let userTasks = Array.from(memoryTasks.values())
+      .filter(t => t.userId === userId);
+
+    if (category && category !== 'All Work' && category !== 'ALL') {
+      userTasks = userTasks.filter(t => t.category === category);
+    }
+
+    if (search && search.trim()) {
+      const term = search.toLowerCase().trim();
+      userTasks = userTasks.filter(t =>
+        (t.title && t.title.toLowerCase().includes(term)) ||
+        (t.description && t.description.toLowerCase().includes(term))
+      );
+    }
+
+    return userTasks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  },
+
+  async getTaskByIdAndUser(id, userId) {
+    if (!id || !userId) return null;
+    const isConnected = await checkDbConnection();
+
+    if (isConnected) {
+      const rows = await db.select()
+        .from(tasks)
+        .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
+        .limit(1);
+      return rows[0] || null;
+    }
+
+    const t = memoryTasks.get(id);
+    if (t && t.userId === userId) return t;
+    return null;
+  },
+
+  async updateTask(id, userId, updates = {}) {
+    const existing = await this.getTaskByIdAndUser(id, userId);
+    if (!existing) return null;
+
+    const isConnected = await checkDbConnection();
+    const now = new Date();
+    const patch = { updatedAt: now };
+
+    if (updates.title !== undefined) patch.title = updates.title.trim();
+    if (updates.description !== undefined) patch.description = updates.description ? updates.description.trim() : null;
+    if (updates.category !== undefined) patch.category = updates.category;
+    if (updates.completed !== undefined) patch.completed = Boolean(updates.completed);
+    if (updates.dueDate !== undefined) patch.dueDate = updates.dueDate ? new Date(updates.dueDate) : null;
+
+    if (isConnected) {
+      const [updated] = await db.update(tasks)
+        .set(patch)
+        .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
+        .returning();
+      return updated || null;
+    }
+
+    const updated = { ...existing, ...patch };
+    memoryTasks.set(id, updated);
+    return updated;
+  },
+
+  async deleteTask(id, userId) {
+    const existing = await this.getTaskByIdAndUser(id, userId);
+    if (!existing) return false;
+
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      await db.delete(tasks).where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
+      return true;
+    }
+
+    memoryTasks.delete(id);
     return true;
   },
 };
