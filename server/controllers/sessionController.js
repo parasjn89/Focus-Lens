@@ -92,6 +92,12 @@ export const UpdateSessionSchema = z.object({
   goalCompleted: z.boolean().optional(),
 });
 
+export const HeartbeatSessionSchema = z.object({
+  actualDurationMs: z.number().int().nonnegative().optional(),
+  pausedDurationMs: z.number().int().nonnegative().optional(),
+  isPaused: z.boolean().optional(),
+});
+
 /**
  * Helper to resolve user ID strictly from authenticated server-side session context.
  * NEVER trusts client-supplied user IDs or shared anonymous fallbacks.
@@ -297,6 +303,51 @@ export async function saveSegments(request, reply) {
       statusCode: 500,
       error: 'Database Error',
       message: 'Failed to save activity segments.',
+    });
+  }
+}
+
+// Handler: POST /api/sessions/:id/heartbeat
+export async function heartbeatSession(request, reply) {
+  try {
+    const { id } = request.params;
+    const userId = resolveUserId(request);
+    const body = HeartbeatSessionSchema.parse(request.body || {});
+
+    const updated = await dbStore.recordHeartbeat(id, userId, {
+      actualDurationMs: body.actualDurationMs,
+      pausedDurationMs: body.pausedDurationMs,
+    });
+
+    if (!updated) {
+      return reply.status(404).send({
+        statusCode: 404,
+        error: 'Not Found',
+        message: `Session with ID "${id}" was not found or access is forbidden.`,
+      });
+    }
+
+    return reply.send({
+      success: true,
+      sessionId: updated.id,
+      status: updated.status,
+      isAlive: updated.status === 'ACTIVE',
+      lastHeartbeatAt: updated.lastHeartbeatAt,
+      actualDurationMs: updated.actualDurationMs,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Validation Error',
+        message: err.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    request.log.error(err);
+    return reply.status(500).send({
+      statusCode: 500,
+      error: 'Database Error',
+      message: 'Failed to record session heartbeat.',
     });
   }
 }

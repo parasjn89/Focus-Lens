@@ -95,6 +95,7 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS intention TEXT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS worked_well TEXT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS got_in_the_way TEXT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMP DEFAULT NOW();
 
 CREATE TABLE IF NOT EXISTS weekly_review_notes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -107,8 +108,21 @@ CREATE TABLE IF NOT EXISTS weekly_review_notes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user_started ON sessions(user_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_status ON sessions(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_segments_session_start ON activity_segments(session_id, start_time_ms);
 CREATE INDEX IF NOT EXISTS idx_weekly_notes_user_week ON weekly_review_notes(user_id, week_start_date);
+
+-- Safe one-time historical reconciliation: clean up any abandoned historical ACTIVE sessions
+UPDATE sessions
+SET status = 'COMPLETED',
+    actual_duration_ms = CASE
+      WHEN actual_duration_ms > 0 THEN actual_duration_ms
+      ELSE LEAST(planned_duration_ms, GREATEST(1000, EXTRACT(EPOCH FROM (COALESCE(ended_at, updated_at, started_at) - started_at)) * 1000))
+    END,
+    ended_at = COALESCE(ended_at, started_at + (LEAST(planned_duration_ms, GREATEST(1000, EXTRACT(EPOCH FROM (COALESCE(ended_at, updated_at, started_at) - started_at)) * 1000)) || ' milliseconds')::interval),
+    updated_at = NOW()
+WHERE status = 'ACTIVE'
+  AND (started_at < NOW() - INTERVAL '1 hour' OR ended_at IS NOT NULL);
 
 CREATE TABLE IF NOT EXISTS tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

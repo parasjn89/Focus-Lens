@@ -25,7 +25,7 @@ import { WeeklyReviewPage } from './pages/WeeklyReviewPage';
 import { FocusJournalPage } from './pages/FocusJournalPage';
 import { CalendarPage } from './pages/CalendarPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { startSession, saveSessionSegments, finalizeSession, fetchSessionById, getLocalSessions, saveLocalSessions } from './api/sessionApi';
+import { startSession, saveSessionSegments, finalizeSession, fetchSessionById, getLocalSessions, saveLocalSessions, sendSessionHeartbeat } from './api/sessionApi';
 import { initBackgroundSync } from './api/syncManager';
 import { ROUTE_PATH_MAP, PATH_ALIASES, resolveViewFromLocation } from './utils/routes';
 import { MAX_PAUSE_DURATION_MS, AUTO_RESUME_NOTIFICATION_MESSAGE } from './utils/sessionTimer';
@@ -39,6 +39,9 @@ function AppContent() {
       const savedReportSessionId = sessionStorage.getItem('focuslens_active_report_session_id');
       if (savedReportSessionId && (resolved === 'landing' || resolved === 'report')) {
         return 'report';
+      }
+      if (resolved === 'active') {
+        return 'dashboard';
       }
       return resolved;
     }
@@ -288,6 +291,45 @@ function AppContent() {
     };
   }, [isTimerRunning, isTimerPaused, sessionConfig.durationMinutes]);
 
+  // Periodic Heartbeat Effect while active session is running (pings every 15s)
+  useEffect(() => {
+    let heartbeatIntervalId = null;
+
+    if (isTimerRunning) {
+      const sendPing = () => {
+        const backendSession = activeBackendSessionRef.current || activeBackendSession;
+        const sessionId = backendSession?.id;
+        if (!sessionId) return;
+
+        const scheduledSeconds = sessionConfig.durationMinutes * 60;
+        const currentPauseMs = isTimerPaused && pausedAtRef.current ? (Date.now() - pausedAtRef.current) : 0;
+        const totalElapsedMs = timerStartedAtRef.current
+          ? Math.max(0, Date.now() - timerStartedAtRef.current - (totalPausedMsRef.current + currentPauseMs))
+          : 0;
+        const actualDurationMs = Math.min(scheduledSeconds * 1000, totalElapsedMs);
+
+        sendSessionHeartbeat(sessionId, {
+          actualDurationMs,
+          pausedDurationMs: totalPausedMsRef.current + currentPauseMs,
+          isPaused: isTimerPaused,
+        }).then(res => {
+          if (res && res.isAlive === false) {
+            // Session was completed or superseded remotely
+          }
+        }).catch(() => null);
+      };
+
+      // Initial heartbeat ping after session initializes
+      const initialTimer = setTimeout(sendPing, 1500);
+      heartbeatIntervalId = setInterval(sendPing, 15000);
+
+      return () => {
+        clearTimeout(initialTimer);
+        if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
+      };
+    }
+  }, [isTimerRunning, isTimerPaused, sessionConfig.durationMinutes, activeBackendSession]);
+
   // Lifecycle hook: finalize session when browser/tab unloads, closes, or reloads
   useEffect(() => {
     const handleUnloadCleanup = () => {
@@ -318,7 +360,7 @@ function AppContent() {
           saveLocalSessions(updatedLocal);
         } catch (e) {}
 
-        // 2. Transmit session finalization to backend via keepalive fetch
+        // 2. Transmit session finalization to backend via beacon or keepalive fetch
         if (sessionId && !sessionId.startsWith('local_')) {
           try {
             const payload = JSON.stringify({
@@ -327,10 +369,15 @@ function AppContent() {
               status: 'COMPLETED',
               endedAt: new Date().toISOString(),
             });
-            if (typeof fetch !== 'undefined') {
-              fetch(`/api/sessions/${sessionId}/finalize`, {
+            const finalizeUrl = `/api/sessions/${sessionId}/finalize`;
+            if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+              const blob = new Blob([payload], { type: 'application/json' });
+              navigator.sendBeacon(finalizeUrl, blob);
+            } else if (typeof fetch !== 'undefined') {
+              fetch(finalizeUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: payload,
                 keepalive: true,
               }).catch(() => null);

@@ -3,6 +3,7 @@ import {
   listSessions,
   getSessionById,
   saveSegments,
+  heartbeatSession,
   updateSession,
   deleteSession,
   getFocusCoachAnalytics,
@@ -16,6 +17,7 @@ export async function sessionRoutes(fastify, options) {
   fastify.get('/api/sessions', { preHandler: requireAuth }, listSessions);
   fastify.get('/api/sessions/:id', { preHandler: requireAuth }, getSessionById);
   fastify.post('/api/sessions/:id/segments', { preHandler: requireAuth }, saveSegments);
+  fastify.post('/api/sessions/:id/heartbeat', { preHandler: requireAuth }, heartbeatSession);
   fastify.put('/api/sessions/:id', { preHandler: requireAuth }, updateSession);
   fastify.patch('/api/sessions/:id/progress', { preHandler: requireAuth }, updateSession);
   fastify.post('/api/sessions/:id/finalize', { preHandler: requireAuth }, updateSession);

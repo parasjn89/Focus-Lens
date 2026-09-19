@@ -46,11 +46,13 @@ export const sessions = pgTable('sessions', {
   gotInTheWay: text('got_in_the_way'),
   notes: text('notes'),
   startedAt: timestamp('started_at').defaultNow().notNull(),
+  lastHeartbeatAt: timestamp('last_heartbeat_at').defaultNow(),
   endedAt: timestamp('ended_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({
   idxSessionsUserStarted: index('idx_sessions_user_started').on(table.userId, table.startedAt),
+  idxSessionsUserStatus: index('idx_sessions_user_status').on(table.userId, table.status),
 }));
 
 // Activity Segments table

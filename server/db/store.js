@@ -433,16 +433,19 @@ export const dbStore = {
 
   // SESSION OPERATIONS
   /**
-   * Helper to reconcile active sessions for a user.
-   * Genuinely running sessions (started recently within planned duration window, endedAt === null)
-   * remain ACTIVE. Stale sessions (planned duration + buffer elapsed, endedAt present, or superseded
-   * by a newer session) are reconciled to COMPLETED and persisted.
+   * Reconcile stale active sessions for an authenticated user.
+   * Liveness Rule: A session may only be ACTIVE if:
+   * 1. It is the user's single most recent session (no concurrent sessions allowed)
+   * 2. It has not been explicitly ended
+   * 3. It has not exceeded its planned duration + grace period
+   * 4. It has sent a heartbeat signal within the HEARTBEAT_TIMEOUT window (client is alive)
    */
   async reconcileActiveSessionsForUser(userId) {
     if (!userId) return;
     const isConnected = await checkDbConnection();
     const now = Date.now();
-    const GRACE_PERIOD_MS = 10 * 60 * 1000; // 10 min allowance for pause auto-resume & network clock skew
+    const HEARTBEAT_TIMEOUT_MS = 60 * 1000; // 60s without heartbeat = dead/disconnected client
+    const GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 min allowance for pause auto-resume & network skew
 
     if (isConnected) {
       const activeRows = await db.select()
@@ -452,19 +455,28 @@ export const dbStore = {
 
       if (!activeRows || activeRows.length === 0) return;
 
-      // Only the most recent unexpired session can possibly be genuinely active
+      // Only the most recent unexpired session with active heartbeats can possibly be genuinely active
       for (let i = 0; i < activeRows.length; i++) {
         const s = activeRows[i];
         const startedMs = new Date(s.startedAt).getTime();
         const plannedMs = Number(s.plannedDurationMs) || (25 * 60 * 1000);
-        const isExpired = (now - startedMs) > (plannedMs + GRACE_PERIOD_MS);
+        const lastPingMs = s.lastHeartbeatAt ? new Date(s.lastHeartbeatAt).getTime() : startedMs;
+        const timeSinceLastPing = now - lastPingMs;
+        const totalElapsed = now - startedMs;
+
+        const isExpired = totalElapsed > (plannedMs + GRACE_PERIOD_MS);
         const isEnded = s.endedAt !== null;
         const isSuperseded = i > 0; // A user can only run at most one active session at a time
+        const isHeartbeatDead = timeSinceLastPing > HEARTBEAT_TIMEOUT_MS;
 
-        if (isExpired || isEnded || isSuperseded) {
-          const actualDur = Number(s.actualDurationMs) > 0
-            ? Number(s.actualDurationMs)
-            : Math.min(plannedMs, Math.max(1000, now - startedMs));
+        if (isExpired || isEnded || isSuperseded || isHeartbeatDead) {
+          const recordedDur = Number(s.actualDurationMs) || 0;
+          const durFromHeartbeat = Math.max(0, lastPingMs - startedMs - (Number(s.pausedDurationMs) || 0));
+          const actualDur = recordedDur > 0
+            ? recordedDur
+            : (durFromHeartbeat >= 1000)
+              ? Math.min(plannedMs, durFromHeartbeat)
+              : Math.min(plannedMs, Math.max(1000, now - startedMs));
           const endedDate = s.endedAt ? new Date(s.endedAt) : new Date(startedMs + actualDur);
 
           await db.update(sessions)
@@ -489,14 +501,23 @@ export const dbStore = {
       const s = activeMemSessions[i];
       const startedMs = new Date(s.startedAt).getTime();
       const plannedMs = Number(s.plannedDurationMs) || (25 * 60 * 1000);
-      const isExpired = (now - startedMs) > (plannedMs + GRACE_PERIOD_MS);
+      const lastPingMs = s.lastHeartbeatAt ? new Date(s.lastHeartbeatAt).getTime() : startedMs;
+      const timeSinceLastPing = now - lastPingMs;
+      const totalElapsed = now - startedMs;
+
+      const isExpired = totalElapsed > (plannedMs + GRACE_PERIOD_MS);
       const isEnded = s.endedAt !== null;
       const isSuperseded = i > 0;
+      const isHeartbeatDead = timeSinceLastPing > HEARTBEAT_TIMEOUT_MS;
 
-      if (isExpired || isEnded || isSuperseded) {
-        const actualDur = Number(s.actualDurationMs) > 0
-          ? Number(s.actualDurationMs)
-          : Math.min(plannedMs, Math.max(1000, now - startedMs));
+      if (isExpired || isEnded || isSuperseded || isHeartbeatDead) {
+        const recordedDur = Number(s.actualDurationMs) || 0;
+        const durFromHeartbeat = Math.max(0, lastPingMs - startedMs - (Number(s.pausedDurationMs) || 0));
+        const actualDur = recordedDur > 0
+          ? recordedDur
+          : (durFromHeartbeat >= 1000)
+            ? Math.min(plannedMs, durFromHeartbeat)
+            : Math.min(plannedMs, Math.max(1000, now - startedMs));
         const endedDate = s.endedAt ? new Date(s.endedAt) : new Date(startedMs + actualDur);
 
         s.status = 'COMPLETED';
@@ -505,6 +526,126 @@ export const dbStore = {
         s.updatedAt = new Date();
       }
     }
+  },
+
+  /**
+   * Global reconciliation of all orphaned active sessions across all users.
+   */
+  async reconcileAllStaleActiveSessions() {
+    const isConnected = await checkDbConnection();
+    const now = Date.now();
+    const HEARTBEAT_TIMEOUT_MS = 60 * 1000;
+    const GRACE_PERIOD_MS = 5 * 60 * 1000;
+
+    if (isConnected) {
+      try {
+        const activeRows = await db.select()
+          .from(sessions)
+          .where(eq(sessions.status, 'ACTIVE'));
+
+        for (const s of activeRows) {
+          const startedMs = new Date(s.startedAt).getTime();
+          const plannedMs = Number(s.plannedDurationMs) || (25 * 60 * 1000);
+          const lastPingMs = s.lastHeartbeatAt ? new Date(s.lastHeartbeatAt).getTime() : startedMs;
+          const timeSinceLastPing = now - lastPingMs;
+          const isExpired = (now - startedMs) > (plannedMs + GRACE_PERIOD_MS);
+          const isEnded = s.endedAt !== null;
+          const isHeartbeatDead = timeSinceLastPing > HEARTBEAT_TIMEOUT_MS;
+
+          if (isExpired || isEnded || isHeartbeatDead) {
+            const recordedDur = Number(s.actualDurationMs) || 0;
+            const durFromHeartbeat = Math.max(0, lastPingMs - startedMs - (Number(s.pausedDurationMs) || 0));
+            const actualDur = recordedDur > 0
+              ? recordedDur
+              : (durFromHeartbeat >= 1000)
+                ? Math.min(plannedMs, durFromHeartbeat)
+                : Math.min(plannedMs, Math.max(1000, now - startedMs));
+            const endedDate = s.endedAt ? new Date(s.endedAt) : new Date(startedMs + actualDur);
+
+            await db.update(sessions)
+              .set({
+                status: 'COMPLETED',
+                actualDurationMs: actualDur,
+                endedAt: endedDate,
+                updatedAt: new Date(),
+              })
+              .where(eq(sessions.id, s.id));
+          }
+        }
+      } catch (err) {
+        console.error('[Store] Failed to run global active session reconciliation:', err.message);
+      }
+      return;
+    }
+
+    for (const s of memorySessions.values()) {
+      if (s.status === 'ACTIVE') {
+        const startedMs = new Date(s.startedAt).getTime();
+        const plannedMs = Number(s.plannedDurationMs) || (25 * 60 * 1000);
+        const lastPingMs = s.lastHeartbeatAt ? new Date(s.lastHeartbeatAt).getTime() : startedMs;
+        const timeSinceLastPing = now - lastPingMs;
+        const isExpired = (now - startedMs) > (plannedMs + GRACE_PERIOD_MS);
+        const isEnded = s.endedAt !== null;
+        const isHeartbeatDead = timeSinceLastPing > HEARTBEAT_TIMEOUT_MS;
+
+        if (isExpired || isEnded || isHeartbeatDead) {
+          const recordedDur = Number(s.actualDurationMs) || 0;
+          const durFromHeartbeat = Math.max(0, lastPingMs - startedMs - (Number(s.pausedDurationMs) || 0));
+          const actualDur = recordedDur > 0
+            ? recordedDur
+            : (durFromHeartbeat >= 1000)
+              ? Math.min(plannedMs, durFromHeartbeat)
+              : Math.min(plannedMs, Math.max(1000, now - startedMs));
+          const endedDate = s.endedAt ? new Date(s.endedAt) : new Date(startedMs + actualDur);
+
+          s.status = 'COMPLETED';
+          s.actualDurationMs = actualDur;
+          s.endedAt = endedDate;
+          s.updatedAt = new Date();
+        }
+      }
+    }
+  },
+
+  /**
+   * Record periodic heartbeat ping from active client to maintain session liveness.
+   */
+  async recordHeartbeat(sessionId, userId, { actualDurationMs, pausedDurationMs } = {}) {
+    const session = await this.getSessionByIdAndUser(sessionId, userId);
+    if (!session) return null;
+
+    const now = new Date();
+    const isConnected = await checkDbConnection();
+    const updates = {
+      lastHeartbeatAt: now,
+      updatedAt: now,
+    };
+
+    if (actualDurationMs !== undefined && Number.isInteger(actualDurationMs) && actualDurationMs >= 0) {
+      updates.actualDurationMs = actualDurationMs;
+    }
+    if (pausedDurationMs !== undefined && Number.isInteger(pausedDurationMs) && pausedDurationMs >= 0) {
+      updates.pausedDurationMs = pausedDurationMs;
+    }
+
+    // Auto-complete if actual duration has met or exceeded planned duration
+    const plannedMs = Number(session.plannedDurationMs) || (25 * 60 * 1000);
+    if ((updates.actualDurationMs || session.actualDurationMs) >= plannedMs) {
+      updates.status = 'COMPLETED';
+      updates.endedAt = now;
+    }
+
+    if (isConnected) {
+      const [updated] = await db.update(sessions)
+        .set(updates)
+        .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
+        .returning();
+      return updated;
+    }
+
+    const updated = { ...session, ...updates };
+    memorySessions.set(sessionId, updated);
+    return updated;
   },
 
   async createSession({ id, userId, selectedActivity, plannedDurationMs, actualDurationMs = 0, startedAt, endedAt = null, status = 'ACTIVE', focusPoints = 0, goalText = null, goalType = 'NONE', targetValue = null, targetUnit = null, goalProgress = 0, goalCompleted = false, intention = null }) {
@@ -545,6 +686,8 @@ export const dbStore = {
       }
     }
 
+    const sessionStartDate = startedAt ? new Date(startedAt) : new Date();
+
     if (isConnected) {
       const [newSession] = await db.insert(sessions).values({
         ...(id ? { id } : {}),
@@ -552,7 +695,8 @@ export const dbStore = {
         selectedActivity,
         plannedDurationMs,
         actualDurationMs: actualDurationMs ?? 0,
-        startedAt: startedAt ? new Date(startedAt) : new Date(),
+        startedAt: sessionStartDate,
+        lastHeartbeatAt: sessionStartDate,
         endedAt: endedAt ? new Date(endedAt) : null,
         status: status || 'ACTIVE',
         focusPoints: focusPoints ?? 0,
@@ -589,7 +733,8 @@ export const dbStore = {
       workedWell: null,
       gotInTheWay: null,
       notes: null,
-      startedAt: startedAt ? new Date(startedAt) : new Date(),
+      startedAt: sessionStartDate,
+      lastHeartbeatAt: sessionStartDate,
       endedAt: endedAt ? new Date(endedAt) : null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -647,13 +792,23 @@ export const dbStore = {
       const now = Date.now();
       const startedMs = new Date(session.startedAt).getTime();
       const plannedMs = Number(session.plannedDurationMs) || (25 * 60 * 1000);
-      const isExpired = (now - startedMs) > (plannedMs + 10 * 60 * 1000);
-      const isEnded = session.endedAt !== null;
+      const lastPingMs = session.lastHeartbeatAt ? new Date(session.lastHeartbeatAt).getTime() : startedMs;
+      const timeSinceLastPing = now - lastPingMs;
+      const HEARTBEAT_TIMEOUT_MS = 60 * 1000;
+      const GRACE_PERIOD_MS = 5 * 60 * 1000;
 
-      if (isExpired || isEnded) {
-        const actualDur = Number(session.actualDurationMs) > 0
-          ? Number(session.actualDurationMs)
-          : Math.min(plannedMs, Math.max(1000, now - startedMs));
+      const isExpired = (now - startedMs) > (plannedMs + GRACE_PERIOD_MS);
+      const isEnded = session.endedAt !== null;
+      const isHeartbeatDead = timeSinceLastPing > HEARTBEAT_TIMEOUT_MS;
+
+      if (isExpired || isEnded || isHeartbeatDead) {
+        const recordedDur = Number(session.actualDurationMs) || 0;
+        const durFromHeartbeat = Math.max(0, lastPingMs - startedMs - (Number(session.pausedDurationMs) || 0));
+        const actualDur = recordedDur > 0
+          ? recordedDur
+          : (durFromHeartbeat >= 1000)
+            ? Math.min(plannedMs, durFromHeartbeat)
+            : Math.min(plannedMs, Math.max(1000, now - startedMs));
         const endedDate = session.endedAt ? new Date(session.endedAt) : new Date(startedMs + actualDur);
 
         if (isConnected) {

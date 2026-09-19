@@ -14,6 +14,7 @@ import { journalRoutes } from './routes/journalRoutes.js';
 import { calendarRoutes } from './routes/calendarRoutes.js';
 import { googleCalendarRoutes } from './routes/googleCalendarRoutes.js';
 import { taskRoutes } from './routes/taskRoutes.js';
+import { dbStore } from './db/store.js';
 
 export function buildApp(options = {}) {
   const app = Fastify({
@@ -92,6 +93,15 @@ export function buildApp(options = {}) {
       error: error.name || 'Error',
       message,
     });
+  });
+
+  // Reconcile any stale active sessions on application startup
+  app.addHook('onReady', async () => {
+    try {
+      await dbStore.reconcileAllStaleActiveSessions();
+    } catch (err) {
+      app.log.warn(`[Startup] Active session reconciliation failed: ${err.message}`);
+    }
   });
 
   return app;

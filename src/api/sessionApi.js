@@ -280,6 +280,48 @@ export async function finalizeSession(sessionId, { actualDurationMs, pausedDurat
 }
 
 /**
+ * API: Send periodic heartbeat to backend to maintain session liveness
+ */
+export async function sendSessionHeartbeat(sessionId, { actualDurationMs, pausedDurationMs, isPaused } = {}) {
+  if (!sessionId) return { isAlive: false };
+
+  if (!sessionId.startsWith('local_')) {
+    try {
+      const res = await apiFetch(`/api/sessions/${sessionId}/heartbeat`, {
+        method: 'POST',
+        body: JSON.stringify({ actualDurationMs, pausedDurationMs, isPaused }),
+      });
+      return {
+        success: res.success ?? true,
+        status: res.status,
+        isAlive: res.isAlive ?? (res.status === 'ACTIVE'),
+      };
+    } catch (err) {
+      // Backend heartbeat failure - non-blocking
+    }
+  }
+
+  // Local fallback: touch lastHeartbeatAt
+  try {
+    const localList = getLocalSessions();
+    const updated = localList.map(s => {
+      if (s.id === sessionId || s.backendId === sessionId) {
+        return {
+          ...s,
+          lastHeartbeatAt: new Date().toISOString(),
+          actualDurationMs: actualDurationMs ?? s.actualDurationMs,
+          pausedDurationMs: pausedDurationMs ?? s.pausedDurationMs,
+        };
+      }
+      return s;
+    });
+    saveLocalSessions(updated);
+  } catch (e) {}
+
+  return { success: true, isAlive: true };
+}
+
+/**
  * API: Fetch session history list (merging backend sessions and unsynced local sessions)
  */
 export async function fetchSessionsHistory({ limit = 20, offset = 0 } = {}) {
@@ -295,17 +337,21 @@ export async function fetchSessionsHistory({ limit = 20, offset = 0 } = {}) {
 
   const localSessions = getLocalSessions();
   const now = Date.now();
-  const GRACE_PERIOD_MS = 10 * 60 * 1000;
+  const HEARTBEAT_TIMEOUT_MS = 60 * 1000;
+  const GRACE_PERIOD_MS = 5 * 60 * 1000;
   let localNeedsSave = false;
 
   const reconciledLocal = localSessions.map(s => {
     if (s.status === 'ACTIVE') {
       const startedMs = new Date(s.startedAt || s.createdAt).getTime();
       const plannedMs = Number(s.plannedDurationMs) || (25 * 60 * 1000);
+      const lastPingMs = s.lastHeartbeatAt ? new Date(s.lastHeartbeatAt).getTime() : startedMs;
       const isExpired = (now - startedMs) > (plannedMs + GRACE_PERIOD_MS);
-      if (s.endedAt || isExpired) {
+      const isHeartbeatDead = (now - lastPingMs) > HEARTBEAT_TIMEOUT_MS;
+
+      if (s.endedAt || isExpired || isHeartbeatDead) {
         localNeedsSave = true;
-        const dur = Number(s.actualDurationMs) > 0 ? Number(s.actualDurationMs) : plannedMs;
+        const dur = Number(s.actualDurationMs) > 0 ? Number(s.actualDurationMs) : Math.max(1000, lastPingMs - startedMs);
         return {
           ...s,
           status: 'COMPLETED',
