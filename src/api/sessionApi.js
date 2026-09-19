@@ -294,18 +294,45 @@ export async function fetchSessionsHistory({ limit = 20, offset = 0 } = {}) {
   }
 
   const localSessions = getLocalSessions();
+  const now = Date.now();
+  const GRACE_PERIOD_MS = 10 * 60 * 1000;
+  let localNeedsSave = false;
+
+  const reconciledLocal = localSessions.map(s => {
+    if (s.status === 'ACTIVE') {
+      const startedMs = new Date(s.startedAt || s.createdAt).getTime();
+      const plannedMs = Number(s.plannedDurationMs) || (25 * 60 * 1000);
+      const isExpired = (now - startedMs) > (plannedMs + GRACE_PERIOD_MS);
+      if (s.endedAt || isExpired) {
+        localNeedsSave = true;
+        const dur = Number(s.actualDurationMs) > 0 ? Number(s.actualDurationMs) : plannedMs;
+        return {
+          ...s,
+          status: 'COMPLETED',
+          actualDurationMs: dur,
+          endedAt: s.endedAt || new Date(startedMs + dur).toISOString(),
+        };
+      }
+    }
+    return s;
+  });
+
+  if (localNeedsSave) {
+    saveLocalSessions(reconciledLocal);
+  }
+
   const sessionMap = new Map();
   
   if (isBackendAvailable) {
     // Only include local sessions that are genuinely unsynced offline creations
-    localSessions.filter(s => s.id?.startsWith('local_') && !s.synced).forEach(s => {
+    reconciledLocal.filter(s => s.id?.startsWith('local_') && !s.synced).forEach(s => {
       sessionMap.set(s.id, { ...s, isLocal: true });
     });
     // Add server-verified authenticated user sessions
     backendSessions.forEach(s => sessionMap.set(s.id, { ...s, isLocal: false }));
   } else {
     // Offline mode fallback
-    localSessions.forEach(s => sessionMap.set(s.id, { ...s, isLocal: true }));
+    reconciledLocal.forEach(s => sessionMap.set(s.id, { ...s, isLocal: true }));
   }
 
   const mergedSessions = Array.from(sessionMap.values()).sort(

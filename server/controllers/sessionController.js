@@ -318,6 +318,9 @@ export async function updateSession(request, reply) {
     }
 
     const updates = { ...body };
+    if ((updates.status === 'COMPLETED' || updates.status === 'CANCELLED') && !updates.endedAt) {
+      updates.endedAt = new Date().toISOString();
+    }
     const segments = await dbStore.getSegmentsBySessionId(id);
 
     // Goal Progress Logic
