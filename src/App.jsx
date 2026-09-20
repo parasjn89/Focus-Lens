@@ -24,11 +24,14 @@ import { RecommendationsPage } from './pages/RecommendationsPage';
 import { WeeklyReviewPage } from './pages/WeeklyReviewPage';
 import { FocusJournalPage } from './pages/FocusJournalPage';
 import { CalendarPage } from './pages/CalendarPage';
+import { OptionsPage } from './pages/OptionsPage';
+import { MessagesPage } from './pages/MessagesPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { startSession, saveSessionSegments, finalizeSession, fetchSessionById, getLocalSessions, saveLocalSessions, sendSessionHeartbeat } from './api/sessionApi';
 import { initBackgroundSync } from './api/syncManager';
 import { ROUTE_PATH_MAP, PATH_ALIASES, resolveViewFromLocation } from './utils/routes';
 import { MAX_PAUSE_DURATION_MS, AUTO_RESUME_NOTIFICATION_MESSAGE } from './utils/sessionTimer';
+import { getUserSettings } from './utils/userSettings';
 
 function AppContent() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -477,10 +480,15 @@ function AppContent() {
     });
   };
 
-  // Request pause: show confirmation dialog before pausing
+  // Request pause: show confirmation dialog before pausing (unless disabled in settings)
   const handleRequestPause = () => {
     if (isTimerRunning && !isTimerPaused && !isFinalizingRef.current) {
-      setIsPauseConfirmOpen(true);
+      const userSettings = getUserSettings();
+      if (userSettings?.confirmBeforePause === false) {
+        handleConfirmPause();
+      } else {
+        setIsPauseConfirmOpen(true);
+      }
     }
   };
 
@@ -544,7 +552,10 @@ function AppContent() {
     setIsTimerPaused(false);
 
     addEventLog('Session Auto-Resumed', '5-minute maximum pause reached. Focus timer resumed automatically.');
-    setAutoResumeNotice(AUTO_RESUME_NOTIFICATION_MESSAGE);
+    const userSettings = getUserSettings();
+    if (userSettings?.autoResumeWarning !== false) {
+      setAutoResumeNotice(AUTO_RESUME_NOTIFICATION_MESSAGE);
+    }
   };
 
   // Check auto resume condition based on stored timestamp (authoritative)
@@ -702,8 +713,14 @@ function AppContent() {
     handleNavigate('report');
   };
 
-  // End session manually button click
+  // End session manually button click (checks confirmBeforeEnd setting)
   const handleEndSession = () => {
+    const userSettings = getUserSettings();
+    if (userSettings?.confirmBeforeEnd) {
+      if (typeof window !== 'undefined' && !window.confirm('Are you sure you want to end this focus session early?')) {
+        return;
+      }
+    }
     finishSession(false);
   };
 
@@ -805,7 +822,7 @@ function AppContent() {
       <div className={`flex-1 flex flex-col ${isAppView ? 'h-screen overflow-hidden relative' : 'min-h-screen'}`}>
         {/* Topbar for App Views, Navbar for Public/Active Views */}
         {isAppView ? (
-          <Topbar currentView={currentView} />
+          <Topbar currentView={currentView} onNavigate={handleNavigate} />
         ) : currentView === 'landing' ? (
           <LandingNavbar onNavigate={handleNavigate} />
         ) : (
@@ -984,22 +1001,12 @@ function AppContent() {
           />
         )}
 
-        {['messages', 'options'].includes(currentView) && (
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center space-y-6">
-            <div className="p-8 rounded-3xl bg-slate-900/60 border border-slate-800 backdrop-blur-sm max-w-md mx-auto space-y-4">
-              <h2 className="text-xl font-bold text-white capitalize">{currentView}</h2>
-              <p className="text-sm text-slate-400">
-                This section is coming soon. Focus session tracking and personal intelligence analytics are available on your Dashboard.
-              </p>
-              <button
-                type="button"
-                onClick={() => handleNavigate('dashboard')}
-                className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs transition-all shadow-md shadow-brand-600/20 cursor-pointer"
-              >
-                <span>Back to Dashboard</span>
-              </button>
-            </div>
-          </div>
+        {currentView === 'messages' && (
+          <MessagesPage onNavigate={handleNavigate} />
+        )}
+
+        {currentView === 'options' && (
+          <OptionsPage onNavigate={handleNavigate} />
         )}
       </main>
 

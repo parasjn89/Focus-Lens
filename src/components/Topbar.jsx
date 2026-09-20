@@ -3,7 +3,7 @@ import { Search, Bell, Plus, Calendar as CalendarIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserAvatar } from './UserAvatar.jsx';
 
-export function Topbar({ currentView }) {
+export function Topbar({ currentView, onNavigate }) {
   const { user } = useAuth();
 
   const getBreadcrumbs = () => {
@@ -40,17 +40,18 @@ export function Topbar({ currentView }) {
       </div>
 
       <div className="flex items-center space-x-4">
-        {/* Placeholder Team Members */}
-        <div className="hidden md:flex items-center space-x-2 bg-navy-800/50 rounded-full p-1 pr-4 border border-slate-700/50">
-          <div className="flex -space-x-2">
-            <div className="w-8 h-8 rounded-full bg-indigo-500 border-2 border-navy-950 flex items-center justify-center text-[10px] font-bold text-white z-10">JD</div>
-            <div className="w-8 h-8 rounded-full bg-emerald-500 border-2 border-navy-950 flex items-center justify-center text-[10px] font-bold text-white z-20">AL</div>
-            <button className="w-8 h-8 rounded-full bg-brand-500 border-2 border-navy-950 flex items-center justify-center text-white hover:bg-brand-400 transition z-30">
-              <Plus className="w-4 h-4" />
-            </button>
+        {/* Focus Buddies / Team Members */}
+        <button
+          type="button"
+          onClick={() => onNavigate && onNavigate('messages')}
+          className="hidden md:flex items-center space-x-2 bg-navy-800/50 hover:bg-navy-800/80 rounded-full px-3 py-1.5 border border-slate-700/50 cursor-pointer transition text-slate-300 hover:text-white"
+          title="Focus Buddies & Messages"
+        >
+          <div className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center border border-cyan-500/30">
+            <Plus className="w-3.5 h-3.5" />
           </div>
-          <span className="text-xs text-slate-300 font-medium">Add member</span>
-        </div>
+          <span className="text-xs font-medium">Focus Buddies</span>
+        </button>
 
         <button className="w-10 h-10 rounded-full bg-navy-800/80 border border-slate-700/50 flex items-center justify-center text-slate-300 hover:text-white transition">
           <Search className="w-4 h-4" />
