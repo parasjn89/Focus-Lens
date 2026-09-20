@@ -399,134 +399,127 @@ export function TaskManagerPage({ onStartSession }) {
       ) : (
         <div className="space-y-2.5">
           {filteredTasks.map((task) => {
-            const isSwiped = swipedTaskId === task.id;
+            const isMenuOpen = swipedTaskId === task.id;
             const dueDateFormatted = formatDueDate(task.dueDate);
 
             return (
               <div
                 key={task.id}
-                className="relative overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-md shadow-sm hover:border-slate-700/80 transition-all duration-200"
-                onTouchStart={(e) => handleTouchStart(task.id, e)}
-                onTouchMove={(e) => handleTouchMove(task.id, e)}
-                onTouchEnd={() => handleTouchEnd(task.id)}
+                className="rounded-2xl border border-slate-800/80 bg-slate-900/70 backdrop-blur-md shadow-sm hover:border-slate-700/80 transition-all duration-200 p-3.5 sm:p-4 flex items-center justify-between gap-3 relative"
               >
-                {/* REVEALED BACKGROUND ACTIONS (EDIT + DELETE) */}
-                <div className="absolute inset-y-0 right-0 flex items-center pr-3 space-x-2 z-0">
+                {/* LEFT: Checkbox + Title + Description + Badges */}
+                <div className="flex items-start space-x-3 min-w-0 flex-1">
+                  {/* Checkbox */}
+                  <button
+                    type="button"
+                    onClick={(e) => handleToggleComplete(task, e)}
+                    className={`mt-0.5 w-5 h-5 rounded-lg flex items-center justify-center border transition-all cursor-pointer shrink-0 ${
+                      task.completed
+                        ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/30'
+                        : 'border-slate-700 hover:border-cyan-500/60 bg-slate-800/60 text-transparent'
+                    }`}
+                    title={task.completed ? 'Mark incomplete' : 'Mark complete'}
+                  >
+                    <Check className={`w-3.5 h-3.5 stroke-[3] ${task.completed ? 'block' : 'hidden'}`} />
+                  </button>
+
+                  {/* Content */}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                      <h4
+                        className={`text-sm font-semibold transition-colors truncate ${
+                          task.completed
+                            ? 'line-through text-slate-500'
+                            : 'text-white hover:text-cyan-300'
+                        }`}
+                      >
+                        {task.title}
+                      </h4>
+
+                      {/* Category badge */}
+                      <span
+                        className={`text-[10px] font-medium px-2 py-0.5 rounded-md border shrink-0 ${getCategoryBadgeClass(
+                          task.category
+                        )}`}
+                      >
+                        {task.category || 'Other'}
+                      </span>
+
+                      {/* Optional Due Date */}
+                      {dueDateFormatted && (
+                        <span className="inline-flex items-center space-x-1 text-[10px] text-slate-400 font-mono px-2 py-0.5 rounded-md bg-slate-800/80 border border-slate-700/60 shrink-0">
+                          <Clock className="w-2.5 h-2.5 text-cyan-400" />
+                          <span>{dueDateFormatted}</span>
+                        </span>
+                      )}
+                    </div>
+
+                    {task.description && (
+                      <p className={`text-xs truncate max-w-xl ${task.completed ? 'text-slate-600' : 'text-slate-400'}`}>
+                        {task.description}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* RIGHT-SIDE ACTIONS: [Edit] [▶ Focus] [settings] */}
+                <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+                  {/* 1. Edit Button */}
                   <button
                     type="button"
                     onClick={(e) => handleOpenEditModal(task, e)}
-                    className="flex items-center space-x-1 text-xs font-medium px-3 py-2 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 transition cursor-pointer"
+                    className="flex items-center space-x-1 text-xs font-medium px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-cyan-300 border border-slate-700/70 hover:border-cyan-500/40 transition cursor-pointer shadow-sm"
                     title="Edit Task"
                   >
-                    <Edit3 className="w-3.5 h-3.5" />
+                    <Edit3 className="w-3.5 h-3.5 text-cyan-400/80" />
                     <span className="hidden sm:inline">Edit</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteTask(task.id, e)}
-                    className="flex items-center space-x-1 text-xs font-medium px-3 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition cursor-pointer"
-                    title="Delete Task"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Delete</span>
-                  </button>
-                </div>
-
-                {/* FOREGROUND SLIDING CARD */}
-                <div
-                  className={`relative z-10 bg-slate-900/90 sm:bg-slate-900/95 p-4 flex items-center justify-between gap-3 transition-transform duration-200 ease-out select-none ${
-                    isSwiped ? '-translate-x-32 sm:-translate-x-36' : 'translate-x-0'
-                  }`}
-                  onClick={() => {
-                    if (isSwiped) setSwipedTaskId(null);
-                  }}
-                >
-                  {/* LEFT: Checkbox + Title + Description + Badges */}
-                  <div className="flex items-start space-x-3 min-w-0 flex-1">
-                    {/* Checkbox */}
+                  {/* 2. Focus Button */}
+                  {onStartSession && (
                     <button
                       type="button"
-                      onClick={(e) => handleToggleComplete(task, e)}
-                      className={`mt-0.5 w-5 h-5 rounded-lg flex items-center justify-center border transition-all cursor-pointer shrink-0 ${
-                        task.completed
-                          ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/30'
-                          : 'border-slate-700 hover:border-cyan-500/60 bg-slate-800/60 text-transparent'
-                      }`}
-                      title={task.completed ? 'Mark incomplete' : 'Mark complete'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onStartSession(task);
+                      }}
+                      className="flex items-center space-x-1.5 text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50 transition cursor-pointer shadow-sm shadow-emerald-950/20"
+                      title="Focus on this task in a session"
                     >
-                      <Check className={`w-3.5 h-3.5 stroke-[3] ${task.completed ? 'block' : 'hidden'}`} />
+                      <Play className="w-3 h-3 fill-emerald-400 shrink-0" />
+                      <span>Focus</span>
                     </button>
+                  )}
 
-                    {/* Content */}
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                        <h4
-                          className={`text-sm font-semibold transition-colors truncate ${
-                            task.completed
-                              ? 'line-through text-slate-500'
-                              : 'text-white hover:text-cyan-300'
-                          }`}
-                        >
-                          {task.title}
-                        </h4>
-
-                        {/* Category badge */}
-                        <span
-                          className={`text-[10px] font-medium px-2 py-0.5 rounded-md border shrink-0 ${getCategoryBadgeClass(
-                            task.category
-                          )}`}
-                        >
-                          {task.category || 'Other'}
-                        </span>
-
-                        {/* Optional Due Date */}
-                        {dueDateFormatted && (
-                          <span className="inline-flex items-center space-x-1 text-[10px] text-slate-400 font-mono px-2 py-0.5 rounded-md bg-slate-800/80 border border-slate-700/60 shrink-0">
-                            <Clock className="w-2.5 h-2.5 text-cyan-400" />
-                            <span>{dueDateFormatted}</span>
-                          </span>
-                        )}
-                      </div>
-
-                      {task.description && (
-                        <p className={`text-xs truncate max-w-xl ${task.completed ? 'text-slate-600' : 'text-slate-400'}`}>
-                          {task.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* RIGHT: Slide Reveal Handle / Trigger Button */}
-                  <div className="flex items-center space-x-2 shrink-0">
-                    {onStartSession && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onStartSession(task);
-                        }}
-                        className="hidden md:flex items-center space-x-1 text-[10px] font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 transition cursor-pointer"
-                        title="Focus on this task in a session"
-                      >
-                        <Play className="w-3 h-3 fill-emerald-400" />
-                        <span>Focus</span>
-                      </button>
-                    )}
-
-                    {/* Slide Trigger Handle */}
+                  {/* 3. Settings / Options Button */}
+                  <div className="relative">
                     <button
                       type="button"
                       onClick={(e) => handleToggleSlide(task.id, e)}
                       className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
-                        isSwiped
+                        isMenuOpen
                           ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
                           : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/60 text-slate-400 hover:text-white'
                       }`}
-                      title={isSwiped ? 'Hide Actions' : 'Slide to Reveal Edit & Delete'}
+                      title={isMenuOpen ? 'Hide Actions' : 'Task Actions / Options'}
+                      aria-expanded={isMenuOpen}
                     >
                       <SlidersHorizontal className="w-3.5 h-3.5" />
                     </button>
+
+                    {/* Popover Action Menu */}
+                    {isMenuOpen && (
+                      <div className="absolute right-0 top-full mt-1.5 z-30 min-w-[120px] rounded-xl bg-slate-900/95 backdrop-blur-xl border border-slate-800 shadow-2xl p-1 animate-in fade-in zoom-in-95 duration-100">
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteTask(task.id, e)}
+                          className="w-full flex items-center space-x-2 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-2.5 py-1.5 rounded-lg transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
