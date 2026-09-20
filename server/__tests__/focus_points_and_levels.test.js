@@ -8,9 +8,13 @@ import {
 } from '../../src/utils/focusPoints.js';
 import { dbStore } from '../db/store.js';
 import { getPersonalDashboardData } from '../utils/dashboardAnalytics.js';
+import { buildApp } from '../app.js';
+import { pool } from '../db/client.js';
 import crypto from 'crypto';
 
 test('Focus Points & Level System Test Suite', async (t) => {
+  let app;
+
   await t.test('1. Qualifying Activity Classification', () => {
     assert.equal(isQualifyingActivity('STUDY_LIKE'), true);
     assert.equal(isQualifyingActivity('CODING'), true);
@@ -186,4 +190,252 @@ test('Focus Points & Level System Test Suite', async (t) => {
     assert.equal(dashY.focusPoints.total, 0, "User Y has 0 Focus Points");
     assert.notEqual(dashX.focusPoints.total, dashY.focusPoints.total, "User A and User B points are strictly isolated");
   });
+
+  await t.test('8. Three Time Scopes Aggregation (Today, This Week, Lifetime) & Stage Progress', async () => {
+    const userC = await dbStore.createUser({
+      username: `scopes_user_${Date.now()}`,
+      email: `scopes_user_${Date.now()}@example.com`,
+      passwordHash: 'hashed_pass_123',
+    });
+
+    const now = new Date();
+    // 1. Session today: 10 minutes = 10 points
+    const sessToday = await dbStore.createSession({
+      userId: userC.id,
+      selectedActivity: 'Coding',
+      plannedDurationMs: 600000,
+      startedAt: new Date(now.getTime() - 3600000).toISOString(),
+    });
+    await dbStore.saveSegments(sessToday.id, userC.id, [
+      { activityType: 'CODING', startTimeMs: 1000, endTimeMs: 601000, durationMs: 600000, evidenceScore: 0.9 }
+    ]);
+
+    // 2. Session earlier this week (e.g. 1 day ago or at Monday of this week): 20 minutes = 20 points
+    // Let's compute a timestamp that is guaranteed to be in the current week (e.g., now - 1 day, or at least >= Monday)
+    const dayOfWeek = now.getDay(); // 0 is Sun, 1 is Mon
+    const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    // If today is Monday (daysSinceMonday === 0), earlier session can be 2 hours earlier today, else 1 day earlier
+    const earlierMs = daysSinceMonday > 0 ? (now.getTime() - 86400000) : (now.getTime() - 7200000);
+    const sessWeek = await dbStore.createSession({
+      userId: userC.id,
+      selectedActivity: 'Studying',
+      plannedDurationMs: 1200000,
+      startedAt: new Date(earlierMs).toISOString(),
+    });
+    await dbStore.saveSegments(sessWeek.id, userC.id, [
+      { activityType: 'STUDY_LIKE', startTimeMs: 1000, endTimeMs: 1201000, durationMs: 1200000, evidenceScore: 0.9 }
+    ]);
+
+    // 3. Historical session from 30 days ago (Lifetime only): 50 minutes = 50 points
+    const sessPast = await dbStore.createSession({
+      userId: userC.id,
+      selectedActivity: 'Studying',
+      plannedDurationMs: 3000000,
+      startedAt: new Date(now.getTime() - 30 * 86400000).toISOString(),
+    });
+    await dbStore.saveSegments(sessPast.id, userC.id, [
+      { activityType: 'STUDY_LIKE', startTimeMs: 1000, endTimeMs: 3001000, durationMs: 3000000, evidenceScore: 0.9 }
+    ]);
+
+    const dash = await getPersonalDashboardData(userC.id);
+    const fp = dash.focusPoints;
+
+    assert.equal(fp.todayPoints, 10, 'Today points must equal 10');
+    assert.equal(fp.today, 10, 'fp.today legacy field matches todayPoints');
+    assert.equal(fp.lifetimePoints, 80, 'Lifetime points must equal 10 + 20 + 50 = 80');
+    assert.equal(fp.total, 80, 'fp.total legacy field matches lifetimePoints');
+    assert.ok(fp.weekPoints >= 10, 'Weekly points includes today');
+
+    // Stage progression checks
+    assert.equal(fp.currentStage, 'Beginner');
+    assert.equal(fp.currentStagePoints, 80);
+    assert.equal(fp.nextStage, 'Focused');
+    assert.equal(fp.nextStagePoints, 300);
+    assert.equal(fp.pointsToNextStage, 220); // 300 - 80 = 220
+    assert.equal(fp.progressPercent, Math.round((80 / 300) * 100)); // 27%
+    assert.equal(fp.isMaxStage, false);
+  });
+
+  await t.test('9. Stage Progression Across Thresholds & Max Stage Behavior', () => {
+    // Stage 1: Beginner (0 - 299)
+    const b = getFocusLevel(150);
+    assert.equal(b.level, 'Beginner');
+    assert.equal(b.nextLevel, 'Focused');
+    assert.equal(b.pointsToNextLevel, 150);
+    assert.equal(b.isMaxLevel, false);
+
+    // Stage 2: Focused (300 - 549)
+    const f = getFocusLevel(400);
+    assert.equal(f.level, 'Focused');
+    assert.equal(f.pointsInLevel, 100);
+    assert.equal(f.nextLevel, 'Consistent');
+    assert.equal(f.nextLevelMinPoints, 550);
+    assert.equal(f.pointsToNextLevel, 150);
+    assert.equal(f.progressPercent, 40); // 100 / 250 = 40%
+    assert.equal(f.isMaxLevel, false);
+
+    // Stage 3: Consistent (550 - 949)
+    const c = getFocusLevel(650);
+    assert.equal(c.level, 'Consistent');
+    assert.equal(c.pointsInLevel, 100);
+    assert.equal(c.nextLevel, 'Deep Worker');
+    assert.equal(c.nextLevelMinPoints, 950);
+    assert.equal(c.pointsToNextLevel, 300);
+    assert.equal(c.progressPercent, 25); // 100 / 400 = 25%
+    assert.equal(c.isMaxLevel, false);
+
+    // Stage 4: Deep Worker (950 - 1499)
+    const dw = getFocusLevel(1200);
+    assert.equal(dw.level, 'Deep Worker');
+    assert.equal(dw.pointsInLevel, 250);
+    assert.equal(dw.nextLevel, 'Focus Master');
+    assert.equal(dw.nextLevelMinPoints, 1500);
+    assert.equal(dw.pointsToNextLevel, 300);
+    assert.equal(dw.isMaxLevel, false);
+
+    // Stage 5: Focus Master (1500+ -> Max Stage)
+    const fm = getFocusLevel(1800);
+    assert.equal(fm.level, 'Focus Master');
+    assert.equal(fm.pointsToNextLevel, 0);
+    assert.equal(fm.nextLevel, null);
+    assert.equal(fm.nextLevelMinPoints, null);
+    assert.equal(fm.progressPercent, 100);
+    assert.equal(fm.isMaxLevel, true);
+  });
+
+  await t.test('10. Timezone Date Boundary Behavior for Today and Weekly Points', async () => {
+    const userTz = await dbStore.createUser({
+      username: `tz_points_${Date.now()}`,
+      email: `tz_points_${Date.now()}@example.com`,
+      passwordHash: 'hashed_pass_123',
+    });
+
+    // Session started at 2026-09-18T23:30:00Z
+    // In UTC, this is 2026-09-18.
+    // In UTC+5:30 (offset -330), this is 2026-09-19T05:00:00 (Next day!).
+    const sessTz = await dbStore.createSession({
+      userId: userTz.id,
+      selectedActivity: 'Coding',
+      plannedDurationMs: 1800000,
+      startedAt: '2026-09-18T23:30:00.000Z',
+    });
+    await dbStore.saveSegments(sessTz.id, userTz.id, [
+      { activityType: 'CODING', startTimeMs: 1000, endTimeMs: 1801000, durationMs: 1800000, evidenceScore: 0.9 }
+    ]);
+
+    // Query with target date set to 2026-09-19 and offset -330 (IST)
+    const dashTz = await getPersonalDashboardData(userTz.id, {
+      timezoneOffsetMinutes: -330,
+      now: new Date('2026-09-19T10:00:00.000Z'),
+    });
+
+    // The session should be counted as TODAY in IST!
+    assert.equal(dashTz.focusPoints.todayPoints, 30, 'Session counts as today in local IST timezone');
+    assert.equal(dashTz.focusPoints.lifetimePoints, 30);
+  });
+
+  await t.test('11. API Endpoint GET /api/analytics/focus-points authentication & schema', async () => {
+    app = buildApp({ logger: false });
+    await app.ready();
+
+    // 1. Unauthenticated request -> 401
+    const unauthRes = await app.inject({
+      method: 'GET',
+      url: '/api/analytics/focus-points',
+    });
+    assert.equal(unauthRes.statusCode, 401);
+
+    // 2. Authenticated user request -> 200 with complete gamification schema
+    const suffix = Date.now().toString(36);
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        name: 'FP API User',
+        username: `fp_api_${suffix}`,
+        email: `fp_api_${suffix}@example.com`,
+        password: 'Password12345!',
+      },
+    });
+    assert.equal(regRes.statusCode, 201);
+    const cookie = `${regRes.cookies[0].name}=${regRes.cookies[0].value}`;
+    const user = JSON.parse(regRes.payload).user;
+
+    // Create a 15-minute completed session for this user (15 points)
+    const sess = await dbStore.createSession({
+      userId: user.id,
+      selectedActivity: 'Studying',
+      plannedDurationMs: 900000,
+    });
+    await dbStore.saveSegments(sess.id, user.id, [
+      { activityType: 'STUDY_LIKE', startTimeMs: 1000, endTimeMs: 901000, durationMs: 900000, evidenceScore: 0.9 }
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/analytics/focus-points',
+      headers: { cookie },
+    });
+    assert.equal(res.statusCode, 200);
+    const data = JSON.parse(res.payload);
+
+    assert.equal(typeof data.todayPoints, 'number');
+    assert.equal(typeof data.weekPoints, 'number');
+    assert.equal(typeof data.lifetimePoints, 'number');
+    assert.equal(data.lifetimePoints, 15);
+    assert.equal(data.currentStage, 'Beginner');
+    assert.equal(data.currentStagePoints, 15);
+    assert.equal(data.nextStagePoints, 300);
+    assert.equal(data.pointsToNextStage, 285);
+    assert.equal(typeof data.progressPercent, 'number');
+    assert.equal(typeof data.isMaxStage, 'boolean');
+
+    // Also check that GET /api/analytics/dashboard contains the matching focusPoints payload
+    const dashRes = await app.inject({
+      method: 'GET',
+      url: '/api/analytics/dashboard',
+      headers: { cookie },
+    });
+    assert.equal(dashRes.statusCode, 200);
+    const dashData = JSON.parse(dashRes.payload).dashboard;
+    assert.ok(dashData.focusPoints);
+    assert.equal(dashData.focusPoints.todayPoints, data.todayPoints);
+    assert.equal(dashData.focusPoints.lifetimePoints, 15);
+  });
+
+  await t.test('12. User isolation on GET /api/analytics/focus-points', async () => {
+    // Register another user
+    const suffix = (Date.now() + 1).toString(36);
+    const regRes2 = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        name: 'FP User Isolation',
+        username: `fp_iso_${suffix}`,
+        email: `fp_iso_${suffix}@example.com`,
+        password: 'Password12345!',
+      },
+    });
+    assert.equal(regRes2.statusCode, 201);
+    const cookie2 = `${regRes2.cookies[0].name}=${regRes2.cookies[0].value}`;
+
+    // New user with no sessions should have 0 points, completely unaffected by previous user
+    const res2 = await app.inject({
+      method: 'GET',
+      url: '/api/analytics/focus-points',
+      headers: { cookie: cookie2 },
+    });
+    assert.equal(res2.statusCode, 200);
+    const data2 = JSON.parse(res2.payload);
+    assert.equal(data2.lifetimePoints, 0);
+    assert.equal(data2.todayPoints, 0);
+    assert.equal(data2.weekPoints, 0);
+    assert.equal(data2.currentStage, 'Beginner');
+  });
+
+  t.after(async () => {
+    if (app) await app.close();
+    await pool.end();
+  });
 });
+

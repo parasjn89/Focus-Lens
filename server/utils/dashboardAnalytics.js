@@ -2,9 +2,73 @@ import { dbStore } from '../db/store.js';
 import { calculateSessionAnalytics } from './analytics.js';
 import { getFocusLevel, calculateFocusPointsFromDurations } from './focusPoints.js';
 import { formatDurationText } from '../../src/utils/deepWork.js';
+import { getLocalDateString } from './consistencyEngine.js';
+import { getMondayOfWeek } from './weeklyReviewEngine.js';
 
-export async function getPersonalDashboardData(userId) {
-  const now = new Date();
+const CODING_KEYWORDS = [
+  'cod', 'dev', 'program', 'software', 'script', 'hack', 'debug',
+  'frontend', 'front-end', 'backend', 'back-end', 'fullstack', 'full-stack',
+  'python', 'javascript', 'typescript', 'react', 'node', 'html', 'css',
+  'sql', 'golang', 'rust', 'c++', 'c#', 'java', 'kotlin', 'swift', 'php', 'ruby',
+  'git', 'github', 'gitlab', 'api', 'endpoint',
+  'algorithm', 'algo', 'leetcode', 'dsa', 'data structure',
+  'terminal', 'compiler', 'build', 'bug', 'feature', 'repo'
+];
+
+const STUDY_KEYWORDS = [
+  'stud', 'learn', 'lecture', 'read', 'book', 'paper', 'notes',
+  'course', 'class', 'tutorial', 'homework', 'assignment', 'exam',
+  'test', 'revision', 'review', 'research', 'math', 'physics',
+  'history', 'biology', 'science', 'chemistry', 'article', 'doc'
+];
+
+export function getSessionCategory(session) {
+  if (!session) return 'Other';
+
+  if (session.category) {
+    const cat = session.category.toLowerCase().trim();
+    if (cat === 'study') return 'Study';
+    if (cat === 'coding') return 'Coding';
+    if (cat === 'other') return 'Other';
+  }
+
+  const act = (session.selectedActivity || session.activity || session.activityType || '').toLowerCase().trim();
+  const desc = (session.description || session.goalText || session.intention || session.notes || '').toLowerCase().trim();
+  const fullText = `${act} ${desc}`.trim();
+
+  // Test primary activity string first
+  const actIsStudy = STUDY_KEYWORDS.some(kw => act.includes(kw));
+  const actIsCoding = CODING_KEYWORDS.some(kw => act.includes(kw));
+
+  if (actIsStudy && !actIsCoding) return 'Study';
+  if (actIsCoding && !actIsStudy) return 'Coding';
+
+  // Test full text (activity + description + goalText + intention)
+  const isStudy = STUDY_KEYWORDS.some(kw => fullText.includes(kw));
+  const isCoding = CODING_KEYWORDS.some(kw => fullText.includes(kw));
+
+  if (isStudy && !isCoding) return 'Study';
+  if (isCoding && !isStudy) return 'Coding';
+  if (isStudy && isCoding) return actIsCoding ? 'Coding' : 'Study';
+
+  return 'Other';
+}
+
+export function isSessionMatchingCategory(session, category) {
+  if (!category || category === 'ALL' || category === 'All Work') return true;
+  const target = category.toLowerCase().trim();
+  const sessionCat = getSessionCategory(session).toLowerCase().trim();
+  return sessionCat === target;
+}
+
+export async function getPersonalDashboardData(userId, options = {}) {
+  const offsetMinutes = typeof options === 'number' ? options : (options?.timezoneOffsetMinutes ?? null);
+  const now = options?.now ? new Date(options.now) : new Date();
+  const requestedCategory = options?.category && options.category !== 'All Work' ? options.category : 'ALL';
+
+  // Local calendar boundaries using FocusLens date conventions
+  const todayStr = getLocalDateString(now, offsetMinutes);
+  const mondayStr = getMondayOfWeek(now, offsetMinutes);
   
   // Start of today (00:00:00.000)
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
@@ -42,11 +106,18 @@ export async function getPersonalDashboardData(userId) {
     const sessionPoints = stats.focusPoints || 0;
 
     totalFocusPoints += sessionPoints;
+    const sDateStr = getLocalDateString(s.startedAt, offsetMinutes);
     const st = new Date(s.startedAt);
-    if (st >= startOfToday) {
+
+    const isTodaySession = sDateStr ? (sDateStr === todayStr) : (st >= startOfToday);
+    const isThisWeekSession = (sDateStr && mondayStr)
+      ? (sDateStr >= mondayStr && sDateStr <= todayStr)
+      : (st >= sevenDaysAgo);
+
+    if (isTodaySession) {
       todayFocusPoints += sessionPoints;
     }
-    if (st >= sevenDaysAgo) {
+    if (isThisWeekSession) {
       weeklyFocusPoints += sessionPoints;
     }
 
@@ -56,11 +127,11 @@ export async function getPersonalDashboardData(userId) {
       personalBestSessionId = s.id;
     }
 
-    if (st >= startOfToday && longestBlockInSessionSec > todayLongestDeepWorkSec) {
+    if (isTodaySession && longestBlockInSessionSec > todayLongestDeepWorkSec) {
       todayLongestDeepWorkSec = longestBlockInSessionSec;
     }
 
-    if (st >= sevenDaysAgo && longestBlockInSessionSec > weeklyLongestDeepWorkSec) {
+    if (isThisWeekSession && longestBlockInSessionSec > weeklyLongestDeepWorkSec) {
       weeklyLongestDeepWorkSec = longestBlockInSessionSec;
     }
   });
@@ -74,13 +145,37 @@ export async function getPersonalDashboardData(userId) {
   const recentSessions = allUserSessions.slice(0, 10);
 
   // Filter Today Sessions
-  const todaySessions = allUserSessions.filter(s => new Date(s.startedAt) >= startOfToday);
+  const todaySessions = allUserSessions.filter(s => {
+    const sDateStr = getLocalDateString(s.startedAt, offsetMinutes);
+    return sDateStr ? (sDateStr === todayStr) : (new Date(s.startedAt) >= startOfToday);
+  });
 
-  // Filter Weekly Sessions (last 7 days)
-  const weeklySessions = allUserSessions.filter(s => new Date(s.startedAt) >= sevenDaysAgo);
+  // Filter Weekly Sessions
+  const weeklySessions = allUserSessions.filter(s => {
+    const sDateStr = getLocalDateString(s.startedAt, offsetMinutes);
+    return (sDateStr && mondayStr) ? (sDateStr >= mondayStr && sDateStr <= todayStr) : (new Date(s.startedAt) >= sevenDaysAgo);
+  });
 
   // Helper to aggregate session analytics metrics
   function aggregateMetrics(sessionList) {
+    if (!sessionList || sessionList.length === 0) {
+      return {
+        sessionCount: 0,
+        totalActiveSec: 0,
+        totalStudyLikeSec: 0,
+        totalCodingSec: 0,
+        totalPhoneSec: 0,
+        totalAwaySec: 0,
+        totalSpeechSec: 0,
+        totalUnknownSec: 0,
+        avgDurationSec: 0,
+        longestStreakSec: 0,
+        studyPercentage: 0,
+        focusScore: 0,
+        focusPoints: 0,
+      };
+    }
+
     let totalActiveSec = 0;
     let totalStudyLikeSec = 0;
     let totalCodingSec = 0;
@@ -98,22 +193,43 @@ export async function getPersonalDashboardData(userId) {
       const sessionSegs = sessionSegmentMap.get(session.id) || [];
       const stats = calculateSessionAnalytics(session, sessionSegs);
 
-      totalStudyLikeSec += stats.durationsInSeconds.STUDY_LIKE || 0;
-      totalCodingSec += stats.durationsInSeconds.CODING || 0;
+      const hasMeasuredSegments = sessionSegs && sessionSegs.length > 0;
+      let sessionCodingSec = stats.durationsInSeconds.CODING || 0;
+      let sessionStudySec = stats.durationsInSeconds.STUDY_LIKE || 0;
+
+      // If no camera activity segments exist (e.g. camera disabled or offline),
+      // attribute active focus time to the session's intended category so completed
+      // sessions are not penalized with 0% focus scores.
+      if (!hasMeasuredSegments && actualSec > 0) {
+        const cat = getSessionCategory(session);
+        if (cat === 'Coding') {
+          sessionCodingSec = actualSec;
+        } else if (cat === 'Study') {
+          sessionStudySec = actualSec;
+        }
+      }
+
+      totalStudyLikeSec += sessionStudySec;
+      totalCodingSec += sessionCodingSec;
       totalPhoneSec += stats.durationsInSeconds.PHONE_ACTIVITY || 0;
       totalAwaySec += stats.durationsInSeconds.AWAY_OR_NOT_VISIBLE || 0;
       totalSpeechSec += stats.durationsInSeconds.SPEECH_LIKE || 0;
       totalUnknownSec += stats.durationsInSeconds.UNKNOWN || 0;
-      periodFocusPoints += stats.focusPoints || 0;
 
-      if (stats.insights.longestStudyStreakSec > longestStreakSec) {
-        longestStreakSec = stats.insights.longestStudyStreakSec;
+      const sessionPoints = (stats.focusPoints && stats.focusPoints > 0)
+        ? stats.focusPoints
+        : (Number(session.focusPoints) || 0);
+      periodFocusPoints += sessionPoints;
+
+      const sessionLongestStreak = stats.insights?.longestStudyStreakSec || (!hasMeasuredSegments ? actualSec : 0);
+      if (sessionLongestStreak > longestStreakSec) {
+        longestStreakSec = sessionLongestStreak;
       }
     });
 
     const sessionCount = sessionList.length;
     const avgDurationSec = sessionCount > 0 ? Math.round(totalActiveSec / sessionCount) : 0;
-    const studyPercentage = totalActiveSec > 0 ? Math.round(((totalStudyLikeSec + totalCodingSec) / totalActiveSec) * 100) : 0;
+    const studyPercentage = totalActiveSec > 0 ? Math.min(100, Math.round(((totalStudyLikeSec + totalCodingSec) / totalActiveSec) * 100)) : 0;
 
     return {
       sessionCount,
@@ -127,9 +243,40 @@ export async function getPersonalDashboardData(userId) {
       avgDurationSec,
       longestStreakSec,
       studyPercentage,
+      focusScore: studyPercentage,
       focusPoints: periodFocusPoints,
     };
   }
+
+  // Precompute isolated category buckets for Today
+  const todayStudySessions = todaySessions.filter(s => isSessionMatchingCategory(s, 'Study'));
+  const todayCodingSessions = todaySessions.filter(s => isSessionMatchingCategory(s, 'Coding'));
+  const todayOtherSessions = todaySessions.filter(s => isSessionMatchingCategory(s, 'Other'));
+
+  const categories = {
+    ALL: aggregateMetrics(todaySessions),
+    Study: aggregateMetrics(todayStudySessions),
+    Coding: aggregateMetrics(todayCodingSessions),
+    Other: aggregateMetrics(todayOtherSessions),
+  };
+
+  // Normalize requested category case
+  let canonicalRequestedCategory = 'ALL';
+  if (requestedCategory && requestedCategory !== 'ALL' && requestedCategory !== 'All Work') {
+    const lower = requestedCategory.toLowerCase().trim();
+    if (lower === 'study') canonicalRequestedCategory = 'Study';
+    else if (lower === 'coding') canonicalRequestedCategory = 'Coding';
+    else if (lower === 'other') canonicalRequestedCategory = 'Other';
+  }
+
+  const activeToday = canonicalRequestedCategory !== 'ALL'
+    ? (categories[canonicalRequestedCategory] || aggregateMetrics([]))
+    : categories.ALL;
+
+  // Filter Weekly Sessions by requestedCategory if specified
+  const filteredWeeklySessions = requestedCategory !== 'ALL'
+    ? weeklySessions.filter(s => isSessionMatchingCategory(s, requestedCategory))
+    : weeklySessions;
 
   // Calculate 7-day breakdown for Weekly Chart
   const weeklyDays = [];
@@ -140,7 +287,7 @@ export async function getPersonalDashboardData(userId) {
     const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
     const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 
-    const daySessions = weeklySessions.filter(s => {
+    const daySessions = filteredWeeklySessions.filter(s => {
       const st = new Date(s.startedAt);
       return st >= dayStart && st <= dayEnd;
     });
@@ -168,6 +315,17 @@ export async function getPersonalDashboardData(userId) {
       total: totalFocusPoints,
       today: todayFocusPoints,
       weekly: weeklyFocusPoints,
+      todayPoints: todayFocusPoints,
+      weekPoints: weeklyFocusPoints,
+      lifetime: totalFocusPoints,
+      lifetimePoints: totalFocusPoints,
+      currentStage: levelInfo.level,
+      currentStagePoints: levelInfo.pointsInLevel,
+      nextStage: levelInfo.nextLevel,
+      nextStagePoints: levelInfo.nextLevelMinPoints,
+      pointsToNextStage: levelInfo.pointsToNextLevel,
+      progressPercent: levelInfo.progressPercent,
+      isMaxStage: levelInfo.isMaxLevel,
       levelInfo,
     },
     deepWork: {
@@ -184,9 +342,11 @@ export async function getPersonalDashboardData(userId) {
       goalsCompleted: goalsCompletedCount,
       completionRate: goalCompletionRate,
     },
-    today: aggregateMetrics(todaySessions),
+    selectedCategory: requestedCategory,
+    categories,
+    today: activeToday,
     weekly: {
-      metrics: aggregateMetrics(weeklySessions),
+      metrics: aggregateMetrics(filteredWeeklySessions),
       days: weeklyDays,
     },
     monthly: {

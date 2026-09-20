@@ -117,8 +117,8 @@ test('FocusLens Consistency & Streaks Test Suite', async (t) => {
   await t.test('5. Multiple sessions on the same calendar day count as 1 focus day', () => {
     const now = new Date();
     const sessions = [
-      { id: 's1', status: 'COMPLETED', startedAt: new Date(now.getTime() - 3600000 * 5).toISOString() },
-      { id: 's2', status: 'COMPLETED', startedAt: new Date(now.getTime() - 3600000 * 3).toISOString() },
+      { id: 's1', status: 'COMPLETED', startedAt: new Date(now.getTime() - 60000 * 20).toISOString() },
+      { id: 's2', status: 'COMPLETED', startedAt: new Date(now.getTime() - 60000 * 10).toISOString() },
       { id: 's3', status: 'COMPLETED', startedAt: now.toISOString() },
     ];
     const segmentMap = new Map();
