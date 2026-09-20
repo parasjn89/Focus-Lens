@@ -14,6 +14,8 @@ import { journalRoutes } from './routes/journalRoutes.js';
 import { calendarRoutes } from './routes/calendarRoutes.js';
 import { googleCalendarRoutes } from './routes/googleCalendarRoutes.js';
 import { taskRoutes } from './routes/taskRoutes.js';
+import { buddyRoutes } from './routes/buddyRoutes.js';
+import { messageRoutes } from './routes/messageRoutes.js';
 import { dbStore } from './db/store.js';
 
 export function buildApp(options = {}) {
@@ -79,6 +81,8 @@ export function buildApp(options = {}) {
   app.register(calendarRoutes);
   app.register(googleCalendarRoutes);
   app.register(taskRoutes);
+  app.register(buddyRoutes);
+  app.register(messageRoutes);
 
   // Global Error Handler
   app.setErrorHandler((error, request, reply) => {

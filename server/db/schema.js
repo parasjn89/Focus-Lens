@@ -185,4 +185,82 @@ export const googleCalendarConnectionsRelations = relations(googleCalendarConnec
   }),
 }));
 
+// Focus Buddies table (Accountability Buddy Requests & Connections)
+export const focusBuddies = pgTable('focus_buddies', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  senderUserId: uuid('sender_user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  receiverUserId: uuid('receiver_user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  status: text('status').default('PENDING').notNull(), // 'PENDING' | 'ACCEPTED' | 'DECLINED'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  idxBuddiesPair: index('idx_buddies_pair').on(table.senderUserId, table.receiverUserId),
+  idxBuddiesReceiverStatus: index('idx_buddies_receiver_status').on(table.receiverUserId, table.status),
+}));
+
+// Conversations table (1-to-1 Focus Buddy Chat Channels)
+export const conversations = pgTable('conversations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  user1Id: uuid('user1_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  user2Id: uuid('user2_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  lastMessageContent: text('last_message_content'),
+  lastMessageAt: timestamp('last_message_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  idxConversationsPair: index('idx_conversations_pair').on(table.user1Id, table.user2Id),
+  idxConversationsUser1: index('idx_conversations_user1').on(table.user1Id),
+  idxConversationsUser2: index('idx_conversations_user2').on(table.user2Id),
+}));
+
+// Messages table
+export const messages = pgTable('messages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  conversationId: uuid('conversation_id').references(() => conversations.id, { onDelete: 'cascade' }).notNull(),
+  senderUserId: uuid('sender_user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  content: text('content').notNull(),
+  messageType: text('message_type').default('TEXT').notNull(), // 'TEXT' | 'ACTIVITY'
+  activityMetadata: jsonb('activity_metadata').default({}),
+  readAt: timestamp('read_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  idxMessagesConvCreated: index('idx_messages_conv_created').on(table.conversationId, table.createdAt),
+  idxMessagesSender: index('idx_messages_sender').on(table.senderUserId),
+}));
+
+export const focusBuddiesRelations = relations(focusBuddies, ({ one }) => ({
+  sender: one(users, {
+    fields: [focusBuddies.senderUserId],
+    references: [users.id],
+  }),
+  receiver: one(users, {
+    fields: [focusBuddies.receiverUserId],
+    references: [users.id],
+  }),
+}));
+
+export const conversationsRelations = relations(conversations, ({ one, many }) => ({
+  user1: one(users, {
+    fields: [conversations.user1Id],
+    references: [users.id],
+  }),
+  user2: one(users, {
+    fields: [conversations.user2Id],
+    references: [users.id],
+  }),
+  messages: many(messages),
+}));
+
+export const messagesRelations = relations(messages, ({ one }) => ({
+  conversation: one(conversations, {
+    fields: [messages.conversationId],
+    references: [conversations.id],
+  }),
+  sender: one(users, {
+    fields: [messages.senderUserId],
+    references: [users.id],
+  }),
+}));
+
+
 

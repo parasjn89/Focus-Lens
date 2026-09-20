@@ -1,6 +1,6 @@
-import { eq, desc, gte, lte, and } from 'drizzle-orm';
+import { eq, desc, gte, lte, and, or, isNull } from 'drizzle-orm';
 import { db, checkDbConnection } from './client.js';
-import { users, sessions, activitySegments, passwordResets, weeklyReviewNotes, googleCalendarConnections, tasks } from './schema.js';
+import { users, sessions, activitySegments, passwordResets, weeklyReviewNotes, googleCalendarConnections, tasks, focusBuddies, conversations, messages } from './schema.js';
 import crypto from 'crypto';
 
 // In-Memory Fallback Stores (used if PostgreSQL service is offline)
@@ -11,6 +11,9 @@ const memoryPasswordResets = new Map();
 const memoryWeeklyNotes = new Map();
 const memoryGoogleCalendarConnections = new Map();
 const memoryTasks = new Map();
+const memoryBuddies = new Map();
+const memoryConversations = new Map();
+const memoryMessages = new Map();
 
 export const dbStore = {
   // USER OPERATIONS
@@ -696,7 +699,7 @@ export const dbStore = {
         plannedDurationMs,
         actualDurationMs: actualDurationMs ?? 0,
         startedAt: sessionStartDate,
-        lastHeartbeatAt: sessionStartDate,
+        lastHeartbeatAt: new Date(),
         endedAt: endedAt ? new Date(endedAt) : null,
         status: status || 'ACTIVE',
         focusPoints: focusPoints ?? 0,
@@ -734,7 +737,7 @@ export const dbStore = {
       gotInTheWay: null,
       notes: null,
       startedAt: sessionStartDate,
-      lastHeartbeatAt: sessionStartDate,
+      lastHeartbeatAt: new Date(),
       endedAt: endedAt ? new Date(endedAt) : null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -1378,6 +1381,462 @@ export const dbStore = {
 
     memoryTasks.delete(id);
     return true;
+  },
+
+  // ==========================================
+  // FOCUS BUDDY & MESSAGING OPERATIONS
+  // ==========================================
+
+  async getUserByUsernameOrEmail(identifier) {
+    if (!identifier) return null;
+    const clean = identifier.toLowerCase().trim().replace(/^@/, '');
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      const rows = await db.select().from(users).where(
+        or(
+          eq(users.username, clean),
+          eq(users.email, clean)
+        )
+      ).limit(1);
+      return rows[0] || null;
+    }
+
+    for (const u of memoryUsers.values()) {
+      if ((u.username && u.username.toLowerCase() === clean) ||
+          (u.email && u.email.toLowerCase() === clean)) {
+        return u;
+      }
+    }
+    return null;
+  },
+
+  async sendBuddyRequest(senderUserId, receiverUserId) {
+    if (senderUserId === receiverUserId) {
+      const err = new Error('You cannot add yourself as a Focus Buddy');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const isConnected = await checkDbConnection();
+    const existing = await this.getBuddyRelationship(senderUserId, receiverUserId);
+    if (existing) {
+      if (existing.status === 'ACCEPTED') {
+        const err = new Error('Already connected as Focus Buddies');
+        err.statusCode = 400;
+        throw err;
+      }
+      if (existing.status === 'PENDING') {
+        if (existing.senderUserId === senderUserId) {
+          const err = new Error('Buddy request already pending');
+          err.statusCode = 400;
+          throw err;
+        } else {
+          // The other user already requested us -> auto-accept
+          return this.respondToBuddyRequest(existing.id, senderUserId, 'ACCEPT');
+        }
+      }
+    }
+
+    const now = new Date();
+    const record = {
+      id: crypto.randomUUID(),
+      senderUserId,
+      receiverUserId,
+      status: 'PENDING',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    if (isConnected) {
+      const [inserted] = await db.insert(focusBuddies).values(record).returning();
+      return inserted;
+    }
+
+    memoryBuddies.set(record.id, record);
+    return record;
+  },
+
+  async getBuddyRelationship(userAId, userBId) {
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      const rows = await db.select().from(focusBuddies).where(
+        or(
+          and(eq(focusBuddies.senderUserId, userAId), eq(focusBuddies.receiverUserId, userBId)),
+          and(eq(focusBuddies.senderUserId, userBId), eq(focusBuddies.receiverUserId, userAId))
+        )
+      ).limit(1);
+      return rows[0] || null;
+    }
+
+    for (const b of memoryBuddies.values()) {
+      if ((b.senderUserId === userAId && b.receiverUserId === userBId) ||
+          (b.senderUserId === userBId && b.receiverUserId === userAId)) {
+        return b;
+      }
+    }
+    return null;
+  },
+
+  async getPendingBuddyRequests(userId) {
+    const isConnected = await checkDbConnection();
+    let requests = [];
+
+    if (isConnected) {
+      requests = await db.select().from(focusBuddies)
+        .where(and(eq(focusBuddies.receiverUserId, userId), eq(focusBuddies.status, 'PENDING')))
+        .orderBy(desc(focusBuddies.createdAt));
+    } else {
+      requests = Array.from(memoryBuddies.values())
+        .filter(b => b.receiverUserId === userId && b.status === 'PENDING')
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    }
+
+    // Populate sender information
+    const populated = [];
+    for (const req of requests) {
+      const sender = await this.getUserById(req.senderUserId);
+      if (sender) {
+        populated.push({
+          id: req.id,
+          senderId: sender.id,
+          senderName: sender.name || sender.username || 'Focus Buddy',
+          senderUsername: sender.username || 'user',
+          senderAvatarUrl: sender.avatarUrl || null,
+          createdAt: req.createdAt,
+        });
+      }
+    }
+    return populated;
+  },
+
+  async getAcceptedBuddies(userId) {
+    const isConnected = await checkDbConnection();
+    let records = [];
+
+    if (isConnected) {
+      records = await db.select().from(focusBuddies).where(
+        and(
+          eq(focusBuddies.status, 'ACCEPTED'),
+          or(eq(focusBuddies.senderUserId, userId), eq(focusBuddies.receiverUserId, userId))
+        )
+      );
+    } else {
+      records = Array.from(memoryBuddies.values()).filter(
+        b => b.status === 'ACCEPTED' && (b.senderUserId === userId || b.receiverUserId === userId)
+      );
+    }
+
+    const buddies = [];
+    for (const r of records) {
+      const buddyId = r.senderUserId === userId ? r.receiverUserId : r.senderUserId;
+      const u = await this.getUserById(buddyId);
+      if (u) {
+        buddies.push({
+          id: r.id,
+          userId: u.id,
+          name: u.name || u.username || 'Focus Buddy',
+          username: u.username || 'user',
+          avatarUrl: u.avatarUrl || null,
+          connectedAt: r.updatedAt || r.createdAt,
+        });
+      }
+    }
+    return buddies;
+  },
+
+  async respondToBuddyRequest(requestId, receiverUserId, action) {
+    const isConnected = await checkDbConnection();
+    let record = null;
+
+    if (isConnected) {
+      const rows = await db.select().from(focusBuddies).where(eq(focusBuddies.id, requestId)).limit(1);
+      record = rows[0] || null;
+    } else {
+      record = memoryBuddies.get(requestId) || null;
+    }
+
+    if (!record || record.receiverUserId !== receiverUserId) {
+      const err = new Error('Buddy request not found or unauthorized');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const now = new Date();
+    const newStatus = action === 'ACCEPT' ? 'ACCEPTED' : 'DECLINED';
+
+    if (isConnected) {
+      const [updated] = await db.update(focusBuddies)
+        .set({ status: newStatus, updatedAt: now })
+        .where(eq(focusBuddies.id, requestId))
+        .returning();
+      if (newStatus === 'ACCEPTED') {
+        await this.getOrCreateConversation(record.senderUserId, record.receiverUserId);
+      }
+      return updated;
+    }
+
+    record.status = newStatus;
+    record.updatedAt = now;
+    memoryBuddies.set(requestId, record);
+
+    if (newStatus === 'ACCEPTED') {
+      await this.getOrCreateConversation(record.senderUserId, record.receiverUserId);
+    }
+    return record;
+  },
+
+  async removeBuddy(userAId, userBId) {
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      await db.delete(focusBuddies).where(
+        or(
+          and(eq(focusBuddies.senderUserId, userAId), eq(focusBuddies.receiverUserId, userBId)),
+          and(eq(focusBuddies.senderUserId, userBId), eq(focusBuddies.receiverUserId, userAId))
+        )
+      );
+      return true;
+    }
+
+    for (const [id, b] of memoryBuddies.entries()) {
+      if ((b.senderUserId === userAId && b.receiverUserId === userBId) ||
+          (b.senderUserId === userBId && b.receiverUserId === userAId)) {
+        memoryBuddies.delete(id);
+      }
+    }
+    return true;
+  },
+
+  // CONVERSATION OPERATIONS
+
+  async getOrCreateConversation(userAId, userBId) {
+    const [user1Id, user2Id] = [userAId, userBId].sort();
+    const isConnected = await checkDbConnection();
+
+    if (isConnected) {
+      const rows = await db.select().from(conversations).where(
+        and(eq(conversations.user1Id, user1Id), eq(conversations.user2Id, user2Id))
+      ).limit(1);
+      if (rows[0]) return rows[0];
+
+      const now = new Date();
+      const [created] = await db.insert(conversations).values({
+        id: crypto.randomUUID(),
+        user1Id,
+        user2Id,
+        createdAt: now,
+        updatedAt: now,
+      }).returning();
+      return created;
+    }
+
+    for (const c of memoryConversations.values()) {
+      if (c.user1Id === user1Id && c.user2Id === user2Id) {
+        return c;
+      }
+    }
+
+    const now = new Date();
+    const created = {
+      id: crypto.randomUUID(),
+      user1Id,
+      user2Id,
+      lastMessageContent: null,
+      lastMessageAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    memoryConversations.set(created.id, created);
+    return created;
+  },
+
+  async getConversationsForUser(userId) {
+    const isConnected = await checkDbConnection();
+    let convList = [];
+
+    if (isConnected) {
+      convList = await db.select().from(conversations).where(
+        or(eq(conversations.user1Id, userId), eq(conversations.user2Id, userId))
+      );
+    } else {
+      convList = Array.from(memoryConversations.values()).filter(
+        c => c.user1Id === userId || c.user2Id === userId
+      );
+    }
+
+    const result = [];
+    for (const conv of convList) {
+      const buddyId = conv.user1Id === userId ? conv.user2Id : conv.user1Id;
+      const buddy = await this.getUserById(buddyId);
+      if (!buddy) continue;
+
+      // Count unread messages
+      let unreadCount = 0;
+      if (isConnected) {
+        const unreadRows = await db.select().from(messages).where(
+          and(
+            eq(messages.conversationId, conv.id),
+            eq(messages.senderUserId, buddyId),
+            isNull(messages.readAt)
+          )
+        );
+        unreadCount = unreadRows.length;
+      } else {
+        unreadCount = Array.from(memoryMessages.values()).filter(
+          m => m.conversationId === conv.id && m.senderUserId === buddyId && !m.readAt
+        ).length;
+      }
+
+      result.push({
+        id: conv.id,
+        buddy: {
+          id: buddy.id,
+          name: buddy.name || buddy.username || 'Focus Buddy',
+          username: buddy.username || 'user',
+          avatarUrl: buddy.avatarUrl || null,
+        },
+        lastMessageContent: conv.lastMessageContent || null,
+        lastMessageAt: conv.lastMessageAt || conv.createdAt,
+        unreadCount,
+      });
+    }
+
+    result.sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
+    return result;
+  },
+
+  async getConversationById(conversationId, userId) {
+    const isConnected = await checkDbConnection();
+    let conv = null;
+
+    if (isConnected) {
+      const rows = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+      conv = rows[0] || null;
+    } else {
+      conv = memoryConversations.get(conversationId) || null;
+    }
+
+    if (!conv) return null;
+    // Strict IDOR Check: user must be user1 or user2
+    if (conv.user1Id !== userId && conv.user2Id !== userId) {
+      const err = new Error('Access denied: You are not a participant in this conversation');
+      err.statusCode = 403;
+      throw err;
+    }
+
+    const buddyId = conv.user1Id === userId ? conv.user2Id : conv.user1Id;
+    const buddy = await this.getUserById(buddyId);
+
+    return {
+      ...conv,
+      buddy: buddy ? {
+        id: buddy.id,
+        name: buddy.name || buddy.username || 'Focus Buddy',
+        username: buddy.username || 'user',
+        avatarUrl: buddy.avatarUrl || null,
+      } : null,
+    };
+  },
+
+  async getMessagesForConversation(conversationId, userId, limit = 100) {
+    // Check membership authorization first
+    await this.getConversationById(conversationId, userId);
+
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      const rows = await db.select().from(messages)
+        .where(eq(messages.conversationId, conversationId))
+        .orderBy(messages.createdAt)
+        .limit(limit);
+      return rows;
+    }
+
+    return Array.from(memoryMessages.values())
+      .filter(m => m.conversationId === conversationId)
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+      .slice(-limit);
+  },
+
+  async createMessage({ conversationId, senderUserId, content, messageType = 'TEXT', activityMetadata = {} }) {
+    // Validate authorization
+    await this.getConversationById(conversationId, senderUserId);
+
+    if (!content || typeof content !== 'string' || !content.trim()) {
+      const err = new Error('Message content cannot be empty');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const trimmed = content.trim();
+    if (trimmed.length > 1000) {
+      const err = new Error('Message exceeds maximum length of 1000 characters');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const now = new Date();
+    const msgRecord = {
+      id: crypto.randomUUID(),
+      conversationId,
+      senderUserId,
+      content: trimmed,
+      messageType,
+      activityMetadata: activityMetadata || {},
+      readAt: null,
+      createdAt: now,
+    };
+
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      const [inserted] = await db.insert(messages).values(msgRecord).returning();
+      await db.update(conversations)
+        .set({
+          lastMessageContent: trimmed.substring(0, 100),
+          lastMessageAt: now,
+          updatedAt: now,
+        })
+        .where(eq(conversations.id, conversationId));
+      return inserted;
+    }
+
+    memoryMessages.set(msgRecord.id, msgRecord);
+    const conv = memoryConversations.get(conversationId);
+    if (conv) {
+      conv.lastMessageContent = trimmed.substring(0, 100);
+      conv.lastMessageAt = now;
+      conv.updatedAt = now;
+    }
+    return msgRecord;
+  },
+
+  async markConversationAsRead(conversationId, userId) {
+    await this.getConversationById(conversationId, userId);
+
+    const isConnected = await checkDbConnection();
+    const now = new Date();
+
+    if (isConnected) {
+      await db.update(messages)
+        .set({ readAt: now })
+        .where(
+          and(
+            eq(messages.conversationId, conversationId),
+            isNull(messages.readAt)
+          )
+        );
+      return { success: true };
+    }
+
+    for (const m of memoryMessages.values()) {
+      if (m.conversationId === conversationId && m.senderUserId !== userId && !m.readAt) {
+        m.readAt = now;
+      }
+    }
+    return { success: true };
+  },
+
+  async getUnreadMessagesCount(userId) {
+    const conversations = await this.getConversationsForUser(userId);
+    return conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
   },
 };
 
