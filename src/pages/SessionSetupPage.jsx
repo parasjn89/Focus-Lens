@@ -3,6 +3,7 @@ import {
   BookOpen, Code2, BookMarked, Video, Edit3, Clock, Play, ShieldAlert,
   Camera, Monitor, Check, X, AlertCircle, Loader2, ArrowRight, CornerDownRight
 } from 'lucide-react';
+import { getUserSettings } from '../utils/userSettings';
 
 // Authoritative Terminal State Check Helpers
 export const isTerminalCamera = (status) => ['ALLOWED', 'DENIED', 'UNAVAILABLE', 'ERROR'].includes(status);
@@ -13,9 +14,12 @@ export const isPermissionsComplete = (statuses) =>
   isTerminalScreen(statuses?.screen);
 
 export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
+  const userSettings = getUserSettings();
   const [selectedActivity, setSelectedActivity] = useState(initialConfig?.activity || 'Studying');
   const [customActivity, setCustomActivity] = useState('');
-  const [durationMinutes, setDurationMinutes] = useState(initialConfig?.durationMinutes || 25);
+  const [durationMinutes, setDurationMinutes] = useState(
+    initialConfig?.durationMinutes || userSettings?.defaultDuration || 25
+  );
   const [customDuration, setCustomDuration] = useState('');
   const [isCustomDurationSelected, setIsCustomDurationSelected] = useState(false);
 
@@ -52,7 +56,7 @@ export function SessionSetupPage({ onStartSession, onCancel, initialConfig }) {
     { id: 'Custom', label: 'Custom', icon: Edit3, desc: 'Specify custom target activity' },
   ];
 
-  const durationPresets = [25, 50, 90, 120];
+  const durationPresets = [15, 25, 45, 60, 90];
 
   const stopAcquiredStreams = () => {
     if (streamsRef.current.cameraStream) {
