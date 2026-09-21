@@ -50,8 +50,8 @@ export function AIMonitoringCard({
   // Format person text display
   const getPersonDisplayText = () => {
     if (!isCameraActive) return 'Camera Off';
-    if (personState === PERSON_STATES.NO_PERSON) return 'No person';
-    if (personState === PERSON_STATES.ONE_PERSON) return '1 person';
+    if (personCount === 0 || personState === PERSON_STATES.NO_PERSON) return 'No person';
+    if (personCount === 1 || personState === PERSON_STATES.ONE_PERSON) return '1 person';
     return `Multiple people (${personCount})`;
   };
 
@@ -248,9 +248,9 @@ export function AIMonitoringCard({
               <span className="font-medium text-slate-500">Camera Off</span>
             ) : (
               <span className={`inline-flex items-center font-semibold ${
-                personState === PERSON_STATES.MULTIPLE_PEOPLE 
+                (personState === PERSON_STATES.MULTIPLE_PEOPLE && personCount > 1)
                   ? 'text-amber-400' 
-                  : personState === PERSON_STATES.ONE_PERSON 
+                  : (personState === PERSON_STATES.ONE_PERSON || personCount === 1)
                     ? 'text-emerald-400' 
                     : 'text-slate-400'
               }`}>

@@ -101,12 +101,44 @@ function getMonotonicTimestamp() {
 }
 
 /**
+ * Detects if a given video element is rendering a screen-share stream.
+ * Physical camera object detection must never run on screen-share frames.
+ */
+export function isScreenShareVideo(videoElement) {
+  if (!videoElement) return false;
+  try {
+    const stream = videoElement.srcObject;
+    if (stream && typeof stream.getVideoTracks === 'function') {
+      const tracks = stream.getVideoTracks();
+      for (const track of tracks) {
+        const settings = track.getSettings ? track.getSettings() : {};
+        if (settings.displaySurface) {
+          return true;
+        }
+        const label = (track.label || '').toLowerCase();
+        if (label.includes('screen') || label.includes('display') || label.includes('window') || label.includes('monitor')) {
+          return true;
+        }
+      }
+    }
+  } catch (e) {
+    // Non-fatal fallback
+  }
+  return false;
+}
+
+/**
  * Executes local object detection on an HTMLVideoElement frame.
  */
 export async function detectObjectsInVideo(videoElement) {
   const timestamp = Date.now();
 
   if (!videoElement || videoElement.readyState < 2 || videoElement.videoWidth === 0 || videoElement.videoHeight === 0 || videoElement.paused || videoElement.ended) {
+    return [];
+  }
+
+  if (isScreenShareVideo(videoElement)) {
+    console.warn('[ObjectDetector] Discarded inference call on screen-share stream. Object detection runs only on webcam streams.');
     return [];
   }
 

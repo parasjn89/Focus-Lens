@@ -62,38 +62,68 @@ export function calculateBoxContainment(boxA, boxB) {
 }
 
 /**
+ * Calculates 1D linear intersection length between two segments [startA, endA] and [startB, endB].
+ */
+export function calculate1DOverlap(startA, endA, startB, endB) {
+  return Math.max(0, Math.min(endA, endB) - Math.max(startA, startB));
+}
+
+/**
+ * Checks whether a 2D point (px, py) lies within a bounding box.
+ */
+export function isPointInsideBox(px, py, box) {
+  if (!box) return false;
+  const bx = Number(box.x) || 0;
+  const by = Number(box.y) || 0;
+  const bw = Number(box.width) || 0;
+  const bh = Number(box.height) || 0;
+  return px >= bx && px <= bx + bw && py >= by && py <= by + bh;
+}
+
+/**
  * Deduplicates overlapping person detections for the same physical person
  * and filters out low-confidence background false positives.
  * 
+ * Handles:
+ * 1. Standard 2D Intersection-over-Union (IoU) overlap
+ * 2. Containment (smaller box inside larger box, e.g. head/chest inside body)
+ * 3. Centroid containment (center point of candidate inside accepted box or vice-versa)
+ * 4. Anatomical vertical column alignment (overlapping horizontal column with vertical overlap or contiguous gap)
+ * 5. Two-tier confidence threshold (allows solitary person at 0.35, but rejects secondary ghost detections < 0.45)
+ * 
  * @param {Array<Object>} personCandidates Raw candidate person detections
  * @param {Object} options Threshold options
- * @param {number} [options.minConfidence=0.35] Minimum confidence for physical person
- * @param {number} [options.maxOverlapIoU=0.35] IoU threshold above which boxes belong to same person
- * @param {number} [options.maxContainment=0.50] Containment threshold above which smaller box is part of same person
+ * @param {number} [options.minConfidence=0.45] Minimum confidence required for secondary/additional physical person
+ * @param {number} [options.minPrimaryConfidence=0.35] Minimum confidence for primary/solitary person
+ * @param {number} [options.maxOverlapIoU=0.25] IoU threshold above which boxes belong to same person
+ * @param {number} [options.maxContainment=0.35] Containment threshold above which smaller box is part of same person
+ * @param {number} [options.maxHorizontalOverlap=0.45] Horizontal overlap ratio threshold for column alignment
  * @returns {{ uniqueDetections: Array<Object>, duplicateDetections: Array<Object> }}
  */
 export function deduplicatePersonDetections(personCandidates = [], options = {}) {
   const {
-    minConfidence = 0.35,
-    maxOverlapIoU = 0.35,
-    maxContainment = 0.50,
+    minConfidence = 0.45,
+    minPrimaryConfidence = 0.35,
+    maxOverlapIoU = 0.25,
+    maxContainment = 0.35,
+    maxHorizontalOverlap = 0.45,
   } = options;
 
   if (!Array.isArray(personCandidates) || personCandidates.length === 0) {
     return { uniqueDetections: [], duplicateDetections: [] };
   }
 
-  // Filter out low-confidence noise when score is explicitly provided
+  // Filter out extreme low-confidence noise when score is explicitly provided
   const validCandidates = personCandidates.filter((cand) => {
     if (!cand) return false;
-    if (typeof cand.confidence === 'number' && cand.confidence < minConfidence) {
+    if (typeof cand.confidence === 'number' && cand.confidence < minPrimaryConfidence) {
       return false;
     }
     return true;
   });
 
-  if (validCandidates.length <= 1) {
-    return { uniqueDetections: validCandidates, duplicateDetections: [] };
+  if (validCandidates.length === 0) {
+    return { uniqueDetections: [], duplicateDetections: [] };
   }
 
   // Sort by confidence descending so strongest anchor represents the person
@@ -124,13 +154,67 @@ export function deduplicatePersonDetections(personCandidates = [], options = {})
       const accArea = calculateBoxArea(accBox);
       if (!accBox || accArea <= 0) continue;
 
+      // Condition 1: 2D IoU overlap
       const iou = calculateBoxIoU(candBox, accBox);
-      const containment = calculateBoxContainment(candBox, accBox);
-
-      if (iou >= maxOverlapIoU || containment >= maxContainment) {
+      if (iou >= maxOverlapIoU) {
         isDuplicate = true;
         matchedAcceptedIndex = i;
         break;
+      }
+
+      // Condition 2: 2D Containment ratio (IoS)
+      const containment = calculateBoxContainment(candBox, accBox);
+      if (containment >= maxContainment) {
+        isDuplicate = true;
+        matchedAcceptedIndex = i;
+        break;
+      }
+
+      // Condition 3: Centroid containment (center of candidate box is inside accepted box or vice-versa)
+      const candCenterX = candBox.x + candBox.width / 2;
+      const candCenterY = candBox.y + candBox.height / 2;
+      const accCenterX = accBox.x + accBox.width / 2;
+      const accCenterY = accBox.y + accBox.height / 2;
+
+      if (isPointInsideBox(candCenterX, candCenterY, accBox) || isPointInsideBox(accCenterX, accCenterY, candBox)) {
+        isDuplicate = true;
+        matchedAcceptedIndex = i;
+        break;
+      }
+
+      // Condition 4: Anatomical vertical column alignment (head/torso/chest stacking)
+      const interX = calculate1DOverlap(
+        candBox.x,
+        candBox.x + candBox.width,
+        accBox.x,
+        accBox.x + accBox.width
+      );
+      const minW = Math.min(candBox.width, accBox.width);
+      const horizontalOverlap = minW > 0 ? interX / minW : 0;
+
+      if (horizontalOverlap >= maxHorizontalOverlap) {
+        const interY = calculate1DOverlap(
+          candBox.y,
+          candBox.y + candBox.height,
+          accBox.y,
+          accBox.y + accBox.height
+        );
+        const minH = Math.min(candBox.height, accBox.height);
+
+        // Subcase 4a: Overlapping vertical span along same horizontal column
+        if (interY > 0) {
+          isDuplicate = true;
+          matchedAcceptedIndex = i;
+          break;
+        }
+
+        // Subcase 4b: Vertically contiguous/adjacent with small gap (<= 20% min height)
+        const gapY = Math.max(candBox.y, accBox.y) - Math.min(candBox.y + candBox.height, accBox.y + accBox.height);
+        if (gapY <= 0.20 * minH) {
+          isDuplicate = true;
+          matchedAcceptedIndex = i;
+          break;
+        }
       }
     }
 
@@ -157,7 +241,20 @@ export function deduplicatePersonDetections(personCandidates = [], options = {})
         duplicateOf: accepted,
       });
     } else {
-      uniqueDetections.push({ ...candidate });
+      // Not a duplicate of existing accepted person
+      if (uniqueDetections.length === 0) {
+        // Solitary/primary candidate accepted (meets minPrimaryConfidence)
+        uniqueDetections.push({ ...candidate });
+      } else if ((candidate.confidence || 0) >= minConfidence) {
+        // Secondary distinct physical person candidate requires higher confidence (>= minConfidence)
+        uniqueDetections.push({ ...candidate });
+      } else {
+        // Discard low-confidence background clutter/false positive
+        duplicateDetections.push({
+          ...candidate,
+          isLowConfidenceNoise: true,
+        });
+      }
     }
   }
 
@@ -271,9 +368,11 @@ export function filterObjectsAndClassifyScreenPeople(detectedObjects = [], optio
   const { uniqueDetections: realPersonDetections, duplicateDetections: duplicatePersonDetections } = deduplicatePersonDetections(
     rawRealCandidates,
     {
-      minConfidence: options.minPersonConfidence ?? 0.35,
-      maxOverlapIoU: options.maxOverlapIoU ?? 0.35,
-      maxContainment: options.maxContainment ?? 0.50,
+      minConfidence: options.minPersonConfidence ?? 0.45,
+      minPrimaryConfidence: options.minPrimaryConfidence ?? 0.35,
+      maxOverlapIoU: options.maxOverlapIoU ?? 0.25,
+      maxContainment: options.maxContainment ?? 0.35,
+      maxHorizontalOverlap: options.maxHorizontalOverlap ?? 0.45,
     }
   );
 

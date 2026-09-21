@@ -6,8 +6,11 @@ import {
   calculateBoxArea,
   calculateBoxIoU,
   calculateBoxContainment,
+  calculate1DOverlap,
+  isPointInsideBox,
   deduplicatePersonDetections,
 } from '../../src/services/spatialFilter.js';
+import { isScreenShareVideo } from '../../src/services/objectDetector.js';
 import { createPersonTracker, PERSON_STATES } from '../../src/services/personTracker.js';
 import { classifyMultimodalActivity, ACTIVITY_TYPES } from '../../src/services/activityAnalyzer.js';
 
@@ -46,6 +49,23 @@ test('Spatial Filter Geometry Helpers', async (t) => {
     // Partial containment: smaller box (50x50) has 50x25 = 1250 inside largeBox -> 0.5 (50%)
     const partialSmallBox = { x: 75, y: 20, width: 50, height: 50 };
     assert.equal(calculateBoxContainment(largeBox, partialSmallBox), 0.5);
+  });
+
+  await t.test('calculate1DOverlap computes exact 1D intersection length', () => {
+    assert.equal(calculate1DOverlap(10, 50, 30, 80), 20); // [30, 50]
+    assert.equal(calculate1DOverlap(0, 100, 20, 80), 60);  // [20, 80]
+    assert.equal(calculate1DOverlap(0, 20, 30, 50), 0);    // No overlap
+    assert.equal(calculate1DOverlap(20, 50, 50, 70), 0);   // Touching edge
+  });
+
+  await t.test('isPointInsideBox checks if 2D point lies within rectangle', () => {
+    const box = { x: 100, y: 100, width: 200, height: 300 };
+    assert.equal(isPointInsideBox(150, 150, box), true);
+    assert.equal(isPointInsideBox(100, 100, box), true); // Border
+    assert.equal(isPointInsideBox(300, 400, box), true); // Border
+    assert.equal(isPointInsideBox(50, 150, box), false);
+    assert.equal(isPointInsideBox(150, 450, box), false);
+    assert.equal(isPointInsideBox(150, 150, null), false);
   });
 });
 
@@ -269,5 +289,89 @@ test('Phone Screen Person Detection & Spatial Filtering Matrix', async (t) => {
     });
 
     assert.notEqual(activity.type, ACTIVITY_TYPES.MULTIPLE_PEOPLE, 'Must NEVER trigger MULTIPLE_PEOPLE for 1 person');
+  });
+
+  await t.test('15. Regression Fix: Vertically stacked head/torso boxes with low IoU (< 0.20) deduplicates to 1 person via column alignment', () => {
+    // Exact scenario that caused false "Multiple people (2)" bug:
+    // Box A (torso): [120, 150, 380, 330], score 0.88
+    // Box B (head/shoulders): [160, 40, 280, 200], score 0.65
+    // IoU is ~0.161, Containment is ~0.45.
+    const detections = [
+      { label: 'person', confidence: 0.88, boundingBox: { x: 120, y: 150, width: 380, height: 330 } },
+      { label: 'person', confidence: 0.65, boundingBox: { x: 160, y: 40, width: 280, height: 200 } },
+    ];
+
+    const res = filterObjectsAndClassifyScreenPeople(detections);
+    assert.equal(res.rawPersonCount, 2, 'Raw detection count is 2');
+    assert.equal(res.realPersonCount, 1, 'Deduplicates to exactly 1 person');
+    assert.equal(res.duplicatePersonCount, 1, 'Flags 1 duplicate person');
+    assert.equal(res.realPersonDetections[0].confidence, 0.88, 'Keeps highest confidence');
+    // Bounding box union covers head to torso
+    assert.equal(res.realPersonDetections[0].boundingBox.y, 40, 'Union box covers upper head');
+    assert.equal(res.realPersonDetections[0].boundingBox.height, 440, 'Union box covers down to lower torso');
+  });
+
+  await t.test('16. Regression Fix: Vertically contiguous head and torso with small vertical gap (10px) deduplicates to 1 person', () => {
+    // Box A (torso): [140, 200, 320, 280], score 0.85
+    // Box B (head): [180, 40, 240, 150], score 0.70
+    // Gap = 200 - 190 = 10px <= 20% of min height (150px)
+    const detections = [
+      { label: 'person', confidence: 0.85, boundingBox: { x: 140, y: 200, width: 320, height: 280 } },
+      { label: 'person', confidence: 0.70, boundingBox: { x: 180, y: 40, width: 240, height: 150 } },
+    ];
+
+    const res = filterObjectsAndClassifyScreenPeople(detections);
+    assert.equal(res.rawPersonCount, 2);
+    assert.equal(res.realPersonCount, 1, 'Contiguous vertical boxes deduplicate to 1 person');
+    assert.equal(res.duplicatePersonCount, 1);
+  });
+
+  await t.test('17. Regression Fix: Centroid containment marks candidate as duplicate of accepted person', () => {
+    // Candidate box center is inside accepted box even if IoU is small
+    const detections = [
+      { label: 'person', confidence: 0.90, boundingBox: { x: 100, y: 100, width: 300, height: 400 } }, // Center: (250, 300)
+      { label: 'person', confidence: 0.60, boundingBox: { x: 200, y: 250, width: 100, height: 100 } }, // Center: (250, 300)
+    ];
+
+    const res = filterObjectsAndClassifyScreenPeople(detections);
+    assert.equal(res.realPersonCount, 1, 'Centroid containment deduplicates to 1 person');
+  });
+
+  await t.test('18. Regression Fix: Moderate-confidence background noise (score 0.40 chair/coat) is rejected as secondary person', () => {
+    // Solitary person (score 0.92) + separate background chair (score 0.40)
+    const detections = [
+      { label: 'person', confidence: 0.92, boundingBox: { x: 150, y: 80, width: 300, height: 400 } },
+      { label: 'person', confidence: 0.40, boundingBox: { x: 500, y: 100, width: 100, height: 150 } }, // Noise
+    ];
+
+    const res = filterObjectsAndClassifyScreenPeople(detections);
+    assert.equal(res.rawPersonCount, 2);
+    assert.equal(res.realPersonCount, 1, 'Secondary noise below minConfidence (0.45) is rejected');
+  });
+
+  await t.test('19. Screen Share Stream Guard: isScreenShareVideo correctly identifies display surface tracks', () => {
+    // Normal webcam stream
+    const cameraVideo = {
+      srcObject: {
+        getVideoTracks: () => [
+          { getSettings: () => ({ deviceId: 'cam-123' }), label: 'HD Pro Webcam C920' },
+        ],
+      },
+    };
+    assert.equal(isScreenShareVideo(cameraVideo), false, 'Webcam stream is NOT screen share');
+
+    // Screen share stream with displaySurface
+    const screenVideo = {
+      srcObject: {
+        getVideoTracks: () => [
+          { getSettings: () => ({ displaySurface: 'monitor' }), label: 'screen:0:0' },
+        ],
+      },
+    };
+    assert.equal(isScreenShareVideo(screenVideo), true, 'Display surface track is recognized as screen share');
+
+    // Edge cases
+    assert.equal(isScreenShareVideo(null), false);
+    assert.equal(isScreenShareVideo({}), false);
   });
 });
