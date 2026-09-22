@@ -9,18 +9,28 @@ import {
 } from 'firebase/auth';
 
 export function getFirebaseConfig() {
-  const apiKey = (import.meta.env.VITE_FIREBASE_API_KEY || '').trim();
-  const projectId = (import.meta.env.VITE_FIREBASE_PROJECT_ID || '').trim();
+  const staticConfig = typeof __FOCUSLENS_STATIC_FIREBASE_CONFIG__ !== 'undefined'
+    ? __FOCUSLENS_STATIC_FIREBASE_CONFIG__
+    : {};
+
+  const apiKey = (staticConfig.apiKey || import.meta.env.VITE_FIREBASE_API_KEY || '').trim();
+  const projectId = (staticConfig.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID || '').trim();
   const authDomain = (
+    staticConfig.authDomain ||
     import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ||
     (projectId ? `${projectId}.firebaseapp.com` : '')
   ).trim();
   const storageBucket = (
+    staticConfig.storageBucket ||
     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ||
     (projectId ? `${projectId}.appspot.com` : '')
   ).trim();
-  const messagingSenderId = (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '').trim();
-  const appId = (import.meta.env.VITE_FIREBASE_APP_ID || '').trim();
+  const messagingSenderId = (
+    staticConfig.messagingSenderId ||
+    import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ||
+    ''
+  ).trim();
+  const appId = (staticConfig.appId || import.meta.env.VITE_FIREBASE_APP_ID || '').trim();
 
   return {
     apiKey,
@@ -38,6 +48,10 @@ export function getFirebaseConfig() {
  */
 export function getFirebaseDiagnostics() {
   const cfg = getFirebaseConfig();
+  const buildDiag = typeof __FOCUSLENS_BUILD_DIAGNOSTIC__ !== 'undefined'
+    ? __FOCUSLENS_BUILD_DIAGNOSTIC__
+    : null;
+
   return {
     'API key': cfg.apiKey ? 'present' : 'missing',
     'auth domain': cfg.authDomain ? 'present' : 'missing',
@@ -45,6 +59,16 @@ export function getFirebaseDiagnostics() {
     'app ID': cfg.appId ? 'present' : 'missing',
     'messaging sender ID': cfg.messagingSenderId ? 'present' : 'missing',
     'storage bucket': cfg.storageBucket ? 'present' : 'missing',
+    ...(buildDiag ? {
+      _buildTime: buildDiag.buildTime,
+      _isVercel: buildDiag.isVercel,
+      _vercelEnv: buildDiag.vercelEnv,
+      _branch: buildDiag.vercelGitCommitRef,
+      _detectedKeys: buildDiag.detectedEnvKeys,
+      _buildDiagnosticHint: buildDiag.isVercel
+        ? `Vercel (${buildDiag.vercelEnv || 'unknown'}) build at ${buildDiag.buildTime}. Matching build keys found: [${(buildDiag.detectedEnvKeys || []).join(', ')}]`
+        : `Local build at ${buildDiag.buildTime}`,
+    } : {}),
   };
 }
 

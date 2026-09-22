@@ -177,15 +177,22 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
                     Environment Variables Status
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px]">
-                    {Object.entries(getFirebaseDiagnostics()).map(([name, status]) => (
-                      <div key={name} className="flex justify-between items-center py-0.5">
-                        <span className="text-slate-400">{name}:</span>
-                        <span className={status === 'present' ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>
-                          {status}
-                        </span>
-                      </div>
-                    ))}
+                    {Object.entries(getFirebaseDiagnostics())
+                      .filter(([name]) => !name.startsWith('_'))
+                      .map(([name, status]) => (
+                        <div key={name} className="flex justify-between items-center py-0.5">
+                          <span className="text-slate-400">{name}:</span>
+                          <span className={status === 'present' ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>
+                            {status}
+                          </span>
+                        </div>
+                      ))}
                   </div>
+                  {getFirebaseDiagnostics()._buildDiagnosticHint && (
+                    <div className="mt-2 pt-2 border-t border-rose-500/10 text-[10px] text-slate-400 font-mono break-all">
+                      {getFirebaseDiagnostics()._buildDiagnosticHint}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
