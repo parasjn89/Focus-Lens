@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Eye, EyeOff, Lock, Mail, Phone, AlertCircle, ArrowRight, ShieldCheck, RefreshCw, KeyRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { FocusLensLogo } from '../components/FocusLensLogo.jsx';
