@@ -43,9 +43,11 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
     };
   }, [phoneCooldown]);
 
+  const isPhoneSendingRef = useRef(false);
+
   useEffect(() => {
     return () => {
-      cleanupRecaptchaVerifier();
+      cleanupRecaptchaVerifier('firebase-login-recaptcha');
     };
   }, []);
 
@@ -72,6 +74,8 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
 
   const handleSendPhoneOtp = async (e) => {
     if (e) e.preventDefault();
+    if (isPhoneSendingRef.current || isPhoneSending) return;
+
     setError(null);
 
     const raw = phoneNumber.trim();
@@ -80,6 +84,7 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
       return;
     }
 
+    isPhoneSendingRef.current = true;
     setIsPhoneSending(true);
     try {
       const verifier = initRecaptchaVerifier('firebase-login-recaptcha');
@@ -91,6 +96,7 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
     } catch (err) {
       setError(err.message || 'Failed to send SMS verification code.');
     } finally {
+      isPhoneSendingRef.current = false;
       setIsPhoneSending(false);
     }
   };
@@ -109,7 +115,7 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
     try {
       const { idToken } = await confirmFirebasePhoneOtp(phoneConfirmation, cleanCode);
       const res = await loginWithFirebasePhone(idToken);
-      cleanupRecaptchaVerifier();
+      cleanupRecaptchaVerifier('firebase-login-recaptcha');
       if (onLoginSuccess) {
         onLoginSuccess(res?.user);
       } else {
@@ -123,7 +129,7 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
   };
 
   const handleChangePhone = () => {
-    cleanupRecaptchaVerifier();
+    cleanupRecaptchaVerifier('firebase-login-recaptcha');
     setPhoneConfirmation(null);
     setPhoneOtp('');
     setError(null);
@@ -223,7 +229,11 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
         <div className="flex p-1 bg-slate-950/80 rounded-xl border border-slate-800 my-6">
           <button
             type="button"
-            onClick={() => { setAuthMode('password'); setError(null); }}
+            onClick={() => {
+              cleanupRecaptchaVerifier('firebase-login-recaptcha');
+              setAuthMode('password');
+              setError(null);
+            }}
             className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               authMode === 'password'
                 ? 'bg-slate-800 text-white shadow-sm'

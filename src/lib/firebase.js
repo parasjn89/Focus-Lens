@@ -13,24 +13,50 @@ export function getFirebaseConfig() {
     ? __FOCUSLENS_STATIC_FIREBASE_CONFIG__
     : {};
 
-  const apiKey = (staticConfig.apiKey || import.meta.env.VITE_FIREBASE_API_KEY || '').trim();
-  const projectId = (staticConfig.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID || '').trim();
+  const procEnv = typeof process !== 'undefined' && process.env ? process.env : {};
+
+  const apiKey = (
+    staticConfig.apiKey ||
+    import.meta.env?.VITE_FIREBASE_API_KEY ||
+    procEnv.VITE_FIREBASE_API_KEY ||
+    procEnv.FIREBASE_API_KEY ||
+    ''
+  ).trim();
+  const projectId = (
+    staticConfig.projectId ||
+    import.meta.env?.VITE_FIREBASE_PROJECT_ID ||
+    procEnv.VITE_FIREBASE_PROJECT_ID ||
+    procEnv.FIREBASE_PROJECT_ID ||
+    ''
+  ).trim();
   const authDomain = (
     staticConfig.authDomain ||
-    import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ||
+    import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN ||
+    procEnv.VITE_FIREBASE_AUTH_DOMAIN ||
+    procEnv.FIREBASE_AUTH_DOMAIN ||
     (projectId ? `${projectId}.firebaseapp.com` : '')
   ).trim();
   const storageBucket = (
     staticConfig.storageBucket ||
-    import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ||
+    import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET ||
+    procEnv.VITE_FIREBASE_STORAGE_BUCKET ||
+    procEnv.FIREBASE_STORAGE_BUCKET ||
     (projectId ? `${projectId}.appspot.com` : '')
   ).trim();
   const messagingSenderId = (
     staticConfig.messagingSenderId ||
-    import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ||
+    import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID ||
+    procEnv.VITE_FIREBASE_MESSAGING_SENDER_ID ||
+    procEnv.FIREBASE_MESSAGING_SENDER_ID ||
     ''
   ).trim();
-  const appId = (staticConfig.appId || import.meta.env.VITE_FIREBASE_APP_ID || '').trim();
+  const appId = (
+    staticConfig.appId ||
+    import.meta.env?.VITE_FIREBASE_APP_ID ||
+    procEnv.VITE_FIREBASE_APP_ID ||
+    procEnv.FIREBASE_APP_ID ||
+    ''
+  ).trim();
 
   return {
     apiKey,
@@ -248,13 +274,104 @@ export function normalizeE164Phone(rawPhone) {
 }
 
 /**
- * Global singleton reference for RecaptchaVerifier to prevent duplicate instances
+ * Module-level references for RecaptchaVerifier lifecycle management.
+ * Guarantees a single active verifier at any time, prevents duplicate rendering into DOM containers,
+ * and ensures clean recovery on errors, retries, and component unmounts.
  */
 let activeRecaptchaVerifier = null;
+let activeRecaptchaContainer = null;
+let activeRecaptchaContainerId = null;
 
 /**
- * Initializes or resets the Firebase RecaptchaVerifier on a DOM element.
- * Uses invisible reCAPTCHA for seamless user experience.
+ * Resolves a container string ID or HTMLElement safely.
+ */
+function resolveRecaptchaContainer(containerOrId) {
+  if (typeof containerOrId === 'string') {
+    if (typeof document === 'undefined') return null;
+    return document.getElementById(containerOrId);
+  }
+  if (containerOrId && typeof containerOrId === 'object' && containerOrId.nodeType === 1) {
+    return containerOrId;
+  }
+  return null;
+}
+
+/**
+ * Empties a container element to guarantee no leftover reCAPTCHA iframes or nodes remain.
+ */
+function clearContainerDOM(container) {
+  if (container && typeof container === 'object') {
+    try {
+      while (container.firstChild) {
+        container.removeChild(container.firstChild);
+      }
+    } catch (e) {
+      container.innerHTML = '';
+    }
+  }
+}
+
+/**
+ * Checks whether an existing RecaptchaVerifier instance is still valid and active in the DOM.
+ */
+export function isRecaptchaVerifierActive() {
+  return Boolean(
+    activeRecaptchaVerifier &&
+    !activeRecaptchaVerifier.destroyed &&
+    activeRecaptchaContainer &&
+    (typeof document === 'undefined' || document.body.contains(activeRecaptchaContainer))
+  );
+}
+
+/**
+ * Safely cleans up the active RecaptchaVerifier instance, clears DOM widgets,
+ * and resets internal references.
+ */
+export function cleanupRecaptchaVerifier(targetContainerOrId = null) {
+  const targetElement = targetContainerOrId ? resolveRecaptchaContainer(targetContainerOrId) : null;
+  const containerToClear = targetElement || activeRecaptchaContainer;
+
+  if (activeRecaptchaVerifier) {
+    try {
+      activeRecaptchaVerifier.clear();
+    } catch (e) {
+      // Ignored if already destroyed
+    }
+    activeRecaptchaVerifier = null;
+  }
+
+  if (containerToClear) {
+    clearContainerDOM(containerToClear);
+  }
+
+  activeRecaptchaContainer = null;
+  activeRecaptchaContainerId = null;
+}
+
+/**
+ * Resets the reCAPTCHA verifier for retry after a failed SMS or expired token.
+ * Performs full cleanup of instance and DOM container so the next call creates a fresh verifier cleanly.
+ */
+export function resetRecaptchaVerifier(containerOrId = null) {
+  cleanupRecaptchaVerifier(containerOrId);
+  return null;
+}
+
+let customRecaptchaVerifierClass = null;
+
+export function setMockRecaptchaVerifierClass(MockClass) {
+  customRecaptchaVerifierClass = MockClass;
+}
+
+export function resetMockRecaptchaVerifierClass() {
+  customRecaptchaVerifierClass = null;
+}
+
+/**
+ * Initializes or reuses the Firebase RecaptchaVerifier on a DOM element.
+ * - If an existing verifier is active on the same attached container, REUSES IT to prevent
+ *   "reCAPTCHA has already been rendered in this element".
+ * - If recreating, ensures the container is attached and clean before instantiation.
  */
 export function initRecaptchaVerifier(containerOrId = 'firebase-recaptcha-container', callbacks = {}) {
   if (!isFirebaseConfigured()) {
@@ -265,13 +382,38 @@ export function initRecaptchaVerifier(containerOrId = 'firebase-recaptcha-contai
     throw new Error(`Firebase is not configured (missing: ${missing.join(', ')}). Please check your Firebase environment variables.`);
   }
 
+  const containerElement = resolveRecaptchaContainer(containerOrId);
+  const containerId = typeof containerOrId === 'string' ? containerOrId : (containerElement?.id || null);
+
+  if (typeof document !== 'undefined' && !containerElement) {
+    throw new Error(`reCAPTCHA container element "${containerOrId}" was not found in the DOM.`);
+  }
+
+  // 1. REUSE EXISTING VERIFIER IF STILL VALID AND ATTACHED TO THE SAME ELEMENT
+  if (
+    activeRecaptchaVerifier &&
+    !activeRecaptchaVerifier.destroyed &&
+    activeRecaptchaContainer &&
+    containerElement &&
+    activeRecaptchaContainer === containerElement &&
+    (typeof document === 'undefined' || document.body.contains(containerElement))
+  ) {
+    return activeRecaptchaVerifier;
+  }
+
+  // 2. Otherwise perform clean teardown of previous verifier and DOM before recreating
+  cleanupRecaptchaVerifier(containerElement);
+
+  // Ensure DOM container is completely empty before new instantiation
+  if (containerElement) {
+    clearContainerDOM(containerElement);
+  }
+
   const auth = getFirebaseAuth();
 
-  // Clean up any existing verifier
-  cleanupRecaptchaVerifier();
-
   try {
-    activeRecaptchaVerifier = new RecaptchaVerifier(auth, containerOrId, {
+    const VerifierClass = customRecaptchaVerifierClass || RecaptchaVerifier;
+    const verifier = new VerifierClass(auth, containerElement || containerOrId, {
       size: 'invisible',
       callback: (response) => {
         if (typeof callbacks.onSuccess === 'function') {
@@ -279,7 +421,7 @@ export function initRecaptchaVerifier(containerOrId = 'firebase-recaptcha-contai
         }
       },
       'expired-callback': () => {
-        cleanupRecaptchaVerifier();
+        resetRecaptchaVerifier(containerElement || containerOrId);
         if (typeof callbacks.onExpired === 'function') {
           callbacks.onExpired();
         }
@@ -287,24 +429,15 @@ export function initRecaptchaVerifier(containerOrId = 'firebase-recaptcha-contai
       ...callbacks.parameters,
     });
 
-    return activeRecaptchaVerifier;
+    activeRecaptchaVerifier = verifier;
+    activeRecaptchaContainer = containerElement;
+    activeRecaptchaContainerId = containerId;
+
+    return verifier;
   } catch (err) {
     console.warn('[Firebase RecaptchaVerifier Init Error]:', err);
+    cleanupRecaptchaVerifier(containerElement);
     throw new Error('Failed to initialize SMS security verification. Please refresh the page and try again.');
-  }
-}
-
-/**
- * Safely cleans up the active RecaptchaVerifier instance and clears DOM widgets
- */
-export function cleanupRecaptchaVerifier() {
-  if (activeRecaptchaVerifier) {
-    try {
-      activeRecaptchaVerifier.clear();
-    } catch (e) {
-      // Ignored if already destroyed
-    }
-    activeRecaptchaVerifier = null;
   }
 }
 
@@ -332,8 +465,8 @@ export async function sendFirebasePhoneOtp(phoneNumber, verifierInstance = null)
       phoneNumber: normalizedPhone,
     };
   } catch (err) {
-    // Clean up verifier on error so it can be re-rendered on retry
-    cleanupRecaptchaVerifier();
+    // Reset/recreate verifier on error so the user can immediately retry with a clean reCAPTCHA
+    resetRecaptchaVerifier(activeRecaptchaContainer);
 
     if (err.code === 'auth/invalid-phone-number') {
       throw new Error('The phone number is invalid. Please enter a valid number with country code (e.g. +91 98765 43210).');

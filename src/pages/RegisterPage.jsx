@@ -74,6 +74,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
   const confirmPasswordInputRef = useRef(null);
   const globalErrorRef = useRef(null);
   const toastTimeoutRef = useRef(null);
+  const isPhoneSendingRef = useRef(false);
 
   const showToast = (message, type = 'error') => {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -98,7 +99,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
   useEffect(() => {
     return () => {
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-      cleanupRecaptchaVerifier();
+      cleanupRecaptchaVerifier('firebase-register-recaptcha');
     };
   }, []);
 
@@ -194,6 +195,8 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
 
     // If PHONE verification is selected, trigger Firebase real SMS OTP flow
     if (verificationMethod === 'PHONE') {
+      if (isPhoneSendingRef.current || isSubmitting) return;
+      isPhoneSendingRef.current = true;
       setIsSubmitting(true);
       try {
         const verifier = initRecaptchaVerifier('firebase-register-recaptcha');
@@ -208,6 +211,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
         setError(err.message || 'Failed to send SMS verification code.');
         showToast(err.message || 'Failed to send SMS verification code.', 'error');
       } finally {
+        isPhoneSendingRef.current = false;
         setIsSubmitting(false);
       }
       return;
@@ -272,7 +276,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
         password,
       });
 
-      cleanupRecaptchaVerifier();
+      cleanupRecaptchaVerifier('firebase-register-recaptcha');
       if (onRegisterSuccess) {
         onRegisterSuccess('dashboard', { user: res?.user });
       } else {
@@ -291,8 +295,9 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
   };
 
   const handleResendRegisterOtp = async () => {
-    if (phoneCooldown > 0 || isSubmitting) return;
+    if (phoneCooldown > 0 || isSubmitting || isPhoneSendingRef.current) return;
     setError(null);
+    isPhoneSendingRef.current = true;
     setIsSubmitting(true);
     try {
       const verifier = initRecaptchaVerifier('firebase-register-recaptcha');
@@ -305,12 +310,13 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
       setError(err.message || 'Failed to resend SMS verification code.');
       showToast(err.message || 'Failed to resend SMS verification code.', 'error');
     } finally {
+      isPhoneSendingRef.current = false;
       setIsSubmitting(false);
     }
   };
 
   const handleChangeRegisterPhone = () => {
-    cleanupRecaptchaVerifier();
+    cleanupRecaptchaVerifier('firebase-register-recaptcha');
     setIsPhoneOtpStep(false);
     setPhoneConfirmation(null);
     setPhoneOtp('');
