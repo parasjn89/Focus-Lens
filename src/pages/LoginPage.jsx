@@ -9,6 +9,7 @@ import {
   cleanupRecaptchaVerifier,
   sendFirebasePhoneOtp,
   confirmFirebasePhoneOtp,
+  getFirebaseDiagnostics,
 } from '../lib/firebase.js';
 
 export function LoginPage({ onNavigate, onLoginSuccess }) {
@@ -168,7 +169,26 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
         {error && (
           <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-start space-x-3 text-xs text-rose-300">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-            <span>{error}</span>
+            <div className="flex-1">
+              <span>{error}</span>
+              {error.includes('Firebase is not configured') && (
+                <div className="mt-3 pt-2.5 border-t border-rose-500/20">
+                  <div className="text-[11px] font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">
+                    Environment Variables Status
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px]">
+                    {Object.entries(getFirebaseDiagnostics()).map(([name, status]) => (
+                      <div key={name} className="flex justify-between items-center py-0.5">
+                        <span className="text-slate-400">{name}:</span>
+                        <span className={status === 'present' ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>
+                          {status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

@@ -33,13 +33,33 @@ export function getFirebaseConfig() {
 }
 
 /**
+ * Safe client diagnostic that reports presence (present/missing) of Firebase config variables
+ * without exposing sensitive values, keys, or secrets.
+ */
+export function getFirebaseDiagnostics() {
+  const cfg = getFirebaseConfig();
+  return {
+    'API key': cfg.apiKey ? 'present' : 'missing',
+    'auth domain': cfg.authDomain ? 'present' : 'missing',
+    'project ID': cfg.projectId ? 'present' : 'missing',
+    'app ID': cfg.appId ? 'present' : 'missing',
+    'messaging sender ID': cfg.messagingSenderId ? 'present' : 'missing',
+    'storage bucket': cfg.storageBucket ? 'present' : 'missing',
+  };
+}
+
+if (typeof window !== 'undefined') {
+  window.__FOCUSLENS_FIREBASE_DIAGNOSTICS__ = getFirebaseDiagnostics;
+}
+
+/**
  * Checks whether the client-side Firebase environment variables are configured
  */
 export function isFirebaseConfigured() {
   const cfg = getFirebaseConfig();
   return Boolean(
     cfg.apiKey &&
-    cfg.authDomain &&
+    (cfg.authDomain || cfg.projectId) &&
     cfg.projectId
   );
 }
@@ -49,14 +69,27 @@ export function isFirebaseConfigured() {
  */
 export function getFirebaseApp() {
   if (!isFirebaseConfigured()) {
-    throw new Error('Firebase is not configured. Please check your Firebase environment variables.');
+    const diag = getFirebaseDiagnostics();
+    const missing = Object.entries(diag)
+      .filter(([k, v]) => (k === 'API key' || k === 'project ID' || k === 'auth domain') && v === 'missing')
+      .map(([k]) => k);
+    throw new Error(`Firebase is not configured (missing: ${missing.join(', ')}). Please check your Firebase environment variables.`);
   }
 
   const existingApps = getApps();
   if (existingApps.length > 0) {
     return getApp();
   }
-  return initializeApp(getFirebaseConfig());
+
+  const cfg = getFirebaseConfig();
+  return initializeApp({
+    apiKey: cfg.apiKey,
+    authDomain: cfg.authDomain,
+    projectId: cfg.projectId,
+    storageBucket: cfg.storageBucket,
+    messagingSenderId: cfg.messagingSenderId,
+    appId: cfg.appId,
+  });
 }
 
 /**
@@ -200,7 +233,11 @@ let activeRecaptchaVerifier = null;
  */
 export function initRecaptchaVerifier(containerOrId = 'firebase-recaptcha-container', callbacks = {}) {
   if (!isFirebaseConfigured()) {
-    throw new Error('Firebase is not configured. Please check your Firebase environment variables.');
+    const diag = getFirebaseDiagnostics();
+    const missing = Object.entries(diag)
+      .filter(([k, v]) => (k === 'API key' || k === 'project ID' || k === 'auth domain') && v === 'missing')
+      .map(([k]) => k);
+    throw new Error(`Firebase is not configured (missing: ${missing.join(', ')}). Please check your Firebase environment variables.`);
   }
 
   const auth = getFirebaseAuth();

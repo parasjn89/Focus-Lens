@@ -4,39 +4,35 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
+  // Helper to read from system process.env (Vercel build environment) or Vite loaded env
+  const getEnv = (key) => (process.env[key] || env[key] || '').trim();
+
   // Support both VITE_ and non-VITE_ prefixes for frontend Firebase configuration
-  const apiKey = (env.VITE_FIREBASE_API_KEY || env.FIREBASE_API_KEY || '').trim();
-  const projectId = (env.VITE_FIREBASE_PROJECT_ID || env.FIREBASE_PROJECT_ID || '').trim();
-  const authDomain = (
-    env.VITE_FIREBASE_AUTH_DOMAIN ||
-    env.FIREBASE_AUTH_DOMAIN ||
-    (projectId ? `${projectId}.firebaseapp.com` : '')
-  ).trim();
-  const storageBucket = (
-    env.VITE_FIREBASE_STORAGE_BUCKET ||
-    env.FIREBASE_STORAGE_BUCKET ||
-    (projectId ? `${projectId}.appspot.com` : '')
-  ).trim();
-  const messagingSenderId = (
-    env.VITE_FIREBASE_MESSAGING_SENDER_ID ||
-    env.FIREBASE_MESSAGING_SENDER_ID ||
-    ''
-  ).trim();
-  const appId = (env.VITE_FIREBASE_APP_ID || env.FIREBASE_APP_ID || '').trim();
-  const apiBaseUrl = (env.VITE_API_BASE_URL || env.API_BASE_URL || '').trim();
+  const apiKey = getEnv('VITE_FIREBASE_API_KEY') || getEnv('FIREBASE_API_KEY');
+  const projectId = getEnv('VITE_FIREBASE_PROJECT_ID') || getEnv('FIREBASE_PROJECT_ID');
+  const authDomain =
+    getEnv('VITE_FIREBASE_AUTH_DOMAIN') ||
+    getEnv('FIREBASE_AUTH_DOMAIN') ||
+    (projectId ? `${projectId}.firebaseapp.com` : '');
+  const storageBucket =
+    getEnv('VITE_FIREBASE_STORAGE_BUCKET') ||
+    getEnv('FIREBASE_STORAGE_BUCKET') ||
+    (projectId ? `${projectId}.appspot.com` : '');
+  const messagingSenderId =
+    getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') ||
+    getEnv('FIREBASE_MESSAGING_SENDER_ID');
+  const appId = getEnv('VITE_FIREBASE_APP_ID') || getEnv('FIREBASE_APP_ID');
+  const apiBaseUrl = getEnv('VITE_API_BASE_URL') || getEnv('API_BASE_URL');
 
-  const define = {
-    'import.meta.env.VITE_FIREBASE_API_KEY': JSON.stringify(apiKey),
-    'import.meta.env.VITE_FIREBASE_AUTH_DOMAIN': JSON.stringify(authDomain),
-    'import.meta.env.VITE_FIREBASE_PROJECT_ID': JSON.stringify(projectId),
-    'import.meta.env.VITE_FIREBASE_STORAGE_BUCKET': JSON.stringify(storageBucket),
-    'import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID': JSON.stringify(messagingSenderId),
-    'import.meta.env.VITE_FIREBASE_APP_ID': JSON.stringify(appId),
-  };
-
-  if (apiBaseUrl) {
-    define['import.meta.env.VITE_API_BASE_URL'] = JSON.stringify(apiBaseUrl);
-  }
+  const define = {};
+  // Only define when non-empty so we NEVER hardcode an empty string over Vite's native env injection
+  if (apiKey) define['import.meta.env.VITE_FIREBASE_API_KEY'] = JSON.stringify(apiKey);
+  if (authDomain) define['import.meta.env.VITE_FIREBASE_AUTH_DOMAIN'] = JSON.stringify(authDomain);
+  if (projectId) define['import.meta.env.VITE_FIREBASE_PROJECT_ID'] = JSON.stringify(projectId);
+  if (storageBucket) define['import.meta.env.VITE_FIREBASE_STORAGE_BUCKET'] = JSON.stringify(storageBucket);
+  if (messagingSenderId) define['import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID'] = JSON.stringify(messagingSenderId);
+  if (appId) define['import.meta.env.VITE_FIREBASE_APP_ID'] = JSON.stringify(appId);
+  if (apiBaseUrl) define['import.meta.env.VITE_API_BASE_URL'] = JSON.stringify(apiBaseUrl);
 
   return {
     plugins: [react()],
