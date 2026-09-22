@@ -115,4 +115,49 @@ describe('API Client & Backend Connectivity Suite', () => {
     assert.ok(json.errors.some(e => e.field === 'name'));
     assert.ok(json.errors.some(e => e.field === 'password'));
   });
+
+  it('7. GET /api/health returns structured JSON and status 200', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/health',
+    });
+
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.payload);
+    assert.equal(json.status, 'ok');
+    assert.equal(json.service, 'focuslens-backend');
+  });
+
+  it('8. GET /api/auth/me returns structured JSON 401 when unauthenticated', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/auth/me',
+    });
+
+    assert.equal(res.statusCode, 401);
+    const json = JSON.parse(res.payload);
+    assert.equal(json.error, 'Unauthorized');
+  });
+
+  it('9. POST /api/auth/google returns structured JSON 400 when missing idToken', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/google',
+      headers: {
+        'content-type': 'application/json',
+      },
+      payload: JSON.stringify({}),
+    });
+
+    assert.equal(res.statusCode, 400);
+    const json = JSON.parse(res.payload);
+    assert.equal(json.error, 'Validation Error');
+  });
+
+  it('10. firebase-admin modules load cleanly without ERR_REQUIRE_ESM', async () => {
+    const appMod = await import('firebase-admin/app');
+    const authMod = await import('firebase-admin/auth');
+    assert.equal(typeof appMod.initializeApp, 'function');
+    assert.equal(typeof authMod.getAuth, 'function');
+  });
 });

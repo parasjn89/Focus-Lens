@@ -1,9 +1,24 @@
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
 import { config } from '../config/env.js';
 
 let authInstance = null;
 let mockVerifier = null;
+let firebaseAdminModules = null;
+
+async function loadFirebaseAdmin() {
+  if (!firebaseAdminModules) {
+    const [appMod, authMod] = await Promise.all([
+      import('firebase-admin/app'),
+      import('firebase-admin/auth'),
+    ]);
+    firebaseAdminModules = {
+      initializeApp: appMod.initializeApp,
+      getApps: appMod.getApps,
+      cert: appMod.cert,
+      getAuth: authMod.getAuth,
+    };
+  }
+  return firebaseAdminModules;
+}
 
 /**
  * Checks if Firebase Admin SDK environment credentials are provided
@@ -19,7 +34,7 @@ export function isFirebaseAdminConfigured() {
 /**
  * Safely initializes Firebase Admin Auth singleton using modern modular SDK
  */
-export function getFirebaseAuth() {
+export async function getFirebaseAuth() {
   if (!isFirebaseAdminConfigured()) {
     const error = new Error('Google authentication is not configured on the server. Firebase Admin credentials are missing.');
     error.statusCode = 500;
@@ -30,6 +45,8 @@ export function getFirebaseAuth() {
   if (authInstance) {
     return authInstance;
   }
+
+  const { initializeApp, getApps, cert, getAuth } = await loadFirebaseAdmin();
 
   const existingApps = getApps();
   let app;
@@ -59,8 +76,8 @@ export function getFirebaseAuth() {
 /**
  * Legacy compatibility wrapper returning object with auth() method
  */
-export function getFirebaseAdmin() {
-  const auth = getFirebaseAuth();
+export async function getFirebaseAdmin() {
+  const auth = await getFirebaseAuth();
   return {
     auth: () => auth,
   };
@@ -101,7 +118,7 @@ export async function verifyFirebaseIdToken(idToken) {
     return await mockVerifier(idToken.trim());
   }
 
-  const auth = getFirebaseAuth();
+  const auth = await getFirebaseAuth();
 
   try {
     const decodedToken = await auth.verifyIdToken(idToken.trim(), true);
