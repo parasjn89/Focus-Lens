@@ -4,8 +4,10 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signOut as firebaseSignOut,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail,
 } from 'firebase/auth';
 
 export function getFirebaseConfig() {
@@ -264,7 +266,63 @@ export async function signOutOfFirebase() {
 }
 
 /**
+ * Zero-cost Email + Password registration using Firebase Auth Spark (Free tier)
+ */
+export async function registerWithEmailPassword(email, password) {
+  if (!isFirebaseConfigured()) {
+    const error = new Error('Authentication is not configured. Please check your Firebase settings.');
+    error.code = 'CONFIG_MISSING';
+    throw error;
+  }
+  const auth = getFirebaseAuth();
+  const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+  const idToken = await credential.user.getIdToken();
+  return { idToken, user: credential.user };
+}
+
+/**
+ * Zero-cost Email + Password sign-in using Firebase Auth Spark (Free tier)
+ */
+export async function loginWithEmailPassword(email, password) {
+  if (!isFirebaseConfigured()) {
+    const error = new Error('Authentication is not configured. Please check your Firebase settings.');
+    error.code = 'CONFIG_MISSING';
+    throw error;
+  }
+  const auth = getFirebaseAuth();
+  const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+  const idToken = await credential.user.getIdToken();
+  return { idToken, user: credential.user };
+}
+
+/**
+ * Zero-cost email verification dispatch using Firebase Auth Spark (Free tier)
+ */
+export async function sendFirebaseEmailVerification(user = null) {
+  const auth = getFirebaseAuth();
+  const targetUser = user || auth.currentUser;
+  if (!targetUser) {
+    throw new Error('No active user found to send verification email.');
+  }
+  await sendEmailVerification(targetUser);
+  return { success: true };
+}
+
+/**
+ * Zero-cost password reset dispatch using Firebase Auth Spark (Free tier)
+ */
+export async function sendFirebasePasswordReset(email) {
+  if (!email || !email.trim()) {
+    throw new Error('Please enter your email address.');
+  }
+  const auth = getFirebaseAuth();
+  await sendPasswordResetEmail(auth, email.trim());
+  return { success: true };
+}
+
+/**
  * Normalizes phone numbers to standard E.164 format (+919876543210)
+ * Kept for optional profile contact numbers.
  */
 export function normalizeE164Phone(rawPhone) {
   if (!rawPhone || typeof rawPhone !== 'string') {
@@ -276,12 +334,10 @@ export function normalizeE164Phone(rawPhone) {
     throw new Error('Please enter a valid phone number.');
   }
 
-  // Handle leading 00 international prefix
   if (cleaned.startsWith('00')) {
     cleaned = '+' + cleaned.slice(2);
   }
 
-  // If already starts with '+', validate directly
   if (cleaned.startsWith('+')) {
     const e164Regex = /^\+[1-9]\d{6,14}$/;
     if (!e164Regex.test(cleaned)) {
@@ -290,12 +346,10 @@ export function normalizeE164Phone(rawPhone) {
     return cleaned;
   }
 
-  // If 10 digits without '+' prefix (common for Indian mobile numbers 6/7/8/9)
   if (/^[6-9]\d{9}$/.test(cleaned)) {
     return `+91${cleaned}`;
   }
 
-  // Otherwise prefix with '+' and validate
   cleaned = '+' + cleaned;
   const e164Regex = /^\+[1-9]\d{6,14}$/;
   if (!e164Regex.test(cleaned)) {
@@ -306,348 +360,38 @@ export function normalizeE164Phone(rawPhone) {
 }
 
 /**
- * Module-level references for RecaptchaVerifier lifecycle management.
- * Guarantees a single active verifier at any time, prevents duplicate rendering into DOM containers,
- * and ensures clean recovery on errors, retries, and component unmounts.
- */
-let activeRecaptchaVerifier = null;
-let activeRecaptchaContainer = null;
-let activeRecaptchaContainerId = null;
-
-/**
- * Resolves a container string ID or HTMLElement safely.
- */
-function resolveRecaptchaContainer(containerOrId) {
-  if (typeof containerOrId === 'string') {
-    if (typeof document === 'undefined') return null;
-    return document.getElementById(containerOrId);
-  }
-  if (containerOrId && typeof containerOrId === 'object' && containerOrId.nodeType === 1) {
-    return containerOrId;
-  }
-  return null;
-}
-
-/**
- * Empties a container element to guarantee no leftover reCAPTCHA iframes or nodes remain.
- */
-function clearContainerDOM(container) {
-  if (container && typeof container === 'object') {
-    try {
-      while (container.firstChild) {
-        container.removeChild(container.firstChild);
-      }
-    } catch (e) {
-      container.innerHTML = '';
-    }
-  }
-}
-
-/**
- * Checks whether an existing RecaptchaVerifier instance is still valid and active in the DOM.
+ * Zero-Cost Architecture Stubs for Recaptcha & Phone Auth
+ * Real phone SMS authentication is disabled to ensure zero-cost operation without Cloud Billing.
  */
 export function isRecaptchaVerifierActive() {
-  return Boolean(
-    activeRecaptchaVerifier &&
-    !activeRecaptchaVerifier.destroyed &&
-    activeRecaptchaContainer &&
-    (typeof document === 'undefined' || !document.body || typeof document.body.contains !== 'function' || document.body.contains(activeRecaptchaContainer))
-  );
+  return false;
 }
 
-/**
- * Safely cleans up the active RecaptchaVerifier instance, clears DOM widgets,
- * and resets internal references.
- */
 export function cleanupRecaptchaVerifier(targetContainerOrId = null) {
-  const targetElement = targetContainerOrId ? resolveRecaptchaContainer(targetContainerOrId) : null;
-  const containerToClear = targetElement || activeRecaptchaContainer;
-
-  if (activeRecaptchaVerifier) {
-    try {
-      activeRecaptchaVerifier.clear();
-    } catch (e) {
-      // Ignored if already destroyed
-    }
-    activeRecaptchaVerifier = null;
-  }
-
-  if (containerToClear) {
-    clearContainerDOM(containerToClear);
-  }
-
-  activeRecaptchaContainer = null;
-  activeRecaptchaContainerId = null;
+  // Safe no-op in zero-cost mode
 }
 
-/**
- * Resets the active reCAPTCHA widget for retry without destroying the RecaptchaVerifier instance,
- * as per Firebase documented behavior for failed or expired phone auth requests.
- * If the verifier was destroyed or reset fails, gracefully falls back to cleanup.
- */
 export function resetRecaptchaVerifier(containerOrId = null) {
-  if (activeRecaptchaVerifier && !activeRecaptchaVerifier.destroyed) {
-    try {
-      if (typeof activeRecaptchaVerifier._reset === 'function') {
-        activeRecaptchaVerifier._reset();
-        return activeRecaptchaVerifier;
-      }
-      if (typeof window !== 'undefined' && window.grecaptcha) {
-        if (activeRecaptchaVerifier.widgetId !== null && activeRecaptchaVerifier.widgetId !== undefined) {
-          window.grecaptcha.reset(activeRecaptchaVerifier.widgetId);
-        } else {
-          window.grecaptcha.reset();
-        }
-        return activeRecaptchaVerifier;
-      }
-    } catch (e) {
-      console.warn('[Firebase reCAPTCHA widget reset warning]:', e);
-    }
-  }
-
-  // If verifier was already destroyed or reset threw, perform full cleanup
-  cleanupRecaptchaVerifier(containerOrId);
+  // Safe no-op in zero-cost mode
   return null;
 }
 
-let customRecaptchaVerifierClass = null;
+export function setMockRecaptchaVerifierClass(MockClass) {}
+export function resetMockRecaptchaVerifierClass() {}
 
-export function setMockRecaptchaVerifierClass(MockClass) {
-  customRecaptchaVerifierClass = MockClass;
-}
-
-export function resetMockRecaptchaVerifierClass() {
-  customRecaptchaVerifierClass = null;
-}
-
-/**
- * Initializes or reuses the Firebase RecaptchaVerifier on a DOM element.
- * - If an existing verifier is active on the same attached container, REUSES IT to prevent
- *   "reCAPTCHA has already been rendered in this element".
- * - If recreating, creates a dedicated fresh inner target element so grecaptcha.render
- *   never encounters a previously-registered DOM element.
- */
 export function initRecaptchaVerifier(containerOrId = 'firebase-recaptcha-container', callbacks = {}) {
-  if (!isFirebaseConfigured()) {
-    const diag = getFirebaseDiagnostics();
-    const missing = Object.entries(diag)
-      .filter(([k, v]) => (k === 'API key' || k === 'project ID' || k === 'auth domain') && v === 'missing')
-      .map(([k]) => k);
-    throw new Error(`Firebase is not configured (missing: ${missing.join(', ')}). Please check your Firebase environment variables.`);
-  }
-
-  const containerElement = resolveRecaptchaContainer(containerOrId);
-  const containerId = typeof containerOrId === 'string' ? containerOrId : (containerElement?.id || null);
-
-  if (typeof document !== 'undefined' && !containerElement) {
-    throw new Error(`reCAPTCHA container element "${containerOrId}" was not found in the DOM.`);
-  }
-
-  // 1. REUSE EXISTING VERIFIER IF STILL VALID AND ATTACHED TO THE SAME ELEMENT
-  if (
-    activeRecaptchaVerifier &&
-    !activeRecaptchaVerifier.destroyed &&
-    activeRecaptchaContainer &&
-    containerElement &&
-    (activeRecaptchaContainer === containerElement || (typeof containerElement.contains === 'function' && containerElement.contains(activeRecaptchaContainer))) &&
-    (typeof document === 'undefined' || !document.body || typeof document.body.contains !== 'function' || document.body.contains(containerElement))
-  ) {
-    return activeRecaptchaVerifier;
-  }
-
-  // 2. Otherwise perform clean teardown of previous verifier and DOM before recreating
-  cleanupRecaptchaVerifier(containerElement);
-
-  // Dedicated inner target element:
-  // In Google reCAPTCHA v2 (invisible), once grecaptcha.render(node) is called on an element,
-  // that specific DOM node is permanently registered in grecaptcha's internal table.
-  // By mounting the verifier onto a dynamic child div inside containerElement, if cleanup occurs,
-  // the old child div is discarded, and any recreation gets a clean child div that grecaptcha
-  // has never seen before.
-  let targetNode = containerElement;
-  if (containerElement && typeof document !== 'undefined' && typeof document.createElement === 'function') {
-    clearContainerDOM(containerElement);
-    const innerTarget = document.createElement('div');
-    innerTarget.setAttribute('data-recaptcha-target', 'true');
-    innerTarget.style.display = 'flex';
-    innerTarget.style.justifyContent = 'center';
-    containerElement.appendChild(innerTarget);
-    targetNode = innerTarget;
-  }
-
-  const auth = getFirebaseAuth();
-
-  try {
-    const VerifierClass = customRecaptchaVerifierClass || RecaptchaVerifier;
-    const verifier = new VerifierClass(auth, targetNode || containerOrId, {
-      size: 'invisible',
-      callback: (response) => {
-        if (typeof callbacks.onSuccess === 'function') {
-          callbacks.onSuccess(response);
-        }
-      },
-      'expired-callback': () => {
-        resetRecaptchaVerifier(containerElement || containerOrId);
-        if (typeof callbacks.onExpired === 'function') {
-          callbacks.onExpired();
-        }
-      },
-      ...callbacks.parameters,
-    });
-
-    activeRecaptchaVerifier = verifier;
-    activeRecaptchaContainer = containerElement;
-    activeRecaptchaContainerId = containerId;
-
-    return verifier;
-  } catch (err) {
-    console.warn('[Firebase RecaptchaVerifier Init Error]:', err);
-    cleanupRecaptchaVerifier(containerElement);
-    throw new Error('Failed to initialize SMS security verification. Please refresh the page and try again.');
-  }
+  // Safe no-op in zero-cost mode
+  return null;
 }
 
-/**
- * Sends a real Firebase SMS OTP to the normalized phone number.
- * Returns confirmationResult object required for subsequent OTP verification.
- */
-
-/**
- * Maps Firebase Auth errors to specific, actionable user-friendly messages
- * while preserving the raw error code and message for diagnostic inspection.
- */
 export function mapFirebasePhoneAuthError(err) {
-  const rawMessage = String(err?.message || '');
-  const isAlreadyRendered = rawMessage.toLowerCase().includes('already been rendered');
-  const code = isAlreadyRendered ? 'auth/captcha-check-failed' : (err?.code || 'auth/unknown');
-
-  let friendlyMessage = '';
-
-  if (isAlreadyRendered) {
-    friendlyMessage = 'Security verification helper was busy. Please click Send Verification Code again.';
-  } else {
-    switch (code) {
-      case 'auth/billing-not-enabled':
-        friendlyMessage = 'Cloud Billing is not enabled for this Firebase project. Google requires a linked billing account (Blaze plan) to send SMS verification codes.';
-        break;
-      case 'auth/operation-not-allowed':
-        friendlyMessage = 'Phone sign-in is disabled or not allowed for this Firebase project. Please verify that Phone authentication is enabled in Firebase Console (Authentication > Sign-in method).';
-        break;
-      case 'auth/unauthorized-domain':
-        friendlyMessage = 'This web domain is not authorized for Firebase Authentication. Please add this domain to Authorized Domains in Firebase Console.';
-        break;
-      case 'auth/app-not-authorized':
-        friendlyMessage = 'This application domain is not authorized to use Firebase Authentication with the provided API key. Please check Google Cloud API key restrictions.';
-        break;
-      case 'auth/invalid-app-credential':
-        friendlyMessage = 'Invalid app credential or reCAPTCHA check failed. Please refresh and try again.';
-        break;
-      case 'auth/invalid-api-key':
-        friendlyMessage = 'The provided Firebase API key is invalid. Please check your project environment variables.';
-        break;
-      case 'auth/quota-exceeded':
-        friendlyMessage = 'SMS quota for this project has been exceeded. Please try again later or check your Google Cloud quota limits.';
-        break;
-      case 'auth/too-many-requests':
-        friendlyMessage = 'Too many attempts. Please wait a few minutes before requesting another code.';
-        break;
-      case 'auth/captcha-check-failed':
-        friendlyMessage = 'reCAPTCHA verification failed. Please try again.';
-        break;
-      case 'auth/invalid-phone-number':
-        friendlyMessage = 'The phone number is invalid. Please enter a valid number with country code (e.g. +91 98765 43210).';
-        break;
-      case 'auth/missing-phone-number':
-        friendlyMessage = 'Phone number is required.';
-        break;
-      default:
-        friendlyMessage = rawMessage || 'Failed to send SMS verification code. Please try again.';
-        break;
-    }
-  }
-
-  const customErr = new Error(friendlyMessage);
-  customErr.code = code;
-  customErr.rawMessage = rawMessage;
-  return customErr;
+  return new Error(err?.message || 'Phone authentication is disabled in this deployment.');
 }
 
-/**
- * Sends a real SMS OTP to the given phone number using Firebase Auth and RecaptchaVerifier.
- * Returns confirmationResult for subsequent OTP code verification.
- */
 export async function sendFirebasePhoneOtp(phoneNumber, verifierInstance = null) {
-  if (!isFirebaseConfigured()) {
-    throw new Error('Phone authentication is not configured. Please check your Firebase settings.');
-  }
-
-  const normalizedPhone = normalizeE164Phone(phoneNumber);
-  const auth = getFirebaseAuth();
-  const verifier = verifierInstance || activeRecaptchaVerifier;
-
-  if (!verifier) {
-    throw new Error('SMS verification helper is not ready. Please try again.');
-  }
-
-  try {
-    const confirmationResult = await signInWithPhoneNumber(auth, normalizedPhone, verifier);
-    setLastPhoneAuthError(null);
-    return {
-      confirmationResult,
-      phoneNumber: normalizedPhone,
-    };
-  } catch (err) {
-    const rawMsg = String(err?.message || '');
-    if (rawMsg.toLowerCase().includes('already been rendered')) {
-      cleanupRecaptchaVerifier(activeRecaptchaContainer);
-    } else {
-      resetRecaptchaVerifier(activeRecaptchaContainer);
-    }
-
-    const mappedErr = mapFirebasePhoneAuthError(err);
-    setLastPhoneAuthError(mappedErr);
-    throw mappedErr;
-  }
+  throw new Error('Phone SMS authentication is disabled in this zero-cost open-source deployment. Please use Google Sign-In or Email/Password.');
 }
 
-/**
- * Confirms the SMS OTP with Firebase confirmationResult.
- * Returns the Firebase user and verified Firebase ID token for backend authentication.
- */
 export async function confirmFirebasePhoneOtp(confirmationResult, otpCode) {
-  if (!confirmationResult || typeof confirmationResult.confirm !== 'function') {
-    throw new Error('Verification session expired or invalid. Please request a new code.');
-  }
-
-  const cleanCode = String(otpCode || '').trim();
-  if (!cleanCode || cleanCode.length !== 6 || !/^\d{6}$/.test(cleanCode)) {
-    throw new Error('Please enter a valid 6-digit verification code.');
-  }
-
-  try {
-    const userCredential = await confirmationResult.confirm(cleanCode);
-    const idToken = await userCredential.user.getIdToken(true);
-
-    return {
-      idToken,
-      user: userCredential.user,
-      phoneNumber: userCredential.user.phoneNumber,
-    };
-  } catch (err) {
-    if (err.code === 'auth/invalid-verification-code') {
-      throw new Error('Invalid verification code. Please check the SMS and try again.');
-    }
-    if (err.code === 'auth/code-expired') {
-      throw new Error('Verification code has expired. Please request a new code.');
-    }
-    if (err.code === 'auth/user-disabled') {
-      throw new Error('This account has been disabled. Please contact support.');
-    }
-
-    const errorMsg = err.message || 'Failed to verify code. Please try again.';
-    const customErr = new Error(errorMsg);
-    customErr.code = err.code || 'OTP_VERIFICATION_FAILED';
-    throw customErr;
-  }
+  throw new Error('Phone SMS authentication is disabled in this zero-cost open-source deployment.');
 }
-
