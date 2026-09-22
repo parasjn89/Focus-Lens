@@ -16,12 +16,24 @@ import {
   setLastPhoneAuthError,
 } from '../../src/lib/firebase.js';
 
-// Minimal mock DOM Element for testing RecaptchaVerifier lifecycle in Node environment
+// Mock DOM Element for testing RecaptchaVerifier lifecycle in Node environment
 class MockDOMElement {
-  constructor(id) {
-    this.id = id;
+  constructor(id, tagName = 'div') {
+    this.id = id || '';
+    this.tagName = tagName.toUpperCase();
     this.nodeType = 1;
     this.childNodes = [];
+    this.attributes = new Map();
+    this.style = {};
+    this.parentNode = null;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(name) || null;
   }
 
   get firstChild() {
@@ -32,12 +44,14 @@ class MockDOMElement {
     const idx = this.childNodes.indexOf(child);
     if (idx !== -1) {
       this.childNodes.splice(idx, 1);
+      child.parentNode = null;
     }
     return child;
   }
 
   appendChild(child) {
     this.childNodes.push(child);
+    child.parentNode = this;
     return child;
   }
 
@@ -47,12 +61,25 @@ class MockDOMElement {
 
   set innerHTML(val) {
     if (!val) {
+      for (const child of this.childNodes) {
+        child.parentNode = null;
+      }
       this.childNodes = [];
     }
   }
 
   hasChildNodes() {
     return this.childNodes.length > 0;
+  }
+
+  contains(target) {
+    if (!target) return false;
+    if (target === this) return true;
+    for (const child of this.childNodes) {
+      if (child === target) return true;
+      if (typeof child.contains === 'function' && child.contains(target)) return true;
+    }
+    return false;
   }
 }
 
@@ -66,6 +93,7 @@ class MockRecaptchaVerifier {
     this.destroyed = false;
     this.widgetId = 1;
     this.renderCount = 0;
+    this.resetCount = 0;
   }
 
   render() {
@@ -76,6 +104,7 @@ class MockRecaptchaVerifier {
 
   _reset() {
     if (this.destroyed) throw new Error('internal-error: verifier destroyed');
+    this.resetCount += 1;
   }
 
   clear() {
@@ -105,9 +134,18 @@ describe('Firebase Phone OTP reCAPTCHA Lifecycle Suite', () => {
 
     // Set up mock document
     global.document = {
+      createElement: (tag) => new MockDOMElement('', tag),
       getElementById: (id) => mockElements.get(id) || null,
       body: {
-        contains: (el) => Array.from(mockElements.values()).includes(el),
+        contains: (el) => {
+          if (!el) return false;
+          for (const topEl of mockElements.values()) {
+            if (topEl === el || (typeof topEl.contains === 'function' && topEl.contains(el))) {
+              return true;
+            }
+          }
+          return false;
+        },
       },
     };
 
@@ -138,7 +176,7 @@ describe('Firebase Phone OTP reCAPTCHA Lifecycle Suite', () => {
     );
   });
 
-  it('2. First initialization creates and registers a valid RecaptchaVerifier instance', () => {
+  it('2. First initialization creates and registers a valid RecaptchaVerifier instance on dedicated inner target', () => {
     const container = new MockDOMElement('firebase-login-recaptcha');
     mockElements.set('firebase-login-recaptcha', container);
 
@@ -147,6 +185,12 @@ describe('Firebase Phone OTP reCAPTCHA Lifecycle Suite', () => {
     assert.ok(verifier, 'Verifier should be returned');
     assert.equal(verifier.type, 'recaptcha');
     assert.equal(isRecaptchaVerifierActive(), true, 'Verifier should be marked active');
+
+    // Dedicated inner child target node should have been created
+    const innerTarget = container.childNodes[0];
+    assert.ok(innerTarget, 'Inner target node should be appended to container');
+    assert.equal(innerTarget.getAttribute('data-recaptcha-target'), 'true');
+    assert.equal(verifier.container, innerTarget, 'Verifier should attach to dedicated inner target');
   });
 
   it('3. Repeated send click reuses the existing verifier without recreating or throwing duplicate render error', () => {
@@ -158,8 +202,7 @@ describe('Firebase Phone OTP reCAPTCHA Lifecycle Suite', () => {
     assert.ok(verifier1);
 
     // Simulate reCAPTCHA having rendered a widget element into the container
-    container.appendChild({ outerHTML: '<div class="grecaptcha-badge"></div>' });
-    assert.equal(container.hasChildNodes(), true);
+    container.childNodes[0].appendChild({ outerHTML: '<div class="grecaptcha-badge"></div>' });
 
     // Second initialization (repeated click / resend without unmount)
     const verifier2 = initRecaptchaVerifier('firebase-login-recaptcha');
@@ -169,47 +212,67 @@ describe('Firebase Phone OTP reCAPTCHA Lifecycle Suite', () => {
     assert.equal(isRecaptchaVerifierActive(), true);
   });
 
-  it('4. Failed OTP send triggers reset and allows clean retry without duplicate render', () => {
+  it('4. resetRecaptchaVerifier resets active widget state without destroying verifier, keeping it ready for retry', () => {
     const container = new MockDOMElement('firebase-login-recaptcha');
     mockElements.set('firebase-login-recaptcha', container);
 
     // First attempt
-    const verifier1 = initRecaptchaVerifier('firebase-login-recaptcha');
-    container.appendChild({ outerHTML: '<iframe src="recaptcha"></iframe>' });
+    const verifier = initRecaptchaVerifier('firebase-login-recaptcha');
+    assert.ok(verifier);
+    assert.equal(verifier.resetCount, 0);
 
-    // Simulate OTP failure handling: resetRecaptchaVerifier is called
-    resetRecaptchaVerifier(container);
+    // Non-destructive reset on error or user action
+    const resetResult = resetRecaptchaVerifier('firebase-login-recaptcha');
 
-    // Container DOM must be emptied so next render cannot encounter "already rendered"
-    assert.equal(container.childNodes.length, 0, 'Container DOM must be empty after reset');
-    assert.equal(isRecaptchaVerifierActive(), false, 'Verifier must be inactive after reset');
+    assert.equal(resetResult, verifier, 'resetRecaptchaVerifier should return the active verifier');
+    assert.equal(verifier.resetCount, 1, 'Verifier _reset should be called');
+    assert.equal(verifier.destroyed, false, 'Verifier must NOT be destroyed by widget reset');
+    assert.equal(isRecaptchaVerifierActive(), true, 'Verifier must remain active after widget reset');
 
-    // Subsequent retry attempt
-    const verifier2 = initRecaptchaVerifier('firebase-login-recaptcha');
-    assert.ok(verifier2, 'New verifier should be created cleanly for retry');
-    assert.equal(isRecaptchaVerifierActive(), true);
+    // Retry call to initRecaptchaVerifier safely reuses this healthy active verifier
+    const retryVerifier = initRecaptchaVerifier('firebase-login-recaptcha');
+    assert.equal(retryVerifier, verifier, 'Retry must reuse healthy verifier instance');
   });
 
-  it('5. Component unmount cleanly destroys verifier and clears container DOM', () => {
+  it('5. User editing phone number (Number A -> Number B) retains active verifier and allows clean resend', () => {
+    const container = new MockDOMElement('firebase-login-recaptcha');
+    mockElements.set('firebase-login-recaptcha', container);
+
+    // First phone number send
+    const verifier1 = initRecaptchaVerifier('firebase-login-recaptcha');
+    assert.ok(verifier1);
+
+    // User edits phone number: LoginPage calls resetRecaptchaVerifier
+    resetRecaptchaVerifier('firebase-login-recaptcha');
+    assert.equal(isRecaptchaVerifierActive(), true);
+
+    // User clicks "Send Verification Code" with new phone number B
+    const verifier2 = initRecaptchaVerifier('firebase-login-recaptcha');
+    assert.equal(verifier1, verifier2, 'Must reuse the existing verifier when phone number changes');
+  });
+
+  it('6. Component unmount cleanly destroys verifier and clears container DOM', () => {
     const container = new MockDOMElement('firebase-login-recaptcha');
     mockElements.set('firebase-login-recaptcha', container);
 
     const verifier = initRecaptchaVerifier('firebase-login-recaptcha');
-    container.appendChild({ outerHTML: '<div class="widget"></div>' });
+    assert.ok(verifier);
 
     // Component unmounts
     cleanupRecaptchaVerifier('firebase-login-recaptcha');
 
+    assert.equal(verifier.destroyed, true, 'Verifier must be destroyed on cleanup');
     assert.equal(container.childNodes.length, 0, 'Container inner elements must be removed on unmount');
     assert.equal(isRecaptchaVerifierActive(), false, 'Active verifier must be cleared on unmount');
   });
 
-  it('6. Component remount (e.g. React StrictMode or mode switch) creates clean new verifier', () => {
+  it('7. Component remount (e.g. React StrictMode or mode switch) creates clean new verifier with fresh inner target', () => {
     // Mount 1
     const container1 = new MockDOMElement('firebase-login-recaptcha');
     mockElements.set('firebase-login-recaptcha', container1);
     const verifier1 = initRecaptchaVerifier('firebase-login-recaptcha');
     assert.ok(verifier1);
+    const firstTargetNode = verifier1.container;
 
     // Unmount 1
     cleanupRecaptchaVerifier('firebase-login-recaptcha');
@@ -221,11 +284,12 @@ describe('Firebase Phone OTP reCAPTCHA Lifecycle Suite', () => {
 
     const verifier2 = initRecaptchaVerifier('firebase-login-recaptcha');
     assert.ok(verifier2, 'Remount should successfully initialize new verifier');
-    assert.notEqual(verifier1, verifier2, 'New verifier instance should be bound to new DOM container');
+    assert.notEqual(verifier1, verifier2, 'New verifier instance should be bound');
+    assert.notEqual(firstTargetNode, verifier2.container, 'Target node must be a fresh DOM element');
     assert.equal(isRecaptchaVerifierActive(), true);
   });
 
-  it('7. Phone normalization handles various formats correctly before reCAPTCHA dispatch', () => {
+  it('8. Phone normalization handles various formats correctly before reCAPTCHA dispatch', () => {
     assert.equal(normalizeE164Phone('9876543210'), '+919876543210');
     assert.equal(normalizeE164Phone('+91 98765 43210'), '+919876543210');
     assert.equal(normalizeE164Phone('00919876543210'), '+919876543210');
@@ -233,7 +297,18 @@ describe('Firebase Phone OTP reCAPTCHA Lifecycle Suite', () => {
     assert.throws(() => normalizeE164Phone(''), /enter a phone number/i);
   });
 
-  it('8. mapFirebasePhoneAuthError distinguishes auth/billing-not-enabled from auth/operation-not-allowed', () => {
+  it('9. mapFirebasePhoneAuthError handles "already been rendered" specifically with auth/captcha-check-failed', () => {
+    const renderedErr = mapFirebasePhoneAuthError({
+      message: 'reCAPTCHA has already been rendered in this element',
+      code: 'auth/unknown',
+    });
+    assert.equal(renderedErr.code, 'auth/captcha-check-failed');
+    assert.match(renderedErr.message, /verification helper was busy/i);
+    assert.doesNotMatch(renderedErr.message, /Cloud Billing/i);
+    assert.doesNotMatch(renderedErr.message, /Phone authentication is not enabled/i);
+  });
+
+  it('10. mapFirebasePhoneAuthError distinguishes auth/billing-not-enabled from auth/operation-not-allowed', () => {
     const billingErr = mapFirebasePhoneAuthError({ code: 'auth/billing-not-enabled', message: 'Firebase: Error (auth/billing-not-enabled).' });
     assert.equal(billingErr.code, 'auth/billing-not-enabled');
     assert.match(billingErr.message, /Cloud Billing is not enabled/i);
@@ -246,7 +321,7 @@ describe('Firebase Phone OTP reCAPTCHA Lifecycle Suite', () => {
     assert.doesNotMatch(operationErr.message, /Cloud Billing/i);
   });
 
-  it('9. mapFirebasePhoneAuthError accurately maps all specific Firebase auth error codes', () => {
+  it('11. mapFirebasePhoneAuthError accurately maps all specific Firebase auth error codes', () => {
     const domainErr = mapFirebasePhoneAuthError({ code: 'auth/unauthorized-domain' });
     assert.equal(domainErr.code, 'auth/unauthorized-domain');
     assert.match(domainErr.message, /domain is not authorized/i);
@@ -268,7 +343,7 @@ describe('Firebase Phone OTP reCAPTCHA Lifecycle Suite', () => {
     assert.match(captchaErr.message, /reCAPTCHA verification failed/i);
   });
 
-  it('10. getFirebaseDiagnostics reports safe details without exposing sensitive keys', () => {
+  it('12. getFirebaseDiagnostics reports safe details without exposing sensitive keys', () => {
     const diag = getFirebaseDiagnostics();
     assert.equal(diag.projectId, 'test-firebase-project');
     assert.equal(diag.authDomain, 'test-firebase-project.firebaseapp.com');
@@ -279,7 +354,7 @@ describe('Firebase Phone OTP reCAPTCHA Lifecycle Suite', () => {
     assert.equal(Object.values(diag).includes('test_firebase_api_key'), false, 'Raw API key must not be exposed');
   });
 
-  it('11. setLastPhoneAuthError and clearLastPhoneAuthError accurately track and clear error state', () => {
+  it('13. setLastPhoneAuthError and clearLastPhoneAuthError accurately track and clear error state', () => {
     clearLastPhoneAuthError();
     assert.equal(getLastPhoneAuthError(), null);
 

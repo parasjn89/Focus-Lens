@@ -7,6 +7,7 @@ import {
   signInWithGoogle,
   initRecaptchaVerifier,
   cleanupRecaptchaVerifier,
+  resetRecaptchaVerifier,
   sendFirebasePhoneOtp,
   confirmFirebasePhoneOtp,
   getFirebaseDiagnostics,
@@ -136,7 +137,7 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
   };
 
   const handleChangePhone = () => {
-    cleanupRecaptchaVerifier('firebase-login-recaptcha');
+    resetRecaptchaVerifier('firebase-login-recaptcha');
     setPhoneConfirmation(null);
     setPhoneOtp('');
     setError(null);

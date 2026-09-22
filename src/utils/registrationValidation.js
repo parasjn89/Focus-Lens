@@ -96,7 +96,25 @@ export function mapErrorToField(err) {
     };
   }
 
-  // Generic server or network error
+  // 3. Network, CORS, timeout, or backend connectivity errors
+  if (
+    err?.isNetworkError ||
+    err?.code === 'BACKEND_UNAVAILABLE_OR_CORS' ||
+    err?.code === 'MIXED_CONTENT_LOCALHOST_BLOCKED' ||
+    err?.code === 'CLIENT_OFFLINE' ||
+    err?.code === 'TIMEOUT' ||
+    lowerMsg.includes('failed to fetch') ||
+    lowerMsg.includes('network error')
+  ) {
+    return {
+      field: null,
+      message: rawMessage || 'Network connection to backend failed. Please verify backend service connectivity.',
+      isNetworkError: true,
+      code: err?.code || 'NETWORK_FAILURE',
+    };
+  }
+
+  // Generic server or validation error
   return {
     field: null,
     message: rawMessage || 'Registration failed. Please check your details and try again.',

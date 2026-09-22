@@ -25,9 +25,30 @@ export function buildApp(options = {}) {
   });
 
   // CORS Configuration
-  const allowedOrigins = config.corsOrigin === '*'
-    ? true
-    : (config.corsOrigin.includes(',') ? config.corsOrigin.split(',').map(o => o.trim()) : config.corsOrigin);
+  const defaultAllowedOrigins = [
+    'https://focus-lens-nine.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174',
+  ];
+
+  const allowedOrigins = (origin, cb) => {
+    // Requests with no origin (such as mobile apps, curl, server-to-server) are allowed
+    if (!origin) return cb(null, true);
+
+    const isDefault = defaultAllowedOrigins.includes(origin);
+    const isVercelDeploy = /^https:\/\/focus-lens-[a-z0-9\-]+\.vercel\.app$/.test(origin);
+    const isCustomOrigin = config.corsOrigin && config.corsOrigin !== '*' && config.corsOrigin.split(',').map(s => s.trim()).includes(origin);
+    const isDev = config.nodeEnv !== 'production';
+
+    if (isDefault || isVercelDeploy || isCustomOrigin || isDev) {
+      return cb(null, true);
+    }
+    return cb(new Error(`CORS origin not allowed: ${origin}`), false);
+  };
 
   app.register(cors, {
     origin: allowedOrigins,
@@ -44,19 +65,19 @@ export function buildApp(options = {}) {
   });
 
   // Cookie & Session Configuration
-
-  // Cookie & Session Configuration
   app.register(fastifyCookie, {
     secret: config.sessionSecret,
   });
+
+  const isProduction = config.nodeEnv === 'production';
 
   app.register(fastifySession, {
     secret: config.sessionSecret,
     cookieName: 'focuslens_session',
     cookie: {
-      secure: config.nodeEnv === 'production',
+      secure: isProduction,
       httpOnly: true,
-      sameSite: 'lax',
+      sameSite: isProduction ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     },
     saveUninitialized: false,

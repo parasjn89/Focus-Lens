@@ -112,4 +112,16 @@ describe('FocusLens Vercel SPA Routing Configuration Test Suite', () => {
       );
     }
   });
+
+  it('5. Vercel rewrites route /api/* requests to serverless handler /api/index.js', () => {
+    const content = fs.readFileSync(vercelConfigPath, 'utf8');
+    const json = JSON.parse(content);
+    const apiRewrite = json.rewrites.find((r) => r.destination === '/api/index.js');
+    assert.ok(apiRewrite, 'vercel.json must contain rewrite targeting /api/index.js');
+
+    const apiRegex = new RegExp(`^${apiRewrite.source}`);
+    assert.equal(apiRegex.test('/api/auth/register'), true);
+    assert.equal(apiRegex.test('/api/health'), true);
+    assert.equal(apiRegex.test('/api/sessions'), true);
+  });
 });

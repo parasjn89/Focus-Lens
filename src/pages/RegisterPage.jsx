@@ -8,6 +8,7 @@ import {
   signInWithGoogle,
   initRecaptchaVerifier,
   cleanupRecaptchaVerifier,
+  resetRecaptchaVerifier,
   sendFirebasePhoneOtp,
   confirmFirebasePhoneOtp,
   getFirebaseDiagnostics,
@@ -35,6 +36,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
   const [isPhoneVerifying, setIsPhoneVerifying] = useState(false);
   const [phoneCooldown, setPhoneCooldown] = useState(0);
   const [phoneErrorDetail, setPhoneErrorDetail] = useState(null);
+  const [apiErrorDetail, setApiErrorDetail] = useState(null);
 
   // Field-specific validation errors: { username?, name?, email?, phoneNumber?, password?, confirmPassword? }
   const [fieldErrors, setFieldErrors] = useState({});
@@ -244,7 +246,16 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
       if (onRegisterSuccess) onRegisterSuccess('verify', regDetails);
       else onNavigate('verify');
     } catch (err) {
-      const { field, message } = mapErrorToField(err);
+      const { field, message, isNetworkError, code } = mapErrorToField(err);
+      if (isNetworkError || err?.isNetworkError || err?.status) {
+        setApiErrorDetail({
+          code: code || err?.code || (err?.status ? `HTTP_${err.status}` : 'NETWORK_ERROR'),
+          targetUrl: err?.targetUrl || null,
+          status: err?.status || null,
+        });
+      } else {
+        setApiErrorDetail(null);
+      }
       if (field) {
         setFieldErrors((prev) => ({ ...prev, [field]: message }));
         setError(message);
@@ -330,7 +341,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
   };
 
   const handleChangeRegisterPhone = () => {
-    cleanupRecaptchaVerifier('firebase-register-recaptcha');
+    resetRecaptchaVerifier('firebase-register-recaptcha');
     setIsPhoneOtpStep(false);
     setPhoneConfirmation(null);
     setPhoneOtp('');
@@ -382,6 +393,22 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
               <div className="flex-1 space-y-2">
                 <div className="font-medium text-rose-200">{error}</div>
+
+                {apiErrorDetail?.code && (
+                  <div className="pt-2 border-t border-rose-500/20 space-y-1 font-mono text-[11px]">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-slate-400">API Diagnostic:</span>
+                      <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-200 font-semibold border border-rose-500/30">
+                        {apiErrorDetail.code}
+                      </span>
+                    </div>
+                    {apiErrorDetail.targetUrl && (
+                      <div className="text-[10px] text-slate-400 break-all">
+                        Target Endpoint: <code className="text-slate-300">{apiErrorDetail.targetUrl}</code>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {phoneErrorDetail?.code && (
                   <div className="pt-2 border-t border-rose-500/20 space-y-2 font-mono text-[11px]">

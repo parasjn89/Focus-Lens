@@ -120,8 +120,12 @@ export default defineConfig(({ mode }) => {
   if (projectId) define['import.meta.env.VITE_FIREBASE_PROJECT_ID'] = JSON.stringify(projectId);
   if (storageBucket) define['import.meta.env.VITE_FIREBASE_STORAGE_BUCKET'] = JSON.stringify(storageBucket);
   if (messagingSenderId) define['import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID'] = JSON.stringify(messagingSenderId);
-  if (appId) define['import.meta.env.VITE_FIREBASE_APP_ID'] = JSON.stringify(appId);
-  if (apiBaseUrl) define['import.meta.env.VITE_API_BASE_URL'] = JSON.stringify(apiBaseUrl);
+  const isProdBuild = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL);
+  if (isProdBuild && (!apiBaseUrl || /localhost|127\.0\.0\.1/i.test(apiBaseUrl))) {
+    define['import.meta.env.VITE_API_BASE_URL'] = JSON.stringify('');
+  } else if (apiBaseUrl) {
+    define['import.meta.env.VITE_API_BASE_URL'] = JSON.stringify(apiBaseUrl);
+  }
 
   return {
     plugins: [react()],
