@@ -66,13 +66,17 @@ export default defineConfig(({ mode }) => {
   const appId = findValue('VITE_FIREBASE_APP_ID', 'FIREBASE_APP_ID', 'VITE_FIREBASE_APPID', 'FIREBASE_APPID');
   const apiBaseUrl = findValue('VITE_API_BASE_URL', 'API_BASE_URL', 'VITE_BACKEND_URL', 'BACKEND_URL');
 
-  // Collect safe diagnostic key names (NO values/secrets)
+  // Collect safe diagnostic key names and lengths (NO values/secrets)
+  const detectedKeysDetail = allEntries
+    .filter(([k]) => /firebase|vite|sms|api|backend/i.test(k) && !/secret|password|private_key/i.test(k))
+    .map(([k, v]) => ({
+      key: k.trim(),
+      rawLen: typeof v === 'string' ? v.length : -1,
+      cleanLen: cleanVal(v).length,
+    }));
+
   const detectedEnvKeys = Array.from(
-    new Set(
-      allEntries
-        .map(([k]) => k.trim())
-        .filter((k) => /firebase|vite|sms|api|backend/i.test(k) && !/secret|password|private_key/i.test(k))
-    )
+    new Set(detectedKeysDetail.map((item) => item.key))
   ).sort();
 
   const buildDiagnostic = {
@@ -82,6 +86,7 @@ export default defineConfig(({ mode }) => {
     vercelEnv: process.env.VERCEL_ENV || 'unknown',
     vercelGitCommitRef: process.env.VERCEL_GIT_COMMIT_REF || 'unknown',
     detectedEnvKeys,
+    detectedKeysDetail,
   };
 
   // Safe build-time log for Vercel deployment logs

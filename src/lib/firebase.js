@@ -65,6 +65,7 @@ export function getFirebaseDiagnostics() {
       _vercelEnv: buildDiag.vercelEnv,
       _branch: buildDiag.vercelGitCommitRef,
       _detectedKeys: buildDiag.detectedEnvKeys,
+      _detectedKeysDetail: buildDiag.detectedKeysDetail,
       _buildDiagnosticHint: buildDiag.isVercel
         ? `Vercel (${buildDiag.vercelEnv || 'unknown'}) build at ${buildDiag.buildTime}. Matching build keys found: [${(buildDiag.detectedEnvKeys || []).join(', ')}]`
         : `Local build at ${buildDiag.buildTime}`,
