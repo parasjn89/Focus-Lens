@@ -6,6 +6,7 @@ import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { Footer } from './components/Footer';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ActiveSessionNavigationGuardModal } from './components/ActiveSessionNavigationGuardModal';
 import { LandingPage } from './pages/LandingPage';
 import { SessionSetupPage } from './pages/SessionSetupPage';
 import { TaskManagerPage } from './pages/TaskManagerPage';
@@ -67,6 +68,7 @@ function AppContent() {
   const [pauseStartedAt, setPauseStartedAt] = useState(null);
   const [isPauseConfirmOpen, setIsPauseConfirmOpen] = useState(false);
   const [autoResumeNotice, setAutoResumeNotice] = useState(null);
+  const [isNavBlockedModalOpen, setIsNavBlockedModalOpen] = useState(false);
   const [eventLogs, setEventLogs] = useState([]);
   const [activeSessionSegments, setActiveSessionSegments] = useState([]);
   const [reportData, setReportData] = useState(null);
@@ -98,31 +100,13 @@ function AppContent() {
     }
     if (currentView === 'active' && view !== 'active') {
       if (isTimerRunning && !isFinalizingRef.current) {
-        isFinalizingRef.current = true;
-        const scheduledSeconds = sessionConfig.durationMinutes * 60;
-        const currentPauseMs = isTimerPaused && pausedAtRef.current ? (Date.now() - pausedAtRef.current) : 0;
-        const totalElapsedMs = timerStartedAtRef.current
-          ? Math.max(1000, Date.now() - timerStartedAtRef.current - (totalPausedMsRef.current + currentPauseMs))
-          : scheduledSeconds * 1000;
-        const actualSecondsSpent = Math.min(scheduledSeconds, Math.floor(totalElapsedMs / 1000));
-        const actualDurationMs = actualSecondsSpent * 1000;
-
-        const backendSession = activeBackendSessionRef.current || activeBackendSession;
-        const sessionId = backendSession?.id;
-        const segmentsToSave = activeSessionSegmentsRef.current?.length > 0
-          ? activeSessionSegmentsRef.current
-          : activeSessionSegments;
-
-        if (sessionId) {
-          saveSessionSegments(sessionId, segmentsToSave).catch(() => null);
-          finalizeSession(sessionId, {
-            actualDurationMs,
-            pausedDurationMs: totalPausedMsRef.current,
-            status: 'COMPLETED',
-            goalProgress: backendSession?.goalProgress ?? 0,
-            goalCompleted: backendSession?.goalCompleted ?? false,
-          }).catch(() => null);
+        // Active focus session in progress: block navigation and display guard modal
+        if (fromPopState && typeof window !== 'undefined') {
+          const canonicalPath = ROUTE_PATH_MAP['active'] || '/active';
+          window.history.pushState({ view: 'active' }, '', canonicalPath);
         }
+        setIsNavBlockedModalOpen(true);
+        return;
       }
 
       setIsTimerRunning(false);
@@ -333,8 +317,16 @@ function AppContent() {
     }
   }, [isTimerRunning, isTimerPaused, sessionConfig.durationMinutes, activeBackendSession]);
 
-  // Lifecycle hook: finalize session when browser/tab unloads, closes, or reloads
+  // Lifecycle hook: warn user on refresh/close during active session, and finalize on unload
   useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isTimerRunning && !isFinalizingRef.current) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+
     const handleUnloadCleanup = () => {
       if (isTimerRunning && timerStartedAtRef.current && !isFinalizingRef.current) {
         const scheduledSeconds = sessionConfig.durationMinutes * 60;
@@ -390,11 +382,14 @@ function AppContent() {
       }
     };
 
+    if (isTimerRunning && !isFinalizingRef.current) {
+      window.addEventListener('beforeunload', handleBeforeUnload);
+    }
     window.addEventListener('pagehide', handleUnloadCleanup);
-    window.addEventListener('beforeunload', handleUnloadCleanup);
+
     return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handleUnloadCleanup);
-      window.removeEventListener('beforeunload', handleUnloadCleanup);
     };
   }, [isTimerRunning, isTimerPaused, sessionConfig.durationMinutes, activeBackendSession]);
 
@@ -427,6 +422,7 @@ function AppContent() {
     setPauseStartedAt(null);
     setIsPauseConfirmOpen(false);
     setAutoResumeNotice(null);
+    setIsNavBlockedModalOpen(false);
     if (autoResumeTimeoutRef.current) {
       clearTimeout(autoResumeTimeoutRef.current);
       autoResumeTimeoutRef.current = null;
@@ -626,6 +622,7 @@ function AppContent() {
     pausedAtRef.current = null;
     setPauseStartedAt(null);
     setIsPauseConfirmOpen(false);
+    setIsNavBlockedModalOpen(false);
     if (autoResumeTimeoutRef.current) {
       clearTimeout(autoResumeTimeoutRef.current);
       autoResumeTimeoutRef.current = null;
@@ -1012,6 +1009,12 @@ function AppContent() {
 
         {/* Footer */}
         {!isAppView && <Footer />}
+
+        {/* Active Session Navigation Guard Modal */}
+        <ActiveSessionNavigationGuardModal
+          isOpen={isNavBlockedModalOpen}
+          onClose={() => setIsNavBlockedModalOpen(false)}
+        />
       </div>
     </div>
   );

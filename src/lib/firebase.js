@@ -9,13 +9,26 @@ import {
 } from 'firebase/auth';
 
 export function getFirebaseConfig() {
+  const apiKey = (import.meta.env.VITE_FIREBASE_API_KEY || '').trim();
+  const projectId = (import.meta.env.VITE_FIREBASE_PROJECT_ID || '').trim();
+  const authDomain = (
+    import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ||
+    (projectId ? `${projectId}.firebaseapp.com` : '')
+  ).trim();
+  const storageBucket = (
+    import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ||
+    (projectId ? `${projectId}.appspot.com` : '')
+  ).trim();
+  const messagingSenderId = (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '').trim();
+  const appId = (import.meta.env.VITE_FIREBASE_APP_ID || '').trim();
+
   return {
-    apiKey: (import.meta.env.VITE_FIREBASE_API_KEY || '').trim(),
-    authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '').trim(),
-    projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID || '').trim(),
-    storageBucket: (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '').trim(),
-    messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '').trim(),
-    appId: (import.meta.env.VITE_FIREBASE_APP_ID || '').trim(),
+    apiKey,
+    authDomain,
+    projectId,
+    storageBucket,
+    messagingSenderId,
+    appId,
   };
 }
 
@@ -36,7 +49,7 @@ export function isFirebaseConfigured() {
  */
 export function getFirebaseApp() {
   if (!isFirebaseConfigured()) {
-    throw new Error('Google sign-in is not configured on the client. Missing Firebase configuration.');
+    throw new Error('Firebase is not configured. Please check your Firebase environment variables.');
   }
 
   const existingApps = getApps();
