@@ -52,9 +52,12 @@ export default defineConfig(({ mode }) => {
   const authDomain =
     findValue('VITE_FIREBASE_AUTH_DOMAIN', 'FIREBASE_AUTH_DOMAIN', 'VITE_FIREBASE_AUTHDOMAIN', 'FIREBASE_AUTHDOMAIN') ||
     (projectId ? `${projectId}.firebaseapp.com` : '');
-  const storageBucket =
+  const rawStorageBucket =
     findValue('VITE_FIREBASE_STORAGE_BUCKET', 'FIREBASE_STORAGE_BUCKET', 'VITE_FIREBASE_STORAGEBUCKET', 'FIREBASE_STORAGEBUCKET') ||
     (projectId ? `${projectId}.appspot.com` : '');
+  const storageBucket = rawStorageBucket.endsWith('.firebasestorage.ap')
+    ? `${rawStorageBucket}p`
+    : rawStorageBucket;
   const messagingSenderId = findValue(
     'VITE_FIREBASE_MESSAGING_SENDER_ID',
     'FIREBASE_MESSAGING_SENDER_ID',

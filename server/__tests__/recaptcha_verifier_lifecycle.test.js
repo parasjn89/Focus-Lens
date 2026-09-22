@@ -9,6 +9,11 @@ import {
   normalizeE164Phone,
   setMockRecaptchaVerifierClass,
   resetMockRecaptchaVerifierClass,
+  mapFirebasePhoneAuthError,
+  getFirebaseDiagnostics,
+  getLastPhoneAuthError,
+  clearLastPhoneAuthError,
+  setLastPhoneAuthError,
 } from '../../src/lib/firebase.js';
 
 // Minimal mock DOM Element for testing RecaptchaVerifier lifecycle in Node environment
@@ -226,5 +231,73 @@ describe('Firebase Phone OTP reCAPTCHA Lifecycle Suite', () => {
     assert.equal(normalizeE164Phone('00919876543210'), '+919876543210');
     assert.throws(() => normalizeE164Phone('12345'), /valid phone number/i);
     assert.throws(() => normalizeE164Phone(''), /enter a phone number/i);
+  });
+
+  it('8. mapFirebasePhoneAuthError distinguishes auth/billing-not-enabled from auth/operation-not-allowed', () => {
+    const billingErr = mapFirebasePhoneAuthError({ code: 'auth/billing-not-enabled', message: 'Firebase: Error (auth/billing-not-enabled).' });
+    assert.equal(billingErr.code, 'auth/billing-not-enabled');
+    assert.match(billingErr.message, /Cloud Billing is not enabled/i);
+    assert.match(billingErr.message, /Blaze plan/i);
+    assert.doesNotMatch(billingErr.message, /Phone authentication is not enabled in Firebase Console/i);
+
+    const operationErr = mapFirebasePhoneAuthError({ code: 'auth/operation-not-allowed', message: 'Firebase: Error (auth/operation-not-allowed).' });
+    assert.equal(operationErr.code, 'auth/operation-not-allowed');
+    assert.match(operationErr.message, /Phone sign-in is disabled or not allowed/i);
+    assert.doesNotMatch(operationErr.message, /Cloud Billing/i);
+  });
+
+  it('9. mapFirebasePhoneAuthError accurately maps all specific Firebase auth error codes', () => {
+    const domainErr = mapFirebasePhoneAuthError({ code: 'auth/unauthorized-domain' });
+    assert.equal(domainErr.code, 'auth/unauthorized-domain');
+    assert.match(domainErr.message, /domain is not authorized/i);
+
+    const appErr = mapFirebasePhoneAuthError({ code: 'auth/app-not-authorized' });
+    assert.equal(appErr.code, 'auth/app-not-authorized');
+    assert.match(appErr.message, /not authorized to use Firebase Authentication/i);
+
+    const quotaErr = mapFirebasePhoneAuthError({ code: 'auth/quota-exceeded' });
+    assert.equal(quotaErr.code, 'auth/quota-exceeded');
+    assert.match(quotaErr.message, /quota for this project has been exceeded/i);
+
+    const rateErr = mapFirebasePhoneAuthError({ code: 'auth/too-many-requests' });
+    assert.equal(rateErr.code, 'auth/too-many-requests');
+    assert.match(rateErr.message, /Too many attempts/i);
+
+    const captchaErr = mapFirebasePhoneAuthError({ code: 'auth/captcha-check-failed' });
+    assert.equal(captchaErr.code, 'auth/captcha-check-failed');
+    assert.match(captchaErr.message, /reCAPTCHA verification failed/i);
+  });
+
+  it('10. getFirebaseDiagnostics reports safe details without exposing sensitive keys', () => {
+    const diag = getFirebaseDiagnostics();
+    assert.equal(diag.projectId, 'test-firebase-project');
+    assert.equal(diag.authDomain, 'test-firebase-project.firebaseapp.com');
+    assert.equal(diag.configCompleteness, 'complete');
+    assert.equal(diag['API key'], 'present');
+    // Ensure raw secret is not in the object keys or values
+    assert.equal(diag.apiKey, undefined, 'Raw apiKey property must not be leaked');
+    assert.equal(Object.values(diag).includes('test_firebase_api_key'), false, 'Raw API key must not be exposed');
+  });
+
+  it('11. setLastPhoneAuthError and clearLastPhoneAuthError accurately track and clear error state', () => {
+    clearLastPhoneAuthError();
+    assert.equal(getLastPhoneAuthError(), null);
+
+    const testErr = mapFirebasePhoneAuthError({ code: 'auth/billing-not-enabled', message: 'Original raw message' });
+    setLastPhoneAuthError(testErr);
+
+    const last = getLastPhoneAuthError();
+    assert.ok(last);
+    assert.equal(last.code, 'auth/billing-not-enabled');
+    assert.match(last.message, /Cloud Billing/i);
+    assert.equal(last.rawMessage, 'Original raw message');
+
+    const diag = getFirebaseDiagnostics();
+    assert.equal(diag.lastErrorCode, 'auth/billing-not-enabled');
+    assert.match(diag.lastErrorMessage, /Cloud Billing/i);
+
+    clearLastPhoneAuthError();
+    assert.equal(getLastPhoneAuthError(), null);
+    assert.equal(getFirebaseDiagnostics().lastErrorCode, null);
   });
 });

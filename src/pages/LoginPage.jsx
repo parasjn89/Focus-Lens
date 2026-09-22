@@ -30,6 +30,7 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
   const [isPhoneSending, setIsPhoneSending] = useState(false);
   const [isPhoneVerifying, setIsPhoneVerifying] = useState(false);
   const [phoneCooldown, setPhoneCooldown] = useState(0);
+  const [phoneErrorDetail, setPhoneErrorDetail] = useState(null);
 
   useEffect(() => {
     let timer = null;
@@ -93,8 +94,14 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
       setSentPhoneFormatted(res.phoneNumber);
       setPhoneCooldown(60);
       setPhoneOtp('');
+      setPhoneErrorDetail(null);
     } catch (err) {
       setError(err.message || 'Failed to send SMS verification code.');
+      setPhoneErrorDetail({
+        code: err.code || 'auth/unknown',
+        message: err.message,
+        rawMessage: err.rawMessage || err.originalMessage || null,
+      });
     } finally {
       isPhoneSendingRef.current = false;
       setIsPhoneSending(false);
@@ -133,6 +140,7 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
     setPhoneConfirmation(null);
     setPhoneOtp('');
     setError(null);
+    setPhoneErrorDetail(null);
   };
 
   const handleSubmit = async (e) => {
@@ -173,34 +181,75 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
 
       <div className="p-8 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-2xl backdrop-blur-sm">
         {error && (
-          <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-start space-x-3 text-xs text-rose-300">
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <span>{error}</span>
-              {error.includes('Firebase is not configured') && (
-                <div className="mt-3 pt-2.5 border-t border-rose-500/20">
-                  <div className="text-[11px] font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">
-                    Environment Variables Status
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px]">
-                    {Object.entries(getFirebaseDiagnostics())
-                      .filter(([name]) => !name.startsWith('_'))
-                      .map(([name, status]) => (
-                        <div key={name} className="flex justify-between items-center py-0.5">
-                          <span className="text-slate-400">{name}:</span>
-                          <span className={status === 'present' ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>
-                            {status}
-                          </span>
-                        </div>
-                      ))}
-                  </div>
-                  {getFirebaseDiagnostics()._buildDiagnosticHint && (
-                    <div className="mt-2 pt-2 border-t border-rose-500/10 text-[10px] text-slate-400 font-mono break-all">
-                      {getFirebaseDiagnostics()._buildDiagnosticHint}
+          <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">
+            <div className="flex items-start space-x-3">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-2">
+                <div className="font-medium text-rose-200">{error}</div>
+
+                {phoneErrorDetail?.code && (
+                  <div className="pt-2 border-t border-rose-500/20 space-y-2 font-mono text-[11px]">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-slate-400">Firebase Error Code:</span>
+                      <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-200 font-semibold border border-rose-500/30">
+                        {phoneErrorDetail.code}
+                      </span>
                     </div>
-                  )}
-                </div>
-              )}
+
+                    {phoneErrorDetail.code === 'auth/billing-not-enabled' && (
+                      <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs font-sans leading-relaxed">
+                        <p className="font-semibold text-amber-300 mb-1">Action Required in Google Cloud:</p>
+                        <p>Google requires all Firebase projects using Phone SMS Authentication to have a linked Cloud Billing account (Blaze pay-as-you-go plan) to prevent SMS abuse. Please link a billing account to project <code className="font-mono bg-black/40 px-1 py-0.5 rounded text-amber-100">{getFirebaseDiagnostics().projectId}</code> in Google Cloud Console.</p>
+                      </div>
+                    )}
+
+                    {phoneErrorDetail.code === 'auth/operation-not-allowed' && (
+                      <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs font-sans leading-relaxed">
+                        <p className="font-semibold text-amber-300 mb-1">Action Required in Firebase Console:</p>
+                        <p>Verify that the Phone provider is set to &ldquo;Enabled&rdquo; under Authentication &gt; Sign-in method in project <code className="font-mono bg-black/40 px-1 py-0.5 rounded text-amber-100">{getFirebaseDiagnostics().projectId}</code>.</p>
+                      </div>
+                    )}
+
+                    {phoneErrorDetail.code === 'auth/unauthorized-domain' && (
+                      <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs font-sans leading-relaxed">
+                        <p className="font-semibold text-amber-300 mb-1">Action Required in Firebase Console:</p>
+                        <p>Add this domain to Authentication &gt; Settings &gt; Authorized domains in Firebase Console.</p>
+                      </div>
+                    )}
+
+                    <div className="text-[10px] text-slate-400 pt-1 flex flex-wrap gap-x-3 gap-y-1">
+                      <span>Project: <strong className="text-slate-300">{getFirebaseDiagnostics().projectId}</strong></span>
+                      <span>Auth Domain: <strong className="text-slate-300">{getFirebaseDiagnostics().authDomain}</strong></span>
+                      <span>Config: <strong className="text-slate-300">{getFirebaseDiagnostics().configCompleteness}</strong></span>
+                    </div>
+                  </div>
+                )}
+
+                {error.includes('Firebase is not configured') && (
+                  <div className="mt-3 pt-2.5 border-t border-rose-500/20">
+                    <div className="text-[11px] font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">
+                      Environment Variables Status
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px]">
+                      {Object.entries(getFirebaseDiagnostics())
+                        .filter(([name]) => !name.startsWith('_') && !['projectId', 'authDomain', 'configCompleteness', 'lastErrorCode', 'lastErrorMessage', 'lastErrorRawMessage'].includes(name))
+                        .map(([name, status]) => (
+                          <div key={name} className="flex justify-between items-center py-0.5">
+                            <span className="text-slate-400">{name}:</span>
+                            <span className={status === 'present' ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>
+                              {status}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                    {getFirebaseDiagnostics()._buildDiagnosticHint && (
+                      <div className="mt-2 pt-2 border-t border-rose-500/10 text-[10px] text-slate-400 font-mono break-all">
+                        {getFirebaseDiagnostics()._buildDiagnosticHint}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -233,6 +282,7 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
               cleanupRecaptchaVerifier('firebase-login-recaptcha');
               setAuthMode('password');
               setError(null);
+              setPhoneErrorDetail(null);
             }}
             className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               authMode === 'password'
@@ -244,7 +294,11 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
           </button>
           <button
             type="button"
-            onClick={() => { setAuthMode('phone'); setError(null); }}
+            onClick={() => {
+              setAuthMode('phone');
+              setError(null);
+              setPhoneErrorDetail(null);
+            }}
             className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               authMode === 'phone'
                 ? 'bg-brand-600 text-white shadow-sm'

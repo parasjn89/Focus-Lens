@@ -10,6 +10,7 @@ import {
   cleanupRecaptchaVerifier,
   sendFirebasePhoneOtp,
   confirmFirebasePhoneOtp,
+  getFirebaseDiagnostics,
 } from '../lib/firebase.js';
 
 export { mapErrorToField };
@@ -33,6 +34,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
   const [phoneOtp, setPhoneOtp] = useState('');
   const [isPhoneVerifying, setIsPhoneVerifying] = useState(false);
   const [phoneCooldown, setPhoneCooldown] = useState(0);
+  const [phoneErrorDetail, setPhoneErrorDetail] = useState(null);
 
   // Field-specific validation errors: { username?, name?, email?, phoneNumber?, password?, confirmPassword? }
   const [fieldErrors, setFieldErrors] = useState({});
@@ -205,11 +207,17 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
         setSentPhoneFormatted(sendRes.phoneNumber);
         setPhoneCooldown(60);
         setPhoneOtp('');
+        setPhoneErrorDetail(null);
         setIsPhoneOtpStep(true);
         showToast('SMS verification code sent to your phone.', 'info');
       } catch (err) {
         setError(err.message || 'Failed to send SMS verification code.');
         showToast(err.message || 'Failed to send SMS verification code.', 'error');
+        setPhoneErrorDetail({
+          code: err.code || 'auth/unknown',
+          message: err.message,
+          rawMessage: err.rawMessage || err.originalMessage || null,
+        });
       } finally {
         isPhoneSendingRef.current = false;
         setIsSubmitting(false);
@@ -305,10 +313,16 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
       setPhoneConfirmation(sendRes.confirmationResult);
       setSentPhoneFormatted(sendRes.phoneNumber);
       setPhoneCooldown(60);
+      setPhoneErrorDetail(null);
       showToast('New verification code sent via SMS.', 'info');
     } catch (err) {
       setError(err.message || 'Failed to resend SMS verification code.');
       showToast(err.message || 'Failed to resend SMS verification code.', 'error');
+      setPhoneErrorDetail({
+        code: err.code || 'auth/unknown',
+        message: err.message,
+        rawMessage: err.rawMessage || err.originalMessage || null,
+      });
     } finally {
       isPhoneSendingRef.current = false;
       setIsSubmitting(false);
@@ -321,6 +335,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
     setPhoneConfirmation(null);
     setPhoneOtp('');
     setError(null);
+    setPhoneErrorDetail(null);
   };
 
   return (
@@ -361,10 +376,52 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
           <div
             ref={globalErrorRef}
             tabIndex={-1}
-            className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-start space-x-3 text-xs text-rose-300 outline-none"
+            className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 outline-none"
           >
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-            <span>{error}</span>
+            <div className="flex items-start space-x-3">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-2">
+                <div className="font-medium text-rose-200">{error}</div>
+
+                {phoneErrorDetail?.code && (
+                  <div className="pt-2 border-t border-rose-500/20 space-y-2 font-mono text-[11px]">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-slate-400">Firebase Error Code:</span>
+                      <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-200 font-semibold border border-rose-500/30">
+                        {phoneErrorDetail.code}
+                      </span>
+                    </div>
+
+                    {phoneErrorDetail.code === 'auth/billing-not-enabled' && (
+                      <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs font-sans leading-relaxed">
+                        <p className="font-semibold text-amber-300 mb-1">Action Required in Google Cloud:</p>
+                        <p>Google requires all Firebase projects using Phone SMS Authentication to have a linked Cloud Billing account (Blaze pay-as-you-go plan) to prevent SMS abuse. Please link a billing account to project <code className="font-mono bg-black/40 px-1 py-0.5 rounded text-amber-100">{getFirebaseDiagnostics().projectId}</code> in Google Cloud Console.</p>
+                      </div>
+                    )}
+
+                    {phoneErrorDetail.code === 'auth/operation-not-allowed' && (
+                      <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs font-sans leading-relaxed">
+                        <p className="font-semibold text-amber-300 mb-1">Action Required in Firebase Console:</p>
+                        <p>Verify that the Phone provider is set to &ldquo;Enabled&rdquo; under Authentication &gt; Sign-in method in project <code className="font-mono bg-black/40 px-1 py-0.5 rounded text-amber-100">{getFirebaseDiagnostics().projectId}</code>.</p>
+                      </div>
+                    )}
+
+                    {phoneErrorDetail.code === 'auth/unauthorized-domain' && (
+                      <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs font-sans leading-relaxed">
+                        <p className="font-semibold text-amber-300 mb-1">Action Required in Firebase Console:</p>
+                        <p>Add this domain to Authentication &gt; Settings &gt; Authorized domains in Firebase Console.</p>
+                      </div>
+                    )}
+
+                    <div className="text-[10px] text-slate-400 pt-1 flex flex-wrap gap-x-3 gap-y-1">
+                      <span>Project: <strong className="text-slate-300">{getFirebaseDiagnostics().projectId}</strong></span>
+                      <span>Auth Domain: <strong className="text-slate-300">{getFirebaseDiagnostics().authDomain}</strong></span>
+                      <span>Config: <strong className="text-slate-300">{getFirebaseDiagnostics().configCompleteness}</strong></span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 

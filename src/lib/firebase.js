@@ -36,13 +36,16 @@ export function getFirebaseConfig() {
     procEnv.FIREBASE_AUTH_DOMAIN ||
     (projectId ? `${projectId}.firebaseapp.com` : '')
   ).trim();
-  const storageBucket = (
+  const rawStorageBucket = (
     staticConfig.storageBucket ||
     import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET ||
     procEnv.VITE_FIREBASE_STORAGE_BUCKET ||
     procEnv.FIREBASE_STORAGE_BUCKET ||
     (projectId ? `${projectId}.appspot.com` : '')
   ).trim();
+  const storageBucket = rawStorageBucket.endsWith('.firebasestorage.ap')
+    ? `${rawStorageBucket}p`
+    : rawStorageBucket;
   const messagingSenderId = (
     staticConfig.messagingSenderId ||
     import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID ||
@@ -68,9 +71,32 @@ export function getFirebaseConfig() {
   };
 }
 
+let lastPhoneAuthError = null;
+
+export function getLastPhoneAuthError() {
+  return lastPhoneAuthError;
+}
+
+export function clearLastPhoneAuthError() {
+  lastPhoneAuthError = null;
+}
+
+export function setLastPhoneAuthError(err) {
+  if (!err) {
+    lastPhoneAuthError = null;
+    return;
+  }
+  lastPhoneAuthError = {
+    code: err.code || 'auth/unknown',
+    message: err.message || '',
+    rawMessage: err.rawMessage || err.originalMessage || err.message || '',
+    timestamp: new Date().toISOString(),
+  };
+}
+
 /**
- * Safe client diagnostic that reports presence (present/missing) of Firebase config variables
- * without exposing sensitive values, keys, or secrets.
+ * Safe client diagnostic that reports presence of Firebase config variables
+ * and actual last Firebase Auth error code/message without exposing sensitive values or keys.
  */
 export function getFirebaseDiagnostics() {
   const cfg = getFirebaseConfig();
@@ -79,6 +105,12 @@ export function getFirebaseDiagnostics() {
     : null;
 
   return {
+    projectId: cfg.projectId || 'missing',
+    authDomain: cfg.authDomain || 'missing',
+    configCompleteness: isFirebaseConfigured() ? 'complete' : 'incomplete',
+    lastErrorCode: lastPhoneAuthError?.code || null,
+    lastErrorMessage: lastPhoneAuthError?.message || null,
+    lastErrorRawMessage: lastPhoneAuthError?.rawMessage || null,
     'API key': cfg.apiKey ? 'present' : 'missing',
     'auth domain': cfg.authDomain ? 'present' : 'missing',
     'project ID': cfg.projectId ? 'present' : 'missing',
@@ -445,6 +477,66 @@ export function initRecaptchaVerifier(containerOrId = 'firebase-recaptcha-contai
  * Sends a real Firebase SMS OTP to the normalized phone number.
  * Returns confirmationResult object required for subsequent OTP verification.
  */
+
+/**
+ * Maps Firebase Auth errors to specific, actionable user-friendly messages
+ * while preserving the raw error code and message for diagnostic inspection.
+ */
+export function mapFirebasePhoneAuthError(err) {
+  const code = err?.code || 'auth/unknown';
+  const rawMessage = err?.message || '';
+
+  let friendlyMessage = '';
+
+  switch (code) {
+    case 'auth/billing-not-enabled':
+      friendlyMessage = 'Cloud Billing is not enabled for this Firebase project. Google requires a linked billing account (Blaze plan) to send SMS verification codes.';
+      break;
+    case 'auth/operation-not-allowed':
+      friendlyMessage = 'Phone sign-in is disabled or not allowed for this Firebase project. Please verify that Phone authentication is enabled in Firebase Console (Authentication > Sign-in method).';
+      break;
+    case 'auth/unauthorized-domain':
+      friendlyMessage = 'This web domain is not authorized for Firebase Authentication. Please add this domain to Authorized Domains in Firebase Console.';
+      break;
+    case 'auth/app-not-authorized':
+      friendlyMessage = 'This application domain is not authorized to use Firebase Authentication with the provided API key. Please check Google Cloud API key restrictions.';
+      break;
+    case 'auth/invalid-app-credential':
+      friendlyMessage = 'Invalid app credential or reCAPTCHA check failed. Please refresh and try again.';
+      break;
+    case 'auth/invalid-api-key':
+      friendlyMessage = 'The provided Firebase API key is invalid. Please check your project environment variables.';
+      break;
+    case 'auth/quota-exceeded':
+      friendlyMessage = 'SMS quota for this project has been exceeded. Please try again later or check your Google Cloud quota limits.';
+      break;
+    case 'auth/too-many-requests':
+      friendlyMessage = 'Too many attempts. Please wait a few minutes before requesting another code.';
+      break;
+    case 'auth/captcha-check-failed':
+      friendlyMessage = 'reCAPTCHA verification failed. Please try again.';
+      break;
+    case 'auth/invalid-phone-number':
+      friendlyMessage = 'The phone number is invalid. Please enter a valid number with country code (e.g. +91 98765 43210).';
+      break;
+    case 'auth/missing-phone-number':
+      friendlyMessage = 'Phone number is required.';
+      break;
+    default:
+      friendlyMessage = rawMessage || 'Failed to send SMS verification code. Please try again.';
+      break;
+  }
+
+  const customErr = new Error(friendlyMessage);
+  customErr.code = code;
+  customErr.rawMessage = rawMessage;
+  return customErr;
+}
+
+/**
+ * Sends a real SMS OTP to the given phone number using Firebase Auth and RecaptchaVerifier.
+ * Returns confirmationResult for subsequent OTP code verification.
+ */
 export async function sendFirebasePhoneOtp(phoneNumber, verifierInstance = null) {
   if (!isFirebaseConfigured()) {
     throw new Error('Phone authentication is not configured. Please check your Firebase settings.');
@@ -460,6 +552,7 @@ export async function sendFirebasePhoneOtp(phoneNumber, verifierInstance = null)
 
   try {
     const confirmationResult = await signInWithPhoneNumber(auth, normalizedPhone, verifier);
+    setLastPhoneAuthError(null);
     return {
       confirmationResult,
       phoneNumber: normalizedPhone,
@@ -468,29 +561,9 @@ export async function sendFirebasePhoneOtp(phoneNumber, verifierInstance = null)
     // Reset/recreate verifier on error so the user can immediately retry with a clean reCAPTCHA
     resetRecaptchaVerifier(activeRecaptchaContainer);
 
-    if (err.code === 'auth/invalid-phone-number') {
-      throw new Error('The phone number is invalid. Please enter a valid number with country code (e.g. +91 98765 43210).');
-    }
-    if (err.code === 'auth/missing-phone-number') {
-      throw new Error('Phone number is required.');
-    }
-    if (err.code === 'auth/quota-exceeded') {
-      throw new Error('SMS quota for this project has been exceeded. Please try again later.');
-    }
-    if (err.code === 'auth/too-many-requests') {
-      throw new Error('Too many attempts. Please wait a few minutes before requesting another code.');
-    }
-    if (err.code === 'auth/captcha-check-failed') {
-      throw new Error('reCAPTCHA verification failed. Please try again.');
-    }
-    if (err.code === 'auth/billing-not-enabled' || err.code === 'auth/operation-not-allowed') {
-      throw new Error('Phone authentication is not enabled in Firebase Console. Please check SMS settings.');
-    }
-
-    const errorMsg = err.message || 'Failed to send SMS verification code. Please try again.';
-    const customErr = new Error(errorMsg);
-    customErr.code = err.code || 'SMS_SEND_FAILED';
-    throw customErr;
+    const mappedErr = mapFirebasePhoneAuthError(err);
+    setLastPhoneAuthError(mappedErr);
+    throw mappedErr;
   }
 }
 
