@@ -493,6 +493,162 @@ export async function googleAuth(request, reply) {
   }
 }
 
+export const FirebasePhoneAuthSchema = z.object({
+  idToken: z.string().min(1, 'Firebase ID token is required.'),
+  username: z.string().min(3).max(30).optional(),
+  name: z.string().min(1).max(100).optional(),
+  email: z.string().email().optional().nullable(),
+  password: z.string().min(12).optional(),
+});
+
+// Handler: POST /api/auth/firebase-phone
+export async function firebasePhoneAuth(request, reply) {
+  try {
+    const body = FirebasePhoneAuthSchema.parse(request.body);
+    const decodedToken = await verifyFirebaseIdToken(body.idToken);
+
+    const rawPhoneNumber = decodedToken.phone_number;
+    if (!rawPhoneNumber) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'Firebase token does not contain a verified phone number.',
+      });
+    }
+
+    const normalizedPhone = normalizePhoneNumber(rawPhoneNumber);
+    let user = await dbStore.getUserByPhoneNumber(normalizedPhone);
+
+    // Case 1: Account with this phone number ALREADY exists
+    if (user) {
+      // If caller passed registration details, prevent duplicate registration
+      if (body.username || body.password) {
+        return reply.status(409).send({
+          statusCode: 409,
+          error: 'Conflict',
+          message: 'An account with this phone number already exists. Please sign in.',
+          field: 'phoneNumber',
+        });
+      }
+
+      // Ensure phone is marked as verified upon successful Firebase phone authentication
+      if (user.verificationStatus !== 'VERIFIED' || !user.phoneVerifiedAt) {
+        const updated = await dbStore.updateUserContact(user.id, {
+          phoneVerifiedAt: new Date(),
+          verificationStatus: 'VERIFIED',
+        });
+        if (updated) {
+          user = updated;
+        }
+      }
+
+      // Establish signed HTTP-only FocusLens session
+      request.session.userId = user.id;
+
+      return reply.send({
+        user: toSafeUser(user),
+        message: 'Logged in successfully with phone number.',
+      });
+    }
+
+    // Case 2: No account exists for this phone number
+    // If no registration data was submitted, return 404 (pure login attempt with unregistered phone)
+    if (!body.username || !body.password) {
+      return reply.status(404).send({
+        statusCode: 404,
+        error: 'Not Found',
+        message: 'No FocusLens account found with this phone number. Please create an account first.',
+      });
+    }
+
+    // New Registration with verified phone number
+    const cleanUsername = body.username.trim().replace(/^@/, '').toLowerCase();
+    if (!/^[a-zA-Z0-9._]+$/.test(cleanUsername)) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Validation Error',
+        message: 'Username can only contain letters, numbers, underscores, and periods.',
+        field: 'username',
+      });
+    }
+
+    const existingUsernameUser = await dbStore.getUserByUsername(cleanUsername);
+    if (existingUsernameUser) {
+      return reply.status(409).send({
+        statusCode: 409,
+        error: 'Conflict',
+        message: 'This username is already taken. Please choose another.',
+        field: 'username',
+      });
+    }
+
+    let normalizedEmail = null;
+    if (body.email && typeof body.email === 'string' && body.email.trim()) {
+      normalizedEmail = body.email.trim().toLowerCase();
+      const existingEmailUser = await dbStore.getUserByEmail(normalizedEmail);
+      if (existingEmailUser) {
+        return reply.status(409).send({
+          statusCode: 409,
+          error: 'Conflict',
+          message: 'An account with this email address already exists.',
+          field: 'email',
+        });
+      }
+    }
+
+    const passwordHash = body.password ? await bcrypt.hash(body.password, 10) : null;
+    const name = (body.name || cleanUsername).trim();
+
+    const newUser = await dbStore.createUser({
+      username: cleanUsername,
+      name,
+      email: normalizedEmail,
+      phoneNumber: normalizedPhone,
+      passwordHash,
+      preferredVerificationMethod: 'PHONE',
+      verificationStatus: 'VERIFIED',
+      emailVerifiedAt: null,
+    });
+
+    await dbStore.updateUserContact(newUser.id, {
+      phoneVerifiedAt: new Date(),
+      verificationStatus: 'VERIFIED',
+    });
+    newUser.phoneVerifiedAt = new Date();
+
+    // Establish signed HTTP-only FocusLens session
+    request.session.userId = newUser.id;
+
+    return reply.status(201).send({
+      user: toSafeUser(newUser),
+      message: 'Account created and phone number verified successfully.',
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Validation Error',
+        message: err.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+
+    if (err.statusCode) {
+      return reply.status(err.statusCode).send({
+        statusCode: err.statusCode,
+        error: err.statusCode === 401 ? 'Unauthorized' : (err.statusCode === 400 ? 'Bad Request' : 'Internal Server Error'),
+        message: err.message,
+      });
+    }
+
+    request.log.error(err);
+    return reply.status(500).send({
+      statusCode: 500,
+      error: 'Internal Server Error',
+      message: err.message || 'Failed to authenticate with phone number.',
+    });
+  }
+}
+
 // Handler: POST /api/auth/logout
 export async function logout(request, reply) {
   if (request.session) {

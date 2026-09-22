@@ -4,6 +4,8 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signOut as firebaseSignOut,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
 } from 'firebase/auth';
 
 export function getFirebaseConfig() {
@@ -131,3 +133,197 @@ export async function signOutOfFirebase() {
     // Non-blocking cleanup
   }
 }
+
+/**
+ * Normalizes phone numbers to standard E.164 format (+919876543210)
+ */
+export function normalizeE164Phone(rawPhone) {
+  if (!rawPhone || typeof rawPhone !== 'string') {
+    throw new Error('Please enter a phone number.');
+  }
+
+  let cleaned = rawPhone.trim().replace(/[\s\-\(\)\.]/g, '');
+  if (!cleaned) {
+    throw new Error('Please enter a valid phone number.');
+  }
+
+  // Handle leading 00 international prefix
+  if (cleaned.startsWith('00')) {
+    cleaned = '+' + cleaned.slice(2);
+  }
+
+  // If already starts with '+', validate directly
+  if (cleaned.startsWith('+')) {
+    const e164Regex = /^\+[1-9]\d{6,14}$/;
+    if (!e164Regex.test(cleaned)) {
+      throw new Error('Please enter a valid international phone number (e.g. +91 98765 43210).');
+    }
+    return cleaned;
+  }
+
+  // If 10 digits without '+' prefix (common for Indian mobile numbers 6/7/8/9)
+  if (/^[6-9]\d{9}$/.test(cleaned)) {
+    return `+91${cleaned}`;
+  }
+
+  // Otherwise prefix with '+' and validate
+  cleaned = '+' + cleaned;
+  const e164Regex = /^\+[1-9]\d{6,14}$/;
+  if (!e164Regex.test(cleaned)) {
+    throw new Error('Please enter a valid phone number including country code (e.g. +91 98765 43210).');
+  }
+
+  return cleaned;
+}
+
+/**
+ * Global singleton reference for RecaptchaVerifier to prevent duplicate instances
+ */
+let activeRecaptchaVerifier = null;
+
+/**
+ * Initializes or resets the Firebase RecaptchaVerifier on a DOM element.
+ * Uses invisible reCAPTCHA for seamless user experience.
+ */
+export function initRecaptchaVerifier(containerOrId = 'firebase-recaptcha-container', callbacks = {}) {
+  if (!isFirebaseConfigured()) {
+    throw new Error('Firebase is not configured. Please check your Firebase environment variables.');
+  }
+
+  const auth = getFirebaseAuth();
+
+  // Clean up any existing verifier
+  cleanupRecaptchaVerifier();
+
+  try {
+    activeRecaptchaVerifier = new RecaptchaVerifier(auth, containerOrId, {
+      size: 'invisible',
+      callback: (response) => {
+        if (typeof callbacks.onSuccess === 'function') {
+          callbacks.onSuccess(response);
+        }
+      },
+      'expired-callback': () => {
+        cleanupRecaptchaVerifier();
+        if (typeof callbacks.onExpired === 'function') {
+          callbacks.onExpired();
+        }
+      },
+      ...callbacks.parameters,
+    });
+
+    return activeRecaptchaVerifier;
+  } catch (err) {
+    console.warn('[Firebase RecaptchaVerifier Init Error]:', err);
+    throw new Error('Failed to initialize SMS security verification. Please refresh the page and try again.');
+  }
+}
+
+/**
+ * Safely cleans up the active RecaptchaVerifier instance and clears DOM widgets
+ */
+export function cleanupRecaptchaVerifier() {
+  if (activeRecaptchaVerifier) {
+    try {
+      activeRecaptchaVerifier.clear();
+    } catch (e) {
+      // Ignored if already destroyed
+    }
+    activeRecaptchaVerifier = null;
+  }
+}
+
+/**
+ * Sends a real Firebase SMS OTP to the normalized phone number.
+ * Returns confirmationResult object required for subsequent OTP verification.
+ */
+export async function sendFirebasePhoneOtp(phoneNumber, verifierInstance = null) {
+  if (!isFirebaseConfigured()) {
+    throw new Error('Phone authentication is not configured. Please check your Firebase settings.');
+  }
+
+  const normalizedPhone = normalizeE164Phone(phoneNumber);
+  const auth = getFirebaseAuth();
+  const verifier = verifierInstance || activeRecaptchaVerifier;
+
+  if (!verifier) {
+    throw new Error('SMS verification helper is not ready. Please try again.');
+  }
+
+  try {
+    const confirmationResult = await signInWithPhoneNumber(auth, normalizedPhone, verifier);
+    return {
+      confirmationResult,
+      phoneNumber: normalizedPhone,
+    };
+  } catch (err) {
+    // Clean up verifier on error so it can be re-rendered on retry
+    cleanupRecaptchaVerifier();
+
+    if (err.code === 'auth/invalid-phone-number') {
+      throw new Error('The phone number is invalid. Please enter a valid number with country code (e.g. +91 98765 43210).');
+    }
+    if (err.code === 'auth/missing-phone-number') {
+      throw new Error('Phone number is required.');
+    }
+    if (err.code === 'auth/quota-exceeded') {
+      throw new Error('SMS quota for this project has been exceeded. Please try again later.');
+    }
+    if (err.code === 'auth/too-many-requests') {
+      throw new Error('Too many attempts. Please wait a few minutes before requesting another code.');
+    }
+    if (err.code === 'auth/captcha-check-failed') {
+      throw new Error('reCAPTCHA verification failed. Please try again.');
+    }
+    if (err.code === 'auth/billing-not-enabled' || err.code === 'auth/operation-not-allowed') {
+      throw new Error('Phone authentication is not enabled in Firebase Console. Please check SMS settings.');
+    }
+
+    const errorMsg = err.message || 'Failed to send SMS verification code. Please try again.';
+    const customErr = new Error(errorMsg);
+    customErr.code = err.code || 'SMS_SEND_FAILED';
+    throw customErr;
+  }
+}
+
+/**
+ * Confirms the SMS OTP with Firebase confirmationResult.
+ * Returns the Firebase user and verified Firebase ID token for backend authentication.
+ */
+export async function confirmFirebasePhoneOtp(confirmationResult, otpCode) {
+  if (!confirmationResult || typeof confirmationResult.confirm !== 'function') {
+    throw new Error('Verification session expired or invalid. Please request a new code.');
+  }
+
+  const cleanCode = String(otpCode || '').trim();
+  if (!cleanCode || cleanCode.length !== 6 || !/^\d{6}$/.test(cleanCode)) {
+    throw new Error('Please enter a valid 6-digit verification code.');
+  }
+
+  try {
+    const userCredential = await confirmationResult.confirm(cleanCode);
+    const idToken = await userCredential.user.getIdToken(true);
+
+    return {
+      idToken,
+      user: userCredential.user,
+      phoneNumber: userCredential.user.phoneNumber,
+    };
+  } catch (err) {
+    if (err.code === 'auth/invalid-verification-code') {
+      throw new Error('Invalid verification code. Please check the SMS and try again.');
+    }
+    if (err.code === 'auth/code-expired') {
+      throw new Error('Verification code has expired. Please request a new code.');
+    }
+    if (err.code === 'auth/user-disabled') {
+      throw new Error('This account has been disabled. Please contact support.');
+    }
+
+    const errorMsg = err.message || 'Failed to verify code. Please try again.';
+    const customErr = new Error(errorMsg);
+    customErr.code = err.code || 'OTP_VERIFICATION_FAILED';
+    throw customErr;
+  }
+}
+

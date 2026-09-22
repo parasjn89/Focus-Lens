@@ -1,15 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Eye, EyeOff, User, Mail, Lock, Phone, AlertCircle, ArrowRight, ShieldCheck, X } from 'lucide-react';
+import { Eye, EyeOff, User, Mail, Lock, Phone, AlertCircle, ArrowRight, ShieldCheck, X, KeyRound, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { mapErrorToField } from '../utils/registrationValidation.js';
 import { FocusLensLogo } from '../components/FocusLensLogo.jsx';
 import { GoogleIcon } from '../components/GoogleIcon.jsx';
-import { signInWithGoogle } from '../lib/firebase.js';
+import {
+  signInWithGoogle,
+  initRecaptchaVerifier,
+  cleanupRecaptchaVerifier,
+  sendFirebasePhoneOtp,
+  confirmFirebasePhoneOtp,
+} from '../lib/firebase.js';
 
 export { mapErrorToField };
 
 export function RegisterPage({ onNavigate, onRegisterSuccess }) {
-  const { register, loginWithGoogle } = useAuth();
+  const { register, loginWithGoogle, registerWithFirebasePhone } = useAuth();
   const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -19,6 +25,14 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Phone OTP Registration Step States
+  const [isPhoneOtpStep, setIsPhoneOtpStep] = useState(false);
+  const [phoneConfirmation, setPhoneConfirmation] = useState(null);
+  const [sentPhoneFormatted, setSentPhoneFormatted] = useState('');
+  const [phoneOtp, setPhoneOtp] = useState('');
+  const [isPhoneVerifying, setIsPhoneVerifying] = useState(false);
+  const [phoneCooldown, setPhoneCooldown] = useState(0);
 
   // Field-specific validation errors: { username?, name?, email?, phoneNumber?, password?, confirmPassword? }
   const [fieldErrors, setFieldErrors] = useState({});
@@ -70,8 +84,21 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
   };
 
   useEffect(() => {
+    let timer = null;
+    if (phoneCooldown > 0) {
+      timer = setInterval(() => {
+        setPhoneCooldown((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [phoneCooldown]);
+
+  useEffect(() => {
     return () => {
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      cleanupRecaptchaVerifier();
     };
   }, []);
 
@@ -165,6 +192,28 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
       return;
     }
 
+    // If PHONE verification is selected, trigger Firebase real SMS OTP flow
+    if (verificationMethod === 'PHONE') {
+      setIsSubmitting(true);
+      try {
+        const verifier = initRecaptchaVerifier('firebase-register-recaptcha');
+        const sendRes = await sendFirebasePhoneOtp(phoneNumber.trim(), verifier);
+        setPhoneConfirmation(sendRes.confirmationResult);
+        setSentPhoneFormatted(sendRes.phoneNumber);
+        setPhoneCooldown(60);
+        setPhoneOtp('');
+        setIsPhoneOtpStep(true);
+        showToast('SMS verification code sent to your phone.', 'info');
+      } catch (err) {
+        setError(err.message || 'Failed to send SMS verification code.');
+        showToast(err.message || 'Failed to send SMS verification code.', 'error');
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // Standard EMAIL verification registration flow
     setIsSubmitting(true);
     try {
       const res = await register(
@@ -198,6 +247,74 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleVerifyRegisterPhoneOtp = async (e) => {
+    if (e) e.preventDefault();
+    setError(null);
+
+    const cleanCode = phoneOtp.trim();
+    if (!cleanCode || cleanCode.length !== 6) {
+      setError('Please enter the 6-digit verification code.');
+      return;
+    }
+
+    const cleanUsername = username.trim().replace(/^@/, '');
+
+    setIsPhoneVerifying(true);
+    try {
+      const { idToken } = await confirmFirebasePhoneOtp(phoneConfirmation, cleanCode);
+      const res = await registerWithFirebasePhone({
+        idToken,
+        username: cleanUsername,
+        name: name.trim(),
+        email: email.trim() || null,
+        password,
+      });
+
+      cleanupRecaptchaVerifier();
+      if (onRegisterSuccess) {
+        onRegisterSuccess('dashboard', { user: res?.user });
+      } else {
+        onNavigate('dashboard');
+      }
+    } catch (err) {
+      const { field, message } = mapErrorToField(err);
+      if (field) {
+        setFieldErrors((prev) => ({ ...prev, [field]: message }));
+      }
+      setError(message || err.message || 'Phone verification failed.');
+      showToast(message || err.message || 'Phone verification failed.', 'error');
+    } finally {
+      setIsPhoneVerifying(false);
+    }
+  };
+
+  const handleResendRegisterOtp = async () => {
+    if (phoneCooldown > 0 || isSubmitting) return;
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      const verifier = initRecaptchaVerifier('firebase-register-recaptcha');
+      const sendRes = await sendFirebasePhoneOtp(phoneNumber.trim(), verifier);
+      setPhoneConfirmation(sendRes.confirmationResult);
+      setSentPhoneFormatted(sendRes.phoneNumber);
+      setPhoneCooldown(60);
+      showToast('New verification code sent via SMS.', 'info');
+    } catch (err) {
+      setError(err.message || 'Failed to resend SMS verification code.');
+      showToast(err.message || 'Failed to resend SMS verification code.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleChangeRegisterPhone = () => {
+    cleanupRecaptchaVerifier();
+    setIsPhoneOtpStep(false);
+    setPhoneConfirmation(null);
+    setPhoneOtp('');
+    setError(null);
   };
 
   return (
@@ -271,11 +388,91 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
             <div className="w-full border-t border-slate-800" />
           </div>
           <div className="relative flex justify-center text-xs">
-            <span className="bg-slate-900 px-3 text-slate-500 font-medium">or register with email</span>
+            <span className="bg-slate-900 px-3 text-slate-500 font-medium">or register with credentials</span>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        {/* Invisible reCAPTCHA container */}
+        <div id="firebase-register-recaptcha" className="flex justify-center my-1"></div>
+
+        {isPhoneOtpStep ? (
+          <form onSubmit={handleVerifyRegisterPhoneOtp} className="space-y-5">
+            <div className="text-center pb-2">
+              <div className="inline-flex p-3 rounded-2xl bg-brand-500/10 border border-brand-500/20 text-brand-400 mb-3">
+                <KeyRound className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-white">Verify Your Mobile Number</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                We sent a 6-digit SMS verification code to{' '}
+                <span className="text-white font-mono font-semibold">{sentPhoneFormatted}</span>
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Enter 6-Digit SMS Code *
+                </label>
+                <button
+                  type="button"
+                  onClick={handleChangeRegisterPhone}
+                  className="text-xs text-brand-400 hover:text-brand-300 font-medium underline transition-colors"
+                >
+                  Change phone number
+                </button>
+              </div>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  required
+                  autoFocus
+                  value={phoneOtp}
+                  onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, ''))}
+                  placeholder="123456"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-base font-mono tracking-widest text-center text-white placeholder-slate-600 outline-none transition-all"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isPhoneVerifying || phoneOtp.length !== 6}
+              className="w-full py-3 px-4 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm shadow-lg shadow-brand-600/25 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 hover:scale-[1.01]"
+            >
+              {isPhoneVerifying ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />
+                  <span>Verifying Code & Creating Account...</span>
+                </>
+              ) : (
+                <>
+                  <span>Verify & Create Account</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+
+            <div className="flex items-center justify-between pt-1 text-xs">
+              <span className="text-slate-400">Didn't receive SMS?</span>
+              <button
+                type="button"
+                disabled={phoneCooldown > 0 || isSubmitting}
+                onClick={handleResendRegisterOtp}
+                className="text-brand-400 hover:text-brand-300 font-medium disabled:text-slate-600 flex items-center space-x-1"
+              >
+                <RefreshCw className={`w-3 h-3 ${isSubmitting ? 'animate-spin' : ''}`} />
+                <span>{phoneCooldown > 0 ? `Resend in ${phoneCooldown}s` : 'Resend SMS'}</span>
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           {/* 1. Username Field */}
           <div>
             <label htmlFor="register-username" className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
@@ -611,6 +808,7 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
             <ArrowRight className="w-4 h-4" />
           </button>
         </form>
+        )}
 
         <div className="mt-6 pt-6 border-t border-slate-800/80 text-center">
           <p className="text-xs text-slate-400">

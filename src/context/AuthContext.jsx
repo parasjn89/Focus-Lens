@@ -77,6 +77,38 @@ export function AuthProvider({ children }) {
     return res;
   };
 
+  const loginWithFirebasePhone = async (idToken) => {
+    clearClientUserStorage();
+    const res = await apiFetch('/api/auth/firebase-phone', {
+      method: 'POST',
+      body: JSON.stringify({ idToken }),
+    });
+
+    if (res.user) {
+      setUser(res.user);
+    }
+    return res;
+  };
+
+  const registerWithFirebasePhone = async ({ idToken, username, name, email, password }) => {
+    clearClientUserStorage();
+    const res = await apiFetch('/api/auth/firebase-phone', {
+      method: 'POST',
+      body: JSON.stringify({
+        idToken,
+        username,
+        name,
+        email: email || undefined,
+        password,
+      }),
+    });
+
+    if (res.user) {
+      setUser(res.user);
+    }
+    return res;
+  };
+
   const register = async (username, name, email, password, verificationMethod = 'EMAIL', phoneNumber = '') => {
     clearClientUserStorage();
     const res = await apiFetch('/api/auth/register', {
@@ -244,6 +276,8 @@ export function AuthProvider({ children }) {
         isLoading,
         login,
         loginWithGoogle,
+        loginWithFirebasePhone,
+        registerWithFirebasePhone,
         register,
         logout,
         updateProfile,

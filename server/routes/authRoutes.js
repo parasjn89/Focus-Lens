@@ -2,6 +2,7 @@ import {
   register,
   login,
   googleAuth,
+  firebasePhoneAuth,
   logout,
   getCurrentUser,
   updateProfile,
@@ -28,6 +29,7 @@ export async function authRoutes(fastify, options) {
   fastify.post('/api/auth/register', register);
   fastify.post('/api/auth/login', login);
   fastify.post('/api/auth/google', googleAuth);
+  fastify.post('/api/auth/firebase-phone', firebasePhoneAuth);
   fastify.post('/api/auth/logout', logout);
   fastify.get('/api/auth/check-username', checkUsername);
 

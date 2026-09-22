@@ -107,7 +107,7 @@ export async function verifyFirebaseIdToken(idToken) {
     const decodedToken = await auth.verifyIdToken(idToken.trim(), true);
 
     if (!decodedToken || !decodedToken.uid) {
-      const error = new Error('Invalid Google authentication token.');
+      const error = new Error('Invalid Firebase authentication token.');
       error.statusCode = 401;
       error.code = 'INVALID_TOKEN';
       throw error;
@@ -116,7 +116,7 @@ export async function verifyFirebaseIdToken(idToken) {
     return decodedToken;
   } catch (err) {
     if (err.code === 'auth/id-token-expired') {
-      const error = new Error('Google authentication token has expired. Please sign in again.');
+      const error = new Error('Firebase authentication token has expired. Please sign in again.');
       error.statusCode = 401;
       error.code = 'TOKEN_EXPIRED';
       throw error;
@@ -127,13 +127,13 @@ export async function verifyFirebaseIdToken(idToken) {
       err.code === 'auth/argument-error' ||
       err.code === 'auth/id-token-revoked'
     ) {
-      const error = new Error('Invalid or revoked Google authentication token.');
+      const error = new Error('Invalid or revoked Firebase authentication token.');
       error.statusCode = 401;
       error.code = 'INVALID_TOKEN';
       throw error;
     }
 
-    const error = new Error(err.message || 'Unable to verify Google authentication token.');
+    const error = new Error(err.message || 'Unable to verify Firebase authentication token.');
     error.statusCode = err.statusCode || 401;
     error.code = err.code || 'TOKEN_VERIFICATION_FAILED';
     throw error;
