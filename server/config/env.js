@@ -34,13 +34,16 @@ export const config = {
   corsOrigin: process.env.CORS_ORIGIN || '*',
   
   // Email Provider Configuration
-  emailProvider: process.env.EMAIL_PROVIDER || 'dev',
+  emailProvider: (process.env.EMAIL_PROVIDER || 'dev').toLowerCase().trim(),
   resendApiKey: (process.env.RESEND_API_KEY || '').trim(),
-  emailHost: process.env.EMAIL_HOST || '',
-  emailPort: process.env.EMAIL_PORT || '587',
-  emailUsername: process.env.EMAIL_USERNAME || '',
-  emailPassword: process.env.EMAIL_PASSWORD || '',
-  emailFrom: process.env.EMAIL_FROM || 'onboarding@resend.dev',
+  emailHost: (process.env.EMAIL_HOST || '').trim(),
+  emailPort: (process.env.EMAIL_PORT || '587').trim(),
+  emailSecure: process.env.EMAIL_SECURE !== undefined
+    ? process.env.EMAIL_SECURE === 'true'
+    : (process.env.EMAIL_PORT === '465'),
+  emailUsername: (process.env.EMAIL_USERNAME || '').trim(),
+  emailPassword: (process.env.EMAIL_PASSWORD || '').trim(),
+  emailFrom: (process.env.EMAIL_FROM || process.env.EMAIL_USERNAME || 'onboarding@resend.dev').trim(),
 
   // SMS Provider Configuration
   smsProvider: process.env.SMS_PROVIDER || 'dev',

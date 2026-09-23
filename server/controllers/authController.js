@@ -27,6 +27,8 @@ export function toSafeUser(user) {
     verificationStatus: user.verificationStatus || 'UNVERIFIED',
     emailVerifiedAt: user.emailVerifiedAt || null,
     phoneVerifiedAt: user.phoneVerifiedAt || null,
+    hasPassword: Boolean(user.passwordHash),
+    isGoogleLinked: Boolean(user.googleId),
     createdAt: user.createdAt,
   };
 }
@@ -234,7 +236,14 @@ export async function register(request, reply) {
     if (body.verificationMethod === 'PHONE') {
       await sendSmsOtpChallenge({ phoneNumber: normalizedPhone, otp });
     } else {
-      await sendEmailVerificationChallenge({ email: body.email, otp, name: body.name });
+      const mailResult = await sendEmailVerificationChallenge({ email: body.email, otp, name: body.name });
+      if (!mailResult.success && mailResult.provider !== 'dev') {
+        return reply.status(201).send({
+          user: toSafeUser(newUser),
+          warning: 'EMAIL_DELIVERY_FAILED',
+          message: 'Account created, but we could not deliver the verification email. Please check your email address or try resending.',
+        });
+      }
     }
 
     return reply.status(201).send({
@@ -318,10 +327,36 @@ export async function login(request, reply) {
       }
     }
 
-    if (!user || !user.passwordHash) {
+    request.log.info({
+      path: '/api/auth/login',
+      identifierType: rawKey.includes('@') ? 'email' : (rawKey.startsWith('@') ? 'username_handle' : 'username_or_phone'),
+      userFound: Boolean(user),
+      hasPasswordHash: Boolean(user?.passwordHash),
+      hasGoogleId: Boolean(user?.googleId),
+    }, '[Auth Diagnostic] Evaluated login request');
+
+    if (!user) {
       return reply.status(401).send({
         statusCode: 401,
         error: 'Unauthorized',
+        code: 'INVALID_CREDENTIALS',
+        message: 'Invalid email/phone/username or password.',
+      });
+    }
+
+    if (!user.passwordHash) {
+      if (user.googleId) {
+        return reply.status(401).send({
+          statusCode: 401,
+          error: 'Unauthorized',
+          code: 'GOOGLE_ACCOUNT_ONLY',
+          message: "This account uses Google Sign-In. Continue with Google or set a FocusLens password.",
+        });
+      }
+      return reply.status(401).send({
+        statusCode: 401,
+        error: 'Unauthorized',
+        code: 'INVALID_CREDENTIALS',
         message: 'Invalid email/phone/username or password.',
       });
     }
@@ -923,7 +958,15 @@ export async function sendEmailVerification(request, reply) {
     const resendAvailableAt = new Date(Date.now() + 60 * 1000);
 
     await dbStore.setVerificationChallenge(user.id, { tokenHash, expiresAt, resendAvailableAt });
-    await sendEmailVerificationChallenge({ email: emailInput, otp, name: user.name });
+    const mailResult = await sendEmailVerificationChallenge({ email: emailInput, otp, name: user.name });
+
+    if (!mailResult.success && mailResult.provider !== 'dev') {
+      return reply.status(502).send({
+        statusCode: 502,
+        error: 'Bad Gateway',
+        message: 'Unable to deliver verification email at this time. Please try again in a few moments.',
+      });
+    }
 
     return reply.send({
       success: true,
@@ -1149,7 +1192,14 @@ export async function switchVerificationMethod(request, reply) {
     if (body.method === 'PHONE') {
       await sendSmsOtpChallenge({ phoneNumber: normalizedPhone || updatedUser.phoneNumber, otp });
     } else {
-      await sendEmailVerificationChallenge({ email: normalizedEmail || updatedUser.email, otp, name: updatedUser.name });
+      const mailResult = await sendEmailVerificationChallenge({ email: normalizedEmail || updatedUser.email, otp, name: updatedUser.name });
+      if (!mailResult.success && mailResult.provider !== 'dev') {
+        return reply.send({
+          user: toSafeUser(updatedUser),
+          warning: 'EMAIL_DELIVERY_FAILED',
+          message: 'Switched preferred verification method to EMAIL, but we could not deliver the verification email. Please check your email address or try resending.',
+        });
+      }
     }
 
     return reply.send({
@@ -1622,4 +1672,149 @@ export async function resetPassword(request, reply) {
     });
   }
 }
+
+export const SyncFirebasePasswordSchema = z.object({
+  idToken: z.string().min(1, 'Firebase ID token is required.'),
+  newPassword: z.string().min(12, 'Password must be at least 12 characters long.'),
+});
+
+// Handler: POST /api/auth/sync-firebase-password
+export async function syncFirebasePassword(request, reply) {
+  try {
+    const body = SyncFirebasePasswordSchema.parse(request.body);
+    const decodedToken = await verifyFirebaseIdToken(body.idToken);
+
+    const email = decodedToken.email ? decodedToken.email.toLowerCase().trim() : null;
+    if (!email) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'Firebase token does not have an associated email address.',
+      });
+    }
+
+    let user = await dbStore.getUserByEmail(email);
+    if (!user) {
+      return reply.status(404).send({
+        statusCode: 404,
+        error: 'Not Found',
+        message: 'User account not found.',
+      });
+    }
+
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(body.newPassword, saltRounds);
+
+    await dbStore.updateUserPassword(user.id, passwordHash);
+
+    // If user was Google-authenticated, ensure googleId is linked
+    if (!user.googleId && decodedToken.uid) {
+      await dbStore.linkGoogleAccount(user.id, {
+        googleId: decodedToken.uid,
+        avatarUrl: user.avatarUrl || decodedToken.picture || null,
+      });
+    }
+
+    return reply.send({
+      success: true,
+      message: 'Password synchronized successfully.',
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Validation Error',
+        message: err.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    if (err.statusCode) {
+      return reply.status(err.statusCode).send({
+        statusCode: err.statusCode,
+        error: err.statusCode === 401 ? 'Unauthorized' : 'Bad Request',
+        message: err.message,
+      });
+    }
+    request.log.error(err);
+    return reply.status(500).send({
+      statusCode: 500,
+      error: 'Internal Server Error',
+      message: err.message || 'Failed to synchronize password.',
+    });
+  }
+}
+
+export const SetPasswordSchema = z.object({
+  newPassword: z.string().min(12, 'Password must be at least 12 characters long.'),
+  confirmPassword: z.string().min(1, 'Password confirmation is required.'),
+  idToken: z.string().optional(),
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  message: 'New password and confirmation do not match.',
+  path: ['confirmPassword'],
+});
+
+// Handler: POST /api/auth/set-password
+export async function setPassword(request, reply) {
+  try {
+    const body = SetPasswordSchema.parse(request.body);
+    const userId = request.user?.id || request.session?.userId;
+    if (!userId) {
+      return reply.status(401).send({
+        statusCode: 401,
+        error: 'Unauthorized',
+        message: 'You must be logged in to set a password.',
+      });
+    }
+
+    const user = await dbStore.getUserById(userId);
+    if (!user) {
+      return reply.status(404).send({
+        statusCode: 404,
+        error: 'Not Found',
+        message: 'User account not found.',
+      });
+    }
+
+    if (user.passwordHash) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'This account already has a password. Please use Change Password instead.',
+      });
+    }
+
+    const policyErr = validatePasswordPolicy(body.newPassword, { name: user.name, email: user.email });
+    if (policyErr) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Validation Error',
+        message: policyErr,
+      });
+    }
+
+    const saltRounds = 10;
+    const newHash = await bcrypt.hash(body.newPassword, saltRounds);
+    await dbStore.updateUserPassword(user.id, newHash);
+
+    return reply.send({
+      success: true,
+      message: 'FocusLens password set successfully.',
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Validation Error',
+        message: err.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    request.log.error(err);
+    return reply.status(500).send({
+      statusCode: 500,
+      error: 'Internal Server Error',
+      message: err.message || 'Failed to set password.',
+    });
+  }
+}
+
+
 

@@ -72,17 +72,37 @@ export function ForgotPasswordPage({ onNavigate }) {
                 <p className="text-emerald-300/80 mt-1 leading-relaxed">
                   If an account exists with <strong className="text-white font-mono">{email}</strong>, we have sent password reset instructions to your inbox.
                 </p>
+                <div className="mt-3 p-2.5 rounded-lg bg-slate-950/60 border border-emerald-500/20 text-[11px] text-slate-300">
+                  <p className="font-medium text-emerald-300">Important:</p>
+                  <ul className="list-disc list-inside mt-1 space-y-0.5 text-slate-400">
+                    <li>Please use the link in the <strong>most recent email</strong> received.</li>
+                    <li>If you don't see it within a minute, check your spam/junk folder.</li>
+                  </ul>
+                </div>
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => onNavigate('login')}
-              className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-brand-600 to-cyan-500 hover:from-brand-500 hover:to-cyan-400 text-white font-semibold text-sm shadow-lg shadow-brand-600/25 transition-all flex items-center justify-center space-x-2"
-            >
-              <span>Return to Login</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            <div className="flex flex-col space-y-3">
+              <button
+                type="button"
+                onClick={() => onNavigate('login')}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-brand-600 to-cyan-500 hover:from-brand-500 hover:to-cyan-400 text-white font-semibold text-sm shadow-lg shadow-brand-600/25 transition-all flex items-center justify-center space-x-2"
+              >
+                <span>Return to Login</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSubmitted(false);
+                  setError(null);
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-slate-300 text-xs font-medium transition-all"
+              >
+                Send to a different email
+              </button>
+            </div>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">

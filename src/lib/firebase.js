@@ -8,6 +8,11 @@ import {
   signInWithEmailAndPassword,
   sendEmailVerification,
   sendPasswordResetEmail,
+  verifyPasswordResetCode,
+  confirmPasswordReset,
+  fetchSignInMethodsForEmail,
+  EmailAuthProvider,
+  linkWithCredential,
 } from 'firebase/auth';
 
 export function getFirebaseConfig() {
@@ -296,6 +301,42 @@ export async function loginWithEmailPassword(email, password) {
 }
 
 /**
+ * Links an Email + Password credential to the currently authenticated Firebase user (e.g. Google user).
+ * Preserves the exact same Firebase UID and user history.
+ *
+ * @param {string} newPassword - Validated new password (12+ characters)
+ * @returns {Promise<{ user: any, idToken: string }>}
+ */
+export async function linkEmailPasswordCredential(newPassword) {
+  if (!isFirebaseConfigured()) {
+    const error = new Error('Authentication is not configured.');
+    error.code = 'CONFIG_MISSING';
+    throw error;
+  }
+  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 12) {
+    const error = new Error('Password must be at least 12 characters long.');
+    error.code = 'auth/weak-password';
+    throw error;
+  }
+
+  const auth = getFirebaseAuth();
+  const currentUser = auth.currentUser;
+  if (!currentUser || !currentUser.email) {
+    const error = new Error('No authenticated user session found in Firebase. Please sign in with Google first.');
+    error.code = 'auth/no-current-user';
+    throw error;
+  }
+
+  const credential = EmailAuthProvider.credential(currentUser.email, newPassword);
+  const result = await linkWithCredential(currentUser, credential);
+  const idToken = await result.user.getIdToken();
+  return {
+    user: result.user,
+    idToken,
+  };
+}
+
+/**
  * Zero-cost email verification dispatch using Firebase Auth Spark (Free tier)
  */
 export async function sendFirebaseEmailVerification(user = null) {
@@ -309,14 +350,135 @@ export async function sendFirebaseEmailVerification(user = null) {
 }
 
 /**
- * Zero-cost password reset dispatch using Firebase Auth Spark (Free tier)
+ * Retrieves the list of authentication providers registered for a given email address.
+ * E.g. ['google.com'] or ['password'] or ['google.com', 'password']
+ *
+ * @param {string} email
+ * @returns {Promise<string[]>}
+ */
+export async function getSignInMethods(email) {
+  if (!email || !email.trim() || !isFirebaseConfigured()) return [];
+  try {
+    const auth = getFirebaseAuth();
+    return await fetchSignInMethodsForEmail(auth, email.trim());
+  } catch (err) {
+    return [];
+  }
+}
+
+/**
+ * Returns the canonical HTTPS URL for completing password reset in FocusLens.
+ * Defaults to current browser origin if valid, with production fallback.
+ */
+export function getPasswordResetActionUrl() {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const origin = window.location.origin;
+    if (origin.startsWith('http://') || origin.startsWith('https://')) {
+      return `${origin}/reset-password`;
+    }
+  }
+  return 'https://focus-lens-nine.vercel.app/reset-password';
+}
+
+/**
+ * Maps Firebase Auth error codes to user-friendly, safe messages without exposing internal stack traces.
+ */
+export function mapFirebaseAuthError(err) {
+  if (!err) return 'An unexpected error occurred. Please try again.';
+  const code = err.code || '';
+
+  switch (code) {
+    case 'auth/expired-action-code':
+      return 'This password reset link has expired. Please request a new one.';
+    case 'auth/invalid-action-code':
+      return 'This password reset link is invalid or has already been used. Please request a new link.';
+    case 'auth/weak-password':
+      return 'Password is too weak. Please use at least 12 characters.';
+    case 'auth/user-disabled':
+      return 'This user account has been disabled. Please contact support.';
+    case 'auth/user-not-found':
+      return 'No account was found for this reset link.';
+    case 'auth/network-request-failed':
+      return 'Network error. Please check your internet connection and try again.';
+    case 'auth/too-many-requests':
+      return 'Too many requests. Please wait a few moments before trying again.';
+    case 'auth/invalid-email':
+      return 'Please enter a valid email address.';
+    case 'auth/missing-action-code':
+      return 'Reset code is missing. Please use the link sent to your email.';
+    default:
+      return err.message || 'Unable to complete password reset. Please try again.';
+  }
+}
+
+/**
+ * Dispatches a password reset email using Firebase Auth Spark (Free tier).
+ * Configures ActionCodeSettings with continueUrl pointing to the application's /reset-password route.
+ * Gracefully falls back to default dispatch if the continue URL is not yet listed in Authorized Domains.
  */
 export async function sendFirebasePasswordReset(email) {
   if (!email || !email.trim()) {
     throw new Error('Please enter your email address.');
   }
   const auth = getFirebaseAuth();
-  await sendPasswordResetEmail(auth, email.trim());
+  const resetUrl = getPasswordResetActionUrl();
+  const actionCodeSettings = {
+    url: resetUrl,
+    handleCodeInApp: true,
+  };
+
+  try {
+    await sendPasswordResetEmail(auth, email.trim(), actionCodeSettings);
+  } catch (err) {
+    // If continue URL is rejected due to unauthorized domain, fall back to default template link
+    if (err.code === 'auth/unauthorized-continue-uri' || err.code === 'auth/invalid-continue-uri') {
+      await sendPasswordResetEmail(auth, email.trim());
+    } else {
+      throw err;
+    }
+  }
+  return { success: true };
+}
+
+/**
+ * Read-only verification of a Firebase password reset action code (oobCode).
+ * Returns the email address associated with the code.
+ * DOES NOT consume or invalidate the code.
+ *
+ * @param {string} oobCode - The one-time action code from URL parameter
+ * @returns {Promise<string>} The associated user email address
+ */
+export async function verifyFirebasePasswordResetCode(oobCode) {
+  if (!oobCode || typeof oobCode !== 'string' || !oobCode.trim()) {
+    const error = new Error('Password reset code is missing.');
+    error.code = 'auth/invalid-action-code';
+    throw error;
+  }
+  const auth = getFirebaseAuth();
+  return await verifyPasswordResetCode(auth, oobCode.trim());
+}
+
+/**
+ * Completes the password reset by applying the new password.
+ * Consumes the oobCode ONLY upon successful execution.
+ *
+ * @param {string} oobCode - The one-time action code from URL parameter
+ * @param {string} newPassword - The validated new password
+ * @returns {Promise<{ success: boolean }>}
+ */
+export async function confirmFirebasePasswordReset(oobCode, newPassword) {
+  if (!oobCode || typeof oobCode !== 'string' || !oobCode.trim()) {
+    const error = new Error('Password reset code is missing.');
+    error.code = 'auth/invalid-action-code';
+    throw error;
+  }
+  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 12) {
+    const error = new Error('Password must be at least 12 characters long.');
+    error.code = 'auth/weak-password';
+    throw error;
+  }
+  const auth = getFirebaseAuth();
+  await confirmPasswordReset(auth, oobCode.trim(), newPassword);
   return { success: true };
 }
 

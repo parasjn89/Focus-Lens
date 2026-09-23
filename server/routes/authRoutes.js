@@ -7,6 +7,7 @@ import {
   getCurrentUser,
   updateProfile,
   changePassword,
+  setPassword,
   deleteAccount,
   sendEmailVerification,
   verifyEmail,
@@ -16,6 +17,7 @@ import {
   forgotPassword,
   verifyResetToken,
   resetPassword,
+  syncFirebasePassword,
   checkUsername,
   uploadAvatar,
   removeAvatar,
@@ -36,6 +38,7 @@ export async function authRoutes(fastify, options) {
   fastify.get('/api/auth/me', { preHandler: requireAuth }, getCurrentUser);
   fastify.put('/api/auth/profile', { preHandler: requireAuth }, updateProfile);
   fastify.post('/api/auth/change-password', { preHandler: requireAuth }, changePassword);
+  fastify.post('/api/auth/set-password', { preHandler: requireAuth }, setPassword);
   fastify.delete('/api/account', { preHandler: requireAuth }, deleteAccount);
 
   // Profile Picture / Avatar Endpoints
@@ -86,6 +89,7 @@ export async function authRoutes(fastify, options) {
   fastify.post('/api/auth/forgot-password', forgotPassword);
   fastify.post('/api/auth/verify-reset-token', verifyResetToken);
   fastify.post('/api/auth/reset-password', resetPassword);
+  fastify.post('/api/auth/sync-firebase-password', syncFirebasePassword);
 }
 
 

@@ -19,6 +19,7 @@ import { PersonalDashboardPage } from './pages/PersonalDashboardPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { VerificationPage } from './pages/VerificationPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { FocusCoachPage } from './pages/FocusCoachPage';
 import { ConsistencyPage } from './pages/ConsistencyPage';
 import { RecommendationsPage } from './pages/RecommendationsPage';
@@ -122,7 +123,11 @@ function AppContent() {
 
     // Synchronize browser history entry (push or replace) unless triggered by popstate
     if (!fromPopState && typeof window !== 'undefined') {
-      const canonicalPath = ROUTE_PATH_MAP[view] || `/${view === 'landing' ? '' : view}`;
+      let canonicalPath = ROUTE_PATH_MAP[view] || `/${view === 'landing' ? '' : view}`;
+      // Preserve search parameters for reset-password so oobCode/token is not stripped!
+      if (view === 'reset-password' && window.location.search) {
+        canonicalPath += window.location.search;
+      }
       const currentState = window.history.state;
       if (!currentState || currentState.view !== view) {
         if (replace) {
@@ -140,9 +145,14 @@ function AppContent() {
   useEffect(() => {
     initBackgroundSync();
 
-    // Check URL params for reset password
-    if (window.location.search.includes('token=') || window.location.pathname.includes('reset-password')) {
-      handleNavigate('forgot-password', { replace: true });
+    // Check URL params for reset password (Firebase oobCode or legacy token)
+    if (
+      window.location.search.includes('oobCode=') ||
+      window.location.search.includes('mode=resetPassword') ||
+      window.location.search.includes('token=') ||
+      window.location.pathname.includes('reset-password')
+    ) {
+      handleNavigate('reset-password', { replace: false });
       return;
     }
 
@@ -807,7 +817,7 @@ function AppContent() {
     setReportData((prev) => (prev ? { ...prev, isLoading: false } : null));
   };
 
-  const isAppView = isAuthenticated && !['landing', 'login', 'register', 'verify', 'forgot-password', 'active'].includes(currentView);
+  const isAppView = isAuthenticated && !['landing', 'login', 'register', 'verify', 'forgot-password', 'reset-password', 'active'].includes(currentView);
 
   return (
     <div className={`min-h-screen flex bg-navy-900 text-slate-100 selection:bg-brand-500 selection:text-white font-sans ${isAppView ? 'overflow-hidden' : ''}`}>
@@ -985,6 +995,10 @@ function AppContent() {
 
         {currentView === 'forgot-password' && (
           <ForgotPasswordPage onNavigate={handleNavigate} />
+        )}
+
+        {currentView === 'reset-password' && (
+          <ResetPasswordPage onNavigate={handleNavigate} />
         )}
 
         {currentView === 'calendar' && (

@@ -22,9 +22,11 @@ import { useAuth } from '../context/AuthContext';
 import { BackButton } from '../components/BackButton.jsx';
 import { UserAvatar } from '../components/UserAvatar.jsx';
 import { AvatarCropModal } from '../components/AvatarCropModal.jsx';
+import { linkEmailPasswordCredential } from '../lib/firebase.js';
+import { apiFetch } from '../api/client.js';
 
 export function ProfilePage({ onNavigate }) {
-  const { user, logout, updateProfile, uploadAvatar, removeAvatar, changePassword, deleteAccount } = useAuth();
+  const { user, logout, updateProfile, uploadAvatar, removeAvatar, changePassword, setPassword, deleteAccount, refreshUser } = useAuth();
 
   // Avatar Management State
   const fileInputRef = useRef(null);
@@ -190,12 +192,14 @@ export function ProfilePage({ onNavigate }) {
     }
   };
 
+  const hasExistingPassword = Boolean(user?.hasPassword);
+
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setPassSuccess('');
     setPassError('');
 
-    if (!currentPassword) {
+    if (hasExistingPassword && !currentPassword) {
       setPassError('Please enter your current password.');
       return;
     }
@@ -212,13 +216,40 @@ export function ProfilePage({ onNavigate }) {
 
     setIsChangingPass(true);
     try {
-      await changePassword({ currentPassword, newPassword, confirmPassword });
-      setPassSuccess('Password changed successfully.');
+      if (hasExistingPassword) {
+        await changePassword({ currentPassword, newPassword, confirmPassword });
+        setPassSuccess('Password changed successfully.');
+      } else {
+        // Authenticated Google user adding a FocusLens password
+        let idToken = null;
+        try {
+          const fbRes = await linkEmailPasswordCredential(newPassword);
+          idToken = fbRes.idToken;
+          console.log('[Auth Diagnostic] Firebase email/password credential linked to Google user');
+        } catch (fbErr) {
+          console.log('[Auth Diagnostic] Firebase link note:', fbErr?.code || fbErr?.message);
+        }
+
+        await setPassword({ newPassword, confirmPassword });
+
+        if (idToken) {
+          try {
+            await apiFetch('/api/auth/sync-firebase-password', {
+              method: 'POST',
+              body: JSON.stringify({ idToken, newPassword }),
+            });
+          } catch (_) {}
+        }
+
+        await refreshUser();
+        setPassSuccess('FocusLens password set successfully! You can now log in using either Google or your email and password.');
+      }
+
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch (err) {
-      setPassError(err.message || 'Failed to change password.');
+      setPassError(err.message || 'Failed to update password.');
     } finally {
       setIsChangingPass(false);
     }
@@ -529,8 +560,19 @@ export function ProfilePage({ onNavigate }) {
           <div className="space-y-4">
             <div className="flex items-center space-x-2">
               <KeyRound className="w-4 h-4 text-brand-400" />
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Change Password</h3>
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                {hasExistingPassword ? 'Change Password' : 'Set FocusLens Password'}
+              </h3>
             </div>
+
+            {!hasExistingPassword && (
+              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200">
+                <p className="font-semibold text-amber-300">Google-Authenticated Account</p>
+                <p className="mt-1 text-slate-300 text-[11px] leading-relaxed">
+                  Your account was created via Google Sign-In. Set a FocusLens password below to enable signing in directly with your email and password as well.
+                </p>
+              </div>
+            )}
 
             {/* Password Policy Box */}
             <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-2 text-xs text-slate-300">
@@ -562,27 +604,29 @@ export function ProfilePage({ onNavigate }) {
             )}
 
             <form onSubmit={handleChangePassword} className="space-y-4">
-              {/* Current Password */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-300">Current Password</label>
-                <div className="relative">
-                  <input
-                    type={showCurrentPass ? 'text' : 'password'}
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    placeholder="Enter your current password"
-                    className="w-full px-4 py-2.5 pr-10 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 text-white text-xs transition-colors"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowCurrentPass(!showCurrentPass)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
-                  >
-                    {showCurrentPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+              {/* Current Password - Only required if user already has an existing password */}
+              {hasExistingPassword && (
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-300">Current Password</label>
+                  <div className="relative">
+                    <input
+                      type={showCurrentPass ? 'text' : 'password'}
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Enter your current password"
+                      className="w-full px-4 py-2.5 pr-10 rounded-xl bg-slate-950 border border-slate-800 focus:border-brand-500 text-white text-xs transition-colors"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCurrentPass(!showCurrentPass)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                    >
+                      {showCurrentPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* New Password & Strength Meter */}
               <div className="space-y-1.5">
@@ -650,10 +694,10 @@ export function ProfilePage({ onNavigate }) {
 
               <button
                 type="submit"
-                disabled={isChangingPass || !currentPassword || !newPassword || !confirmPassword}
+                disabled={isChangingPass || (hasExistingPassword && !currentPassword) || !newPassword || !confirmPassword}
                 className="w-full py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-semibold shadow-md transition-all disabled:opacity-50"
               >
-                {isChangingPass ? 'Updating Password...' : 'Update Password'}
+                {isChangingPass ? (hasExistingPassword ? 'Updating Password...' : 'Setting Password...') : (hasExistingPassword ? 'Update Password' : 'Set FocusLens Password')}
               </button>
             </form>
           </div>

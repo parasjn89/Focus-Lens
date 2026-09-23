@@ -131,7 +131,7 @@ export async function apiFetch(endpoint, options = {}) {
       err.errors = data.errors;
       err.endpoint = endpoint;
       err.targetUrl = url;
-      err.code = data.error || (isAuth ? (response.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN') : `HTTP_${response.status}`);
+      err.code = data.code || data.error || (isAuth ? (response.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN') : `HTTP_${response.status}`);
       err.isAuthError = isAuth;
       throw err;
     }

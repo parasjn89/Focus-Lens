@@ -183,6 +183,15 @@ export function AuthProvider({ children }) {
     return res;
   };
 
+  const setPassword = async ({ newPassword, confirmPassword }) => {
+    const res = await apiFetch('/api/auth/set-password', {
+      method: 'POST',
+      body: JSON.stringify({ newPassword, confirmPassword }),
+    });
+    await refreshUser();
+    return res;
+  };
+
   const sendEmailVerification = async (email) => {
     return await apiFetch('/api/auth/send-email-verification', {
       method: 'POST',
@@ -284,6 +293,7 @@ export function AuthProvider({ children }) {
         uploadAvatar,
         removeAvatar,
         changePassword,
+        setPassword,
         sendEmailVerification,
         verifyEmail,
         sendPhoneVerification,

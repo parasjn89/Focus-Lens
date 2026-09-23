@@ -25,6 +25,7 @@ export const ROUTE_PATH_MAP = {
   register: '/register',
   verify: '/verify',
   'forgot-password': '/forgot-password',
+  'reset-password': '/reset-password',
   report: '/report',
   active: '/active',
 };
@@ -33,7 +34,6 @@ export const ROUTE_PATH_MAP = {
 export const PATH_ALIASES = {
   activity: 'history',
   settings: 'profile',
-  'reset-password': 'forgot-password',
 };
 
 // Map child views to their contextual parent in-app back destinations
@@ -60,22 +60,29 @@ export function resolveViewFromLocation(loc) {
   const location = loc || (typeof window !== 'undefined' ? window.location : null);
   if (!location) return 'landing';
 
-  // Search parameters (e.g., password reset token)
-  if (location.search && location.search.includes('token=')) {
-    return 'forgot-password';
+  // Search parameters (e.g., Firebase oobCode, mode=resetPassword, or reset token)
+  if (
+    location.search &&
+    (location.search.includes('oobCode=') ||
+     location.search.includes('mode=resetPassword') ||
+     location.search.includes('token='))
+  ) {
+    return 'reset-password';
   }
 
-  // Hash support (e.g., #dashboard, #setup, #recommendations)
+  // Hash support (e.g., #dashboard, #setup, #recommendations, #reset-password)
   if (location.hash) {
     const rawHash = location.hash.replace(/^#\/?/, '').split('?')[0].toLowerCase().trim();
+    if (rawHash === 'reset-password') return 'reset-password';
     if (PATH_ALIASES[rawHash]) return PATH_ALIASES[rawHash];
     if (ROUTE_PATH_MAP[rawHash]) return rawHash;
   }
 
-  // Pathname support (e.g., /dashboard, /setup, /recommendations)
+  // Pathname support (e.g., /dashboard, /setup, /reset-password)
   const cleanPath = (location.pathname || '/').replace(/^\/+|\/+$/g, '').toLowerCase().trim();
   if (!cleanPath) return 'landing';
 
+  if (cleanPath === 'reset-password') return 'reset-password';
   if (PATH_ALIASES[cleanPath]) return PATH_ALIASES[cleanPath];
   if (ROUTE_PATH_MAP[cleanPath]) return cleanPath;
 

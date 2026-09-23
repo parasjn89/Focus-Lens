@@ -3,7 +3,7 @@ import { Eye, EyeOff, Lock, Mail, AlertCircle, ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { FocusLensLogo } from '../components/FocusLensLogo.jsx';
 import { GoogleIcon } from '../components/GoogleIcon.jsx';
-import { signInWithGoogle } from '../lib/firebase.js';
+import { signInWithGoogle, isFirebaseConfigured, loginWithEmailPassword } from '../lib/firebase.js';
 
 export function LoginPage({ onNavigate, onLoginSuccess }) {
   const { login, loginWithGoogle } = useAuth();
@@ -45,9 +45,20 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
       return;
     }
 
+    const isEmail = cleanIdentifier.includes('@');
+    const isPhone = !isEmail && /^\+?[0-9\s\-()]+$/.test(cleanIdentifier);
+    const identifierType = isEmail ? 'email' : (isPhone ? 'phone' : 'username');
+
+    console.log('[Auth Diagnostic] Login attempt initiated:', {
+      path: '/api/auth/login',
+      identifierType,
+      isFirebaseConfigured: isFirebaseConfigured(),
+    });
+
     setIsSubmitting(true);
     try {
       const res = await login(cleanIdentifier, password);
+      console.log('[Auth Diagnostic] Backend login succeeded');
       if (onLoginSuccess) {
         onLoginSuccess(res?.user);
       } else if (res?.user?.verificationStatus !== 'VERIFIED') {
@@ -56,7 +67,52 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
         onNavigate('dashboard');
       }
     } catch (err) {
-      setError(err.message || 'Login failed. Please check your credentials.');
+      console.log('[Auth Diagnostic] Backend login rejected:', {
+        path: '/api/auth/login',
+        status: err.status,
+        code: err.code || err.data?.code,
+        message: err.message,
+      });
+
+      // 1. If backend identified account as Google-only, give exact provider guidance without fallback
+      if (err.code === 'GOOGLE_ACCOUNT_ONLY' || err.data?.code === 'GOOGLE_ACCOUNT_ONLY' || (err.message && err.message.includes('Google Sign-In'))) {
+        setError("This account uses Google Sign-In. Continue with Google or set a FocusLens password.");
+        return;
+      }
+
+      // 2. If backend rejected with invalid credentials and identifier is an email, check Firebase Auth
+      // (in case password was reset or added in Firebase Auth)
+      if (isFirebaseConfigured() && isEmail) {
+        try {
+          console.log('[Auth Diagnostic] Attempting Firebase Auth password login');
+          const { idToken, user: fbUser } = await loginWithEmailPassword(cleanIdentifier, password);
+          console.log('[Auth Diagnostic] Firebase Auth succeeded. Exchanging token with backend');
+
+          const res = await loginWithGoogle(idToken);
+
+          // Synchronize password hash to PostgreSQL database for fast subsequent logins
+          try {
+            await apiFetch('/api/auth/sync-firebase-password', {
+              method: 'POST',
+              body: JSON.stringify({ idToken, newPassword: password }),
+            });
+          } catch (_) {}
+
+          if (onLoginSuccess) {
+            onLoginSuccess(res?.user);
+          } else {
+            onNavigate('dashboard');
+          }
+          return;
+        } catch (fbErr) {
+          console.log('[Auth Diagnostic] Firebase Auth check failed:', {
+            fbCode: fbErr?.code || 'unknown',
+            fbMessage: fbErr?.message || 'failed',
+          });
+        }
+      }
+
+      setError(err.message || 'Invalid email/phone/username or password.');
     } finally {
       setIsSubmitting(false);
     }
@@ -74,10 +130,31 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
 
       <div className="p-8 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-2xl backdrop-blur-sm">
         {error && (
-          <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">
-            <div className="flex items-start space-x-3">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <div className="flex-1 font-medium text-rose-200">{error}</div>
+          <div className={`mb-6 p-4 rounded-xl text-xs flex items-start space-x-3 ${
+            error.includes('Google Sign-In')
+              ? 'bg-amber-500/10 border border-amber-500/20 text-amber-300'
+              : 'bg-rose-500/10 border border-rose-500/20 text-rose-300'
+          }`}>
+            <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${
+              error.includes('Google Sign-In') ? 'text-amber-400' : 'text-rose-400'
+            }`} />
+            <div className={`flex-1 font-medium leading-relaxed ${
+              error.includes('Google Sign-In') ? 'text-amber-200' : 'text-rose-200'
+            }`}>
+              <div>{error}</div>
+              {error.includes('Google Sign-In') && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    disabled={isGoogleSubmitting}
+                    className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-lg bg-amber-500 text-slate-950 font-semibold text-xs hover:bg-amber-400 transition-colors shadow-sm"
+                  >
+                    <GoogleIcon className="w-3.5 h-3.5" />
+                    <span>Continue with Google</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
