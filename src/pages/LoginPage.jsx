@@ -3,7 +3,7 @@ import { Eye, EyeOff, Lock, Mail, AlertCircle, ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { FocusLensLogo } from '../components/FocusLensLogo.jsx';
 import { GoogleIcon } from '../components/GoogleIcon.jsx';
-import { signInWithGoogle, isFirebaseConfigured, loginWithEmailPassword } from '../lib/firebase.js';
+import { signInWithGoogle, isFirebaseConfigured, loginWithEmailPassword, getSignInMethods } from '../lib/firebase.js';
 
 export function LoginPage({ onNavigate, onLoginSuccess }) {
   const { login, loginWithGoogle } = useAuth();
@@ -109,6 +109,15 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
             fbCode: fbErr?.code || 'unknown',
             fbMessage: fbErr?.message || 'failed',
           });
+
+          // Check if this Firebase account only has Google provider registered
+          try {
+            const methods = await getSignInMethods(cleanIdentifier);
+            if (methods.includes('google.com') && !methods.includes('password')) {
+              setError("This account uses Google Sign-In. Continue with Google or set a FocusLens password.");
+              return;
+            }
+          } catch (_) {}
         }
       }
 

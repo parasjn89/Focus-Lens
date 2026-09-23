@@ -345,19 +345,11 @@ export async function login(request, reply) {
     }
 
     if (!user.passwordHash) {
-      if (user.googleId) {
-        return reply.status(401).send({
-          statusCode: 401,
-          error: 'Unauthorized',
-          code: 'GOOGLE_ACCOUNT_ONLY',
-          message: "This account uses Google Sign-In. Continue with Google or set a FocusLens password.",
-        });
-      }
       return reply.status(401).send({
         statusCode: 401,
         error: 'Unauthorized',
-        code: 'INVALID_CREDENTIALS',
-        message: 'Invalid email/phone/username or password.',
+        code: 'GOOGLE_ACCOUNT_ONLY',
+        message: "This account uses Google Sign-In. Continue with Google or set a FocusLens password.",
       });
     }
 

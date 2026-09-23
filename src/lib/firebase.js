@@ -424,7 +424,6 @@ export async function sendFirebasePasswordReset(email) {
   const resetUrl = getPasswordResetActionUrl();
   const actionCodeSettings = {
     url: resetUrl,
-    handleCodeInApp: true,
   };
 
   try {
