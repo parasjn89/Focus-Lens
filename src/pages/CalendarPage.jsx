@@ -129,7 +129,11 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
       setCalendarData(data);
     } catch (err) {
       console.error('Failed to load calendar data:', err);
-      setError('Could not load calendar data. Please check your connection.');
+      if (err.status === 401 || err.isAuthError) {
+        setError('Your session has expired. Please log in again.');
+      } else {
+        setError('Could not load calendar data. Please check your connection.');
+      }
     } finally {
       setIsLoading(false);
     }

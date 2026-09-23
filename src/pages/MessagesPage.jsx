@@ -99,7 +99,11 @@ export function MessagesPage({ onNavigate }) {
       }
     } catch (err) {
       console.error('Failed to load conversations:', err);
-      setError('Could not load messages. Please check your connection.');
+      if (err.status === 401 || err.isAuthError) {
+        setError('Your session has expired. Please log in again.');
+      } else {
+        setError('Could not load messages. Please check your connection.');
+      }
     } finally {
       setIsLoadingConversations(false);
     }

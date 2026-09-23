@@ -10,6 +10,7 @@ export function SessionHistoryPage({ onSelectSession, onNewSession }) {
   const [sessions, setSessions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isBackendAvailable, setIsBackendAvailable] = useState(true);
+  const [isAuthError, setIsAuthError] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
   const loadHistory = async () => {
@@ -18,6 +19,7 @@ export function SessionHistoryPage({ onSelectSession, onNewSession }) {
       const res = await fetchSessionsHistory();
       setSessions(res.sessions || []);
       setIsBackendAvailable(res.isBackendAvailable);
+      setIsAuthError(Boolean(res.isAuthError));
     } catch (err) {
       console.error('Failed to load session history:', err);
     } finally {
@@ -211,8 +213,18 @@ export function SessionHistoryPage({ onSelectSession, onNewSession }) {
         </div>
       )}
 
-      {/* Backend Status Notice */}
-      {!isBackendAvailable && (
+      {/* Session Status Notices */}
+      {isAuthError && (
+        <div className="p-3.5 rounded-2xl bg-red-500/10 border border-red-500/25 flex items-start space-x-3 text-xs text-red-200">
+          <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-semibold text-red-300">Session Expired:</span>
+            {' '}Your login session has expired. Please log in again to sync and view your cloud history.
+          </div>
+        </div>
+      )}
+
+      {!isBackendAvailable && !isAuthError && (
         <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-start space-x-3 text-xs text-amber-200">
           <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
           <div>

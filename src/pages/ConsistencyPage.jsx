@@ -20,7 +20,11 @@ export function ConsistencyPage({ onNewSession, onNavigate }) {
       setConsistencyData(res);
     } catch (err) {
       console.error('Failed to fetch consistency data:', err);
-      setError('Could not load consistency analytics. Please check your connection.');
+      if (err.status === 401 || err.isAuthError) {
+        setError('Your session has expired. Please log in again.');
+      } else {
+        setError('Could not load consistency analytics. Please check your connection.');
+      }
     } finally {
       setIsLoading(false);
     }

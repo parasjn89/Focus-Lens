@@ -22,6 +22,7 @@ export function buildApp(options = {}) {
   const app = Fastify({
     logger: options.logger ?? true,
     bodyLimit: 1048576, // 1MB body limit
+    trustProxy: options.trustProxy ?? true,
   });
 
   // CORS Configuration
@@ -77,7 +78,8 @@ export function buildApp(options = {}) {
     cookie: {
       secure: isProduction,
       httpOnly: true,
-      sameSite: isProduction ? 'none' : 'lax',
+      sameSite: 'lax',
+      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     },
     saveUninitialized: false,

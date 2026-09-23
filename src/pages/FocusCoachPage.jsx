@@ -16,7 +16,11 @@ export function FocusCoachPage({ onStartRecommendedSession, onNewSession, onNavi
       setCoachData(res);
     } catch (err) {
       console.error('Failed to fetch Focus Coach data:', err);
-      setError('Could not load Focus Coach suggestions. Please check your network connection.');
+      if (err.status === 401 || err.isAuthError) {
+        setError('Your session has expired. Please log in again.');
+      } else {
+        setError('Could not load Focus Coach suggestions. Please check your network connection.');
+      }
     } finally {
       setIsLoading(false);
     }

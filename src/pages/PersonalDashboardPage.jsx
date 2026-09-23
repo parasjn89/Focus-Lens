@@ -84,7 +84,11 @@ export function PersonalDashboardPage({ onSelectSession, onNewSession, onNavigat
       if (recRes) setRecommendationData(recRes);
     } catch (err) {
       console.error('Failed to fetch dashboard data:', err);
-      setError('Could not load dashboard data. Please verify your connection.');
+      if (err.status === 401 || err.isAuthError) {
+        setError('Your session has expired. Please log in again.');
+      } else {
+        setError('Could not load dashboard data. Please verify your connection.');
+      }
     } finally {
       setIsLoading(false);
     }

@@ -101,19 +101,29 @@ export async function apiFetch(endpoint, options = {}) {
     } else {
       const text = await response.text().catch(() => '');
       if (!response.ok) {
-        const err = new Error(`API error (HTTP ${response.status} ${response.statusText}): Non-JSON response received from ${endpoint}`);
+        const isAuth = response.status === 401 || response.status === 403;
+        const err = new Error(
+          isAuth
+            ? `Your session has expired or is unauthorized (HTTP ${response.status}). Please log in again.`
+            : `API error (HTTP ${response.status} ${response.statusText}): Non-JSON response received from ${endpoint}`
+        );
         err.status = response.status;
         err.statusText = response.statusText;
         err.endpoint = endpoint;
         err.targetUrl = url;
-        err.code = 'HTTP_NON_JSON_RESPONSE';
+        err.code = isAuth ? (response.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN') : 'HTTP_NON_JSON_RESPONSE';
+        err.isAuthError = isAuth;
         throw err;
       }
       throw new Error(`Unexpected server response format (${contentType || 'text/html'}) from ${endpoint}. Expected JSON.`);
     }
 
     if (!response.ok) {
-      const err = new Error(data.message || `API error: HTTP ${response.status} ${response.statusText}`);
+      const isAuth = response.status === 401 || response.status === 403;
+      const defaultMessage = isAuth
+        ? 'Your session has expired. Please log in again.'
+        : `API error: HTTP ${response.status} ${response.statusText}`;
+      const err = new Error(data.message || defaultMessage);
       err.status = response.status;
       err.statusText = response.statusText;
       err.data = data;
@@ -121,7 +131,8 @@ export async function apiFetch(endpoint, options = {}) {
       err.errors = data.errors;
       err.endpoint = endpoint;
       err.targetUrl = url;
-      err.code = data.error || `HTTP_${response.status}`;
+      err.code = data.error || (isAuth ? (response.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN') : `HTTP_${response.status}`);
+      err.isAuthError = isAuth;
       throw err;
     }
 

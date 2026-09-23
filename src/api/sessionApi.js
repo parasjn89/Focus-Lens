@@ -327,12 +327,18 @@ export async function sendSessionHeartbeat(sessionId, { actualDurationMs, paused
 export async function fetchSessionsHistory({ limit = 20, offset = 0 } = {}) {
   let backendSessions = [];
   let isBackendAvailable = true;
+  let isAuthError = false;
 
   try {
     const res = await apiFetch(`/api/sessions?limit=${limit}&offset=${offset}`);
     backendSessions = res.sessions || [];
   } catch (err) {
-    isBackendAvailable = false;
+    if (err.status === 401 || err.isAuthError) {
+      isAuthError = true;
+      isBackendAvailable = true;
+    } else {
+      isBackendAvailable = false;
+    }
   }
 
   const localSessions = getLocalSessions();
@@ -388,6 +394,7 @@ export async function fetchSessionsHistory({ limit = 20, offset = 0 } = {}) {
   return {
     sessions: mergedSessions,
     isBackendAvailable,
+    isAuthError,
     totalCount: mergedSessions.length,
   };
 }
