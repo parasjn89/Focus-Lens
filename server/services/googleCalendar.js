@@ -43,14 +43,26 @@ export function generateOAuthState(userId) {
   return Buffer.from(JSON.stringify({ payload, sig: hmac })).toString('base64url');
 }
 
+const usedOAuthNonces = new Map(); // nonce -> timestamp
+
+/**
+ * Resets used nonces for test isolation
+ */
+export function clearUsedOAuthNonces() {
+  usedOAuthNonces.clear();
+}
+
 /**
  * Validates the state parameter and ensures it was generated for the current authenticated user.
+ * Guarantees single-use by consuming the state nonce upon successful verification.
  *
  * @param {string} state - Base64URL state string from callback
  * @param {string} currentUserId - Authenticated FocusLens user ID
- * @returns {boolean} True if valid
+ * @param {Object} [options]
+ * @param {boolean} [options.consume=true] - Whether to consume nonce (single-use)
+ * @returns {boolean} True if valid and unused
  */
-export function verifyOAuthState(state, currentUserId) {
+export function verifyOAuthState(state, currentUserId, { consume = true } = {}) {
   if (!state || !currentUserId) return false;
   try {
     const raw = Buffer.from(state, 'base64url').toString('utf8');
@@ -70,8 +82,24 @@ export function verifyOAuthState(state, currentUserId) {
 
     // Expiry check: state valid for 15 minutes (900,000 ms)
     const MAX_AGE_MS = 15 * 60 * 1000;
-    if (Date.now() - data.ts > MAX_AGE_MS || data.ts > Date.now() + 60000) {
+    const now = Date.now();
+    if (now - data.ts > MAX_AGE_MS || data.ts > now + 60000) {
       return false;
+    }
+
+    // Single-use check: state nonce must not have been previously consumed
+    if (usedOAuthNonces.has(data.nonce)) {
+      return false;
+    }
+
+    if (consume) {
+      usedOAuthNonces.set(data.nonce, data.ts);
+      // Prune expired nonces
+      for (const [nonce, ts] of usedOAuthNonces.entries()) {
+        if (now - ts > MAX_AGE_MS) {
+          usedOAuthNonces.delete(nonce);
+        }
+      }
     }
 
     return true;
@@ -270,7 +298,9 @@ export async function getValidAccessToken(connection) {
         tokenExpiry: newExpiry,
       });
     } catch (err) {
-      const error = new Error('Google Calendar connection expired. Please reconnect.');
+      // Safely disconnect / clean up invalid connection so user is prompted to reconnect
+      await dbStore.deleteGoogleCalendarConnection(connection.userId).catch(() => {});
+      const error = new Error('Google Calendar connection expired or was revoked. Please reconnect.');
       error.statusCode = 401;
       error.code = 'GOOGLE_TOKEN_EXPIRED';
       throw error;

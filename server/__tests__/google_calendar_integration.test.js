@@ -643,6 +643,133 @@ test('Google Calendar Integration Test Suite', async (t) => {
     );
   });
 
+  await t.test('21. Replaying or reusing the same OAuth state is rejected (single-use CSRF protection)', async () => {
+    const singleUseState = generateOAuthState(userA.id);
+
+    // First use: valid and consumed
+    const firstCheck = verifyOAuthState(singleUseState, userA.id, { consume: true });
+    assert.equal(firstCheck, true, 'First verification of state must succeed');
+
+    // Immediate second attempt: must be rejected because nonce is already consumed
+    const secondCheck = verifyOAuthState(singleUseState, userA.id, { consume: true });
+    assert.equal(secondCheck, false, 'Replaying consumed state must be rejected');
+
+    // Callback with consumed state redirects with error
+    const replayRes = await app.inject({
+      method: 'GET',
+      url: `/api/calendar/google/callback?code=mock_code&state=${encodeURIComponent(singleUseState)}`,
+      headers: { cookie: cookieA },
+    });
+    assert.equal(replayRes.statusCode, 302);
+    assert.ok(replayRes.headers.location.includes('/calendar?google=error'));
+  });
+
+  await t.test('22. Specification endpoints (/api/calendar/google/connect, /api/calendar/google/status, /api/calendar/events, /api/calendar/google/disconnect) work seamlessly', async () => {
+    // Connect initiation on primary spec route
+    const connectRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/google/connect',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(connectRes.statusCode, 200);
+    const connectData = JSON.parse(connectRes.payload);
+    assert.ok(connectData.url.includes('calendar.readonly'));
+
+    // Status on primary spec route
+    const statusRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/google/status',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(statusRes.statusCode, 200);
+    const statusData = JSON.parse(statusRes.payload);
+    assert.equal(typeof statusData.connected, 'boolean');
+
+    // Connect userA cleanly
+    const freshState = generateOAuthState(userA.id);
+    await app.inject({
+      method: 'GET',
+      url: `/api/calendar/google/callback?code=mock_valid_code&state=${encodeURIComponent(freshState)}`,
+      headers: { cookie: cookieA },
+    });
+
+    // Events on primary spec route: GET /api/calendar/events
+    const eventsRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/events?start=2026-09-01&end=2026-09-30',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(eventsRes.statusCode, 200);
+    const eventsData = JSON.parse(eventsRes.payload);
+    assert.ok(Array.isArray(eventsData.events));
+    assert.ok(eventsData.events.length > 0);
+    assert.equal(eventsData.events[0].title, 'DSA Problem Solving');
+
+    // Disconnect via DELETE /api/calendar/google/disconnect
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: '/api/calendar/google/disconnect',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(deleteRes.statusCode, 200);
+    const deleteData = JSON.parse(deleteRes.payload);
+    assert.equal(deleteData.connected, false);
+
+    // Verify disconnected in status
+    const postStatusRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/google/status',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(JSON.parse(postStatusRes.payload).connected, false);
+  });
+
+  await t.test('23. Revoked refresh token clears stored connection from database and prompts reconnection', async () => {
+    // Reconnect User A with an expiring token and a failing refresh token
+    await dbStore.upsertGoogleCalendarConnection(userA.id, {
+      googleAccountEmail: 'revoked_user@gmail.com',
+      accessTokenEncrypted: encryptToken('expired_access_token_111'),
+      refreshTokenEncrypted: encryptToken('fail_refresh_token_222'),
+      tokenExpiry: new Date(Date.now() - 60000), // Expired 1 min ago
+    });
+
+    // Requesting events should trigger refresh, fail against Google, delete connection, and return 401
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/events',
+      headers: { cookie: cookieA },
+    });
+
+    assert.equal(res.statusCode, 401);
+    const body = JSON.parse(res.payload);
+    assert.equal(body.code, 'GOOGLE_TOKEN_EXPIRED');
+    assert.match(body.message, /Google Calendar connection expired\. Please reconnect\./i);
+
+    // Database record must have been deleted
+    const connInDb = await dbStore.getGoogleCalendarConnection(userA.id);
+    assert.equal(connInDb, null, 'Revoked connection must be cleared from database');
+  });
+
+  await t.test('24. Cross-user OAuth state attack: User B cannot attach their Google account using User A state', async () => {
+    // User A generates an OAuth state
+    const stateForUserA = generateOAuthState(userA.id);
+
+    // User B attempts to complete callback with User A's state
+    const attackRes = await app.inject({
+      method: 'GET',
+      url: `/api/calendar/google/callback?code=mock_code&state=${encodeURIComponent(stateForUserA)}`,
+      headers: { cookie: cookieB }, // User B session
+    });
+
+    // Must be rejected with 302 redirect to error
+    assert.equal(attackRes.statusCode, 302);
+    assert.ok(attackRes.headers.location.includes('/calendar?google=error'));
+
+    // User B must NOT have any Google Calendar connection in database
+    const connB = await dbStore.getGoogleCalendarConnection(userB.id);
+    assert.equal(connB, null, 'User B must not have any connection created');
+  });
+
   setGoogleApiFetchOverride(null);
   if (app) await app.close();
   await pool.end();

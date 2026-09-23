@@ -5,7 +5,7 @@ import { apiFetch } from './client.js';
  * Returns { connected: boolean, email: string|null, selectedCalendarId: string }
  */
 export async function fetchGoogleCalendarStatus() {
-  return apiFetch('/api/integrations/google-calendar/status');
+  return apiFetch('/api/calendar/google/status');
 }
 
 /**
@@ -13,7 +13,7 @@ export async function fetchGoogleCalendarStatus() {
  * Returns { url: string }
  */
 export async function getGoogleCalendarConnectUrl() {
-  return apiFetch('/api/integrations/google-calendar/connect');
+  return apiFetch('/api/calendar/google/connect');
 }
 
 /**
@@ -38,7 +38,7 @@ export async function connectGoogleCalendar() {
  * Returns { calendars: Array<{ id, summary, description, primary, timeZone }>, selectedCalendarId: string }
  */
 export async function fetchGoogleCalendars() {
-  return apiFetch('/api/integrations/google-calendar/calendars');
+  return apiFetch('/api/calendar/google/calendars');
 }
 
 /**
@@ -48,7 +48,7 @@ export async function fetchGoogleCalendars() {
  * @returns {Promise<{ success: boolean, selectedCalendarId: string }>}
  */
 export async function selectGoogleCalendar(calendarId) {
-  return apiFetch('/api/integrations/google-calendar/select-calendar', {
+  return apiFetch('/api/calendar/google/select-calendar', {
     method: 'POST',
     body: JSON.stringify({ calendarId }),
   });
@@ -68,7 +68,7 @@ export async function fetchGoogleCalendarEvents(startDateStr, endDateStr, calend
   if (endDateStr) params.set('end', endDateStr);
   if (calendarId) params.set('calendarId', calendarId);
 
-  return apiFetch(`/api/integrations/google-calendar/events?${params.toString()}`);
+  return apiFetch(`/api/calendar/events?${params.toString()}`);
 }
 
 /**
@@ -77,7 +77,7 @@ export async function fetchGoogleCalendarEvents(startDateStr, endDateStr, calend
  * @returns {Promise<{ success: boolean, connected: false }>}
  */
 export async function disconnectGoogleCalendar() {
-  return apiFetch('/api/integrations/google-calendar/disconnect', {
+  return apiFetch('/api/calendar/google/disconnect', {
     method: 'POST',
   });
 }
