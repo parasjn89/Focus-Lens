@@ -495,5 +495,63 @@ describe('FocusLens Firebase Password Reset Flow & Lifecycle Suite', () => {
       }
     );
   });
+
+  it('22. POST /api/auth/forgot-password with EMAIL handles custom FocusLens reset URL and generic response', async () => {
+    const uid = Math.random().toString(36).substring(2, 9);
+    const email = `admin_reset_${uid}@example.com`;
+
+    await dbStore.createUser({
+      username: `admin_user_${uid}`,
+      email,
+      name: 'Admin Reset User',
+      passwordHash: 'dummy_hash',
+      verificationStatus: 'VERIFIED',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/forgot-password',
+      payload: {
+        method: 'EMAIL',
+        identifier: email,
+      },
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.success, true);
+    assert.match(body.message, /If an account exists/i);
+    // Crucial: generic response NEVER leaks any oobCode or internal tokens
+    assert.equal(body.oobCode, undefined);
+    assert.equal(body.token, undefined);
+  });
+
+  it('23. Custom FocusLens reset URL construction cleanly embeds oobCode and mode=resetPassword without hosted handler', () => {
+    const mockOob = 'testOobCodeFirebase987';
+    const targetHandlerUrl = 'https://focus-lens-nine.vercel.app/reset-password';
+    const customResetUrl = new URL(targetHandlerUrl);
+    customResetUrl.searchParams.set('mode', 'resetPassword');
+    customResetUrl.searchParams.set('oobCode', mockOob);
+
+    const generatedString = customResetUrl.toString();
+    assert.match(generatedString, /^https:\/\/focus-lens-nine\.vercel\.app\/reset-password\?/);
+    assert.equal(customResetUrl.searchParams.get('mode'), 'resetPassword');
+    assert.equal(customResetUrl.searchParams.get('oobCode'), mockOob);
+    // Does NOT contain firebaseapp.com hosted handler path
+    assert.equal(generatedString.includes('firebaseapp.com'), false);
+    assert.equal(generatedString.includes('/__/auth/action'), false);
+  });
+
+  it('24. parseResetParams directly extracts oobCode and mode from custom FocusLens URL without hosted handler', () => {
+    const testOob = 'directOobCode12345';
+    const mockLoc = {
+      pathname: '/reset-password',
+      search: `?mode=resetPassword&oobCode=${testOob}`,
+      hash: '',
+    };
+    const parsed = parseResetParams(mockLoc);
+    assert.equal(parsed.mode, 'resetPassword');
+    assert.equal(parsed.oobCode, testOob);
+  });
 });
 

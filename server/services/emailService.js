@@ -221,13 +221,13 @@ export async function sendEmailPasswordResetOtp({ email, otp, name }) {
 /**
  * Send password reset email link to user (legacy support)
  */
-export async function sendEmailPasswordResetLink({ email, resetToken, name }) {
+export async function sendEmailPasswordResetLink({ email, resetUrl: providedResetUrl, resetToken, name }) {
   const provider = (config.emailProvider || 'dev').toLowerCase();
   const fromEmail = config.emailFrom || config.emailUsername || 'onboarding@resend.dev';
-  const resetUrl = `${config.appBaseUrl || 'http://localhost:3001'}/reset-password?token=${resetToken}`;
+  const resetUrl = providedResetUrl || `${config.appBaseUrl || 'http://localhost:3001'}/reset-password?token=${resetToken}`;
 
   const subject = 'Reset Your FocusLens Password';
-  const textContent = `Hello ${name || 'FocusLens User'},\n\nYou requested a password reset for your FocusLens account.\n\nPlease use the following link or code to reset your password:\n${resetUrl}\n\nReset Token: ${resetToken}\n\nThis link will expire in 15 minutes. If you did not request a password reset, please ignore this email.\n\n- The FocusLens Team`;
+  const textContent = `Hello ${name || 'FocusLens User'},\n\nYou requested a password reset for your FocusLens account.\n\nPlease use the following link to reset your password:\n${resetUrl}\n\nThis link will expire in 1 hour. If you did not request a password reset, please ignore this email.\n\n- The FocusLens Team`;
 
   if (provider === 'smtp') {
     return await sendViaSmtp({ fromEmail, to: email, subject, text: textContent });
@@ -243,7 +243,7 @@ export async function sendEmailPasswordResetLink({ email, resetToken, name }) {
     console.log(`[EMAIL PROVIDER (DEV)] Password Reset Link`);
     console.log(`To: ${email}`);
     console.log(`Subject: ${subject}`);
-    console.log(`Reset Token Link: ${resetUrl}`);
+    console.log(`Password Reset Link: [Secure Link Delivered]`);
     console.log(`==================================================\n`);
   }
 

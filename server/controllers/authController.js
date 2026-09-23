@@ -10,7 +10,7 @@ import {
 import { sendEmailVerificationChallenge, sendEmailPasswordResetLink, sendEmailPasswordResetOtp } from '../services/emailService.js';
 import { sendSmsOtpChallenge, sendSmsPasswordResetOtp } from '../services/smsService.js';
 import { saveAvatar, deleteAvatarFile } from '../services/avatarStorageService.js';
-import { verifyFirebaseIdToken } from '../services/firebaseAuth.js';
+import { verifyFirebaseIdToken, getFirebaseAuth, isFirebaseAdminConfigured } from '../services/firebaseAuth.js';
 
 
 export function toSafeUser(user) {
@@ -1421,13 +1421,56 @@ export async function forgotPassword(request, reply) {
     });
 
     if (resetType === 'EMAIL' && user.email) {
-      const emailResult = await sendEmailPasswordResetOtp({
-        email: user.email,
-        otp,
-        name: user.name,
-      });
-      if (emailResult && !emailResult.success) {
-        request.log.error(`[Email Delivery Failure] Failed to deliver password reset email to ${user.email}: ${emailResult.error}`);
+      let resetLinkDelivered = false;
+
+      // Primary: Generate Firebase password reset link via Firebase Admin SDK
+      if (isFirebaseAdminConfigured()) {
+        try {
+          const adminAuth = await getFirebaseAuth();
+          const targetHandlerUrl = process.env.NODE_ENV === 'development' && process.env.FRONTEND_URL
+            ? `${process.env.FRONTEND_URL.replace(/\/$/, '')}/reset-password`
+            : 'https://focus-lens-nine.vercel.app/reset-password';
+
+          const link = await adminAuth.generatePasswordResetLink(user.email, {
+            url: targetHandlerUrl,
+          });
+
+          // Safely extract oobCode using URL / URLSearchParams APIs
+          const parsedAdminLink = new URL(link);
+          const oobCode = parsedAdminLink.searchParams.get('oobCode');
+
+          if (oobCode) {
+            const customResetUrl = new URL(targetHandlerUrl);
+            customResetUrl.searchParams.set('mode', 'resetPassword');
+            customResetUrl.searchParams.set('oobCode', oobCode);
+
+            const emailResult = await sendEmailPasswordResetLink({
+              email: user.email,
+              resetUrl: customResetUrl.toString(),
+              name: user.name,
+            });
+
+            if (emailResult && emailResult.success) {
+              resetLinkDelivered = true;
+            } else if (emailResult && !emailResult.success) {
+              request.log.error(`[Email Delivery Failure] Failed to deliver custom Firebase reset link to ${user.email}: ${emailResult.error}`);
+            }
+          }
+        } catch (adminErr) {
+          request.log.warn(`[Firebase Admin Reset] Unable to generate Firebase Admin reset link: ${adminErr.message}`);
+        }
+      }
+
+      // Fallback: If Admin SDK is unconfigured or fails (e.g. offline unit tests), deliver standard OTP email
+      if (!resetLinkDelivered) {
+        const emailResult = await sendEmailPasswordResetOtp({
+          email: user.email,
+          otp,
+          name: user.name,
+        });
+        if (emailResult && !emailResult.success) {
+          request.log.error(`[Email Delivery Failure] Failed to deliver password reset email to ${user.email}: ${emailResult.error}`);
+        }
       }
     } else if (user.phoneNumber) {
       const targetPhone = normalizedPhone || user.phoneNumber;

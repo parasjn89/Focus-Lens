@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { Mail, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BackButton } from '../components/BackButton.jsx';
-import { sendFirebasePasswordReset } from '../lib/firebase.js';
-
 export function ForgotPasswordPage({ onNavigate }) {
   const { requestForgotPassword } = useAuth();
   const [email, setEmail] = useState('');
@@ -23,13 +21,7 @@ export function ForgotPasswordPage({ onNavigate }) {
 
     setIsLoading(true);
     try {
-      // 1. Try free Firebase Auth password reset email
-      try {
-        await sendFirebasePasswordReset(cleanEmail);
-      } catch (fbErr) {
-        // 2. Fall back to backend password reset service if Firebase Auth email not set up
-        await requestForgotPassword('EMAIL', cleanEmail);
-      }
+      await requestForgotPassword('EMAIL', cleanEmail);
       setIsSubmitted(true);
     } catch (err) {
       // Account enumeration defense: show success regardless
