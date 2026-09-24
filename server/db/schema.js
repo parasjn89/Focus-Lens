@@ -262,5 +262,17 @@ export const messagesRelations = relations(messages, ({ one }) => ({
   }),
 }));
 
+// Persistent Auth Sessions table
+export const authSessions = pgTable('auth_sessions', {
+  id: text('id').primaryKey(),
+  data: jsonb('data').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  idxAuthSessionsExpiresAt: index('idx_auth_sessions_expires_at').on(table.expiresAt),
+}));
+
+
 
 

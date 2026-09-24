@@ -37,6 +37,15 @@ export async function checkDbConnection() {
           updated_at TIMESTAMP NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_google_cal_user ON google_calendar_connections(user_id);
+
+        CREATE TABLE IF NOT EXISTS auth_sessions (
+          id VARCHAR(128) PRIMARY KEY,
+          data JSONB NOT NULL,
+          expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at);
       `);
     } catch (e) {
       // Ignore if table not yet created

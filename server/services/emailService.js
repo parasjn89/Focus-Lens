@@ -18,7 +18,7 @@ export function resetMockEmailTransport() {
 }
 
 /**
- * Helper to sanitize error messages so credentials/tokens are never exposed in logs or return values
+ * Helper to sanitize error messages so credentials/tokens/emails are never exposed in logs or return values
  */
 function sanitizeErrorMessage(msg) {
   if (!msg) return 'Unknown email delivery error';
@@ -29,6 +29,8 @@ function sanitizeErrorMessage(msg) {
   if (config.resendApiKey) {
     safe = safe.replaceAll(config.resendApiKey, '[REDACTED_API_KEY]');
   }
+  // Sanitize any recipient or personal email that Resend might echo back in error messages
+  safe = safe.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, '[REDACTED_EMAIL]');
   return safe;
 }
 
@@ -70,11 +72,11 @@ async function sendViaSmtp({ fromEmail, to, subject, text }) {
       text,
     });
 
-    console.log(`[Email Service] SMTP email sent successfully to ${to} (Message ID: ${info.messageId})`);
+    console.log(`[Email Service] SMTP email sent successfully (Message ID: ${info.messageId})`);
     return { success: true, provider: 'smtp', messageId: info.messageId };
   } catch (err) {
     const safeError = sanitizeErrorMessage(err.message);
-    console.error(`[Email Service Failure] SMTP transmission error to ${to}:`, safeError);
+    console.error(`[Email Service Failure] SMTP transmission error:`, safeError);
     return { success: false, error: safeError, provider: 'smtp' };
   }
 }
@@ -84,6 +86,16 @@ async function sendViaSmtp({ fromEmail, to, subject, text }) {
  */
 async function sendViaResend({ fromEmail, to, subject, text }) {
   try {
+    if (typeof mockEmailTransport === 'function') {
+      const info = await mockEmailTransport({ from: fromEmail, to, subject, text });
+      return { success: true, provider: 'resend', messageId: info?.messageId || 'mock-resend-id' };
+    }
+
+    // In test environment without explicit mock transport, avoid outbound API calls
+    if (config.nodeEnv === 'test') {
+      return { success: true, provider: 'resend', messageId: 'test-resend-id' };
+    }
+
     const { Resend } = await import('resend');
     const resend = new Resend(config.resendApiKey);
 
@@ -95,17 +107,21 @@ async function sendViaResend({ fromEmail, to, subject, text }) {
     });
 
     if (error) {
+      const isSandboxRestriction = (error.message || '').includes('only send testing emails to your own email address') ||
+        (error.name === 'validation_error' && (error.message || '').includes('resend.com/domains'));
       const safeError = sanitizeErrorMessage(error.message || error);
-      console.error(`[Resend Email Service Failure] Failed to send email to ${to}:`, safeError);
-      return { success: false, error: safeError, provider: 'resend' };
+      console.error(`[Resend Email Service Failure] Failed to send email:`, safeError);
+      return { success: false, error: safeError, isSandboxRestriction, provider: 'resend' };
     }
 
-    console.log(`[Resend Email Service] Email sent successfully to ${to} (Message ID: ${data?.id})`);
+    console.log(`[Resend Email Service] Email sent successfully (Message ID: ${data?.id})`);
     return { success: true, provider: 'resend', messageId: data?.id };
   } catch (err) {
+    const isSandboxRestriction = (err.message || '').includes('only send testing emails to your own email address') ||
+      ((err.message || '').includes('resend.com/domains'));
     const safeError = sanitizeErrorMessage(err.message);
-    console.error(`[Resend Email Service Failure] Resend API error to ${to}:`, safeError);
-    return { success: false, error: safeError, provider: 'resend' };
+    console.error(`[Resend Email Service Failure] Resend API error:`, safeError);
+    return { success: false, error: safeError, isSandboxRestriction, provider: 'resend' };
   }
 }
 
@@ -241,7 +257,7 @@ export async function sendEmailPasswordResetLink({ email, resetUrl: providedRese
   if (config.nodeEnv !== 'test') {
     console.log(`\n==================================================`);
     console.log(`[EMAIL PROVIDER (DEV)] Password Reset Link`);
-    console.log(`To: ${email}`);
+    console.log(`To: [REDACTED_EMAIL]`);
     console.log(`Subject: ${subject}`);
     console.log(`Password Reset Link: [Secure Link Delivered]`);
     console.log(`==================================================\n`);

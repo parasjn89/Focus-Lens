@@ -14,6 +14,11 @@ import { resolveViewFromLocation, ROUTE_PATH_MAP } from '../../src/utils/routes.
 import { buildApp } from '../app.js';
 import { dbStore } from '../db/store.js';
 import { setMockVerifier, resetMockVerifier } from '../services/firebaseAuth.js';
+import {
+  setMockEmailTransport,
+  resetMockEmailTransport,
+  sendEmailPasswordResetLink,
+} from '../services/emailService.js';
 
 describe('FocusLens Firebase Password Reset Flow & Lifecycle Suite', () => {
   let app;
@@ -26,11 +31,13 @@ describe('FocusLens Firebase Password Reset Flow & Lifecycle Suite', () => {
 
   after(async () => {
     resetMockVerifier();
+    resetMockEmailTransport();
     await app.close();
   });
 
   beforeEach(() => {
     resetMockVerifier();
+    resetMockEmailTransport();
     originalEnv = {
       apiKey: process.env.VITE_FIREBASE_API_KEY,
       projectId: process.env.VITE_FIREBASE_PROJECT_ID,
@@ -44,6 +51,7 @@ describe('FocusLens Firebase Password Reset Flow & Lifecycle Suite', () => {
 
   afterEach(() => {
     resetMockVerifier();
+    resetMockEmailTransport();
     if (originalEnv.apiKey) process.env.VITE_FIREBASE_API_KEY = originalEnv.apiKey;
     else delete process.env.VITE_FIREBASE_API_KEY;
     if (originalEnv.projectId) process.env.VITE_FIREBASE_PROJECT_ID = originalEnv.projectId;
@@ -552,6 +560,49 @@ describe('FocusLens Firebase Password Reset Flow & Lifecycle Suite', () => {
     const parsed = parseResetParams(mockLoc);
     assert.equal(parsed.mode, 'resetPassword');
     assert.equal(parsed.oobCode, testOob);
+  });
+
+  it('25. Password-reset email delivery dispatches custom FocusLens reset URL to correct recipient via Resend service', async () => {
+    let capturedMail = null;
+    setMockEmailTransport(async (mail) => {
+      capturedMail = mail;
+      return { messageId: 'resend-msg-mock-123' };
+    });
+
+    const testEmail = 'user_reset_test@example.com';
+    const mockOob = 'secureOobCodeExample777';
+    const customResetUrl = `https://focus-lens-nine.vercel.app/reset-password?mode=resetPassword&oobCode=${mockOob}`;
+
+    const sendRes = await sendEmailPasswordResetLink({
+      email: testEmail,
+      resetUrl: customResetUrl,
+      name: 'Test Reset User',
+    });
+
+    assert.equal(sendRes.success, true);
+    assert.equal(sendRes.provider, 'resend');
+    assert.ok(capturedMail, 'Mock transport was invoked');
+    assert.equal(capturedMail.to, testEmail);
+    assert.equal(capturedMail.from, 'onboarding@resend.dev');
+    assert.match(capturedMail.text, /https:\/\/focus-lens-nine\.vercel\.app\/reset-password\?mode=resetPassword&oobCode=/);
+  });
+
+  it('26. sendEmailPasswordResetLink sanitizes errors and identifies sandbox restrictions without leaking credentials', async () => {
+    setMockEmailTransport(async () => {
+      throw new Error('validation_error: You can only send testing emails to your own email address (owner@example.com)');
+    });
+
+    const sendRes = await sendEmailPasswordResetLink({
+      email: 'unverified_target@example.com',
+      resetUrl: 'https://focus-lens-nine.vercel.app/reset-password?mode=resetPassword&oobCode=123',
+      name: 'Sandbox User',
+    });
+
+    assert.equal(sendRes.success, false);
+    assert.equal(sendRes.provider, 'resend');
+    // Crucial: sender error should NOT leak the raw owner email
+    assert.equal(sendRes.error.includes('owner@example.com'), false);
+    assert.match(sendRes.error, /\[REDACTED_EMAIL\]/);
   });
 });
 

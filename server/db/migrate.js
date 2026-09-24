@@ -193,6 +193,16 @@ CREATE TABLE IF NOT EXISTS google_calendar_connections (
 );
 
 CREATE INDEX IF NOT EXISTS idx_google_cal_user ON google_calendar_connections(user_id);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id VARCHAR(128) PRIMARY KEY,
+  data JSONB NOT NULL,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at);
 `;
 
 export async function runMigrations() {
@@ -236,11 +246,13 @@ export async function runMigrations() {
         return;
       } catch (rootErr) {
         await rootClient.end().catch(() => {});
-        console.warn(`[DB Migrate Warning] Root database creation attempt failed:`, rootErr.message);
+        console.error(`[DB Migrate Error] Root database creation attempt failed:`, rootErr.message);
+        throw rootErr;
       }
     }
 
-    console.warn('[DB Migrate Warning] Migration connection could not reach PostgreSQL instance:', err.message);
+    console.error('[DB Migrate Error] Migration failed:', err.message);
+    throw err;
   }
 }
 

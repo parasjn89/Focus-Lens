@@ -17,6 +17,7 @@ import { taskRoutes } from './routes/taskRoutes.js';
 import { buddyRoutes } from './routes/buddyRoutes.js';
 import { messageRoutes } from './routes/messageRoutes.js';
 import { dbStore } from './db/store.js';
+import { postgresSessionStore } from './auth/postgresSessionStore.js';
 
 export function buildApp(options = {}) {
   const app = Fastify({
@@ -75,6 +76,7 @@ export function buildApp(options = {}) {
   app.register(fastifySession, {
     secret: config.sessionSecret,
     cookieName: 'focuslens_session',
+    store: postgresSessionStore,
     cookie: {
       secure: isProduction,
       httpOnly: true,

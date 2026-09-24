@@ -679,20 +679,26 @@ export async function firebasePhoneAuth(request, reply) {
 // Handler: POST /api/auth/logout
 export async function logout(request, reply) {
   if (request.session) {
-    request.session.destroy((err) => {
-      if (err) {
-        return reply.status(500).send({
-          statusCode: 500,
-          error: 'Internal Server Error',
-          message: 'Could not destroy session.',
+    return new Promise((resolve) => {
+      request.session.destroy((err) => {
+        if (err) {
+          reply.status(500).send({
+            statusCode: 500,
+            error: 'Internal Server Error',
+            message: 'Could not destroy session.',
+          });
+          return resolve();
+        }
+        reply.clearCookie('focuslens_session', { path: '/' });
+        reply.send({
+          success: true,
+          message: 'Logged out successfully.',
         });
-      }
-      return reply.send({
-        success: true,
-        message: 'Logged out successfully.',
+        resolve();
       });
     });
   } else {
+    reply.clearCookie('focuslens_session', { path: '/' });
     return reply.send({
       success: true,
       message: 'Logged out.',
@@ -1453,7 +1459,11 @@ export async function forgotPassword(request, reply) {
             if (emailResult && emailResult.success) {
               resetLinkDelivered = true;
             } else if (emailResult && !emailResult.success) {
-              request.log.error(`[Email Delivery Failure] Failed to deliver custom Firebase reset link to ${user.email}: ${emailResult.error}`);
+              if (emailResult.isSandboxRestriction) {
+                request.log.warn(`[Email Delivery Notice] Resend sandbox recipient restriction: current sandbox sender requires sending to verified account owner or verifying production domain.`);
+              } else {
+                request.log.error(`[Email Delivery Failure] Failed to deliver custom Firebase reset link: ${emailResult.error}`);
+              }
             }
           }
         } catch (adminErr) {
@@ -1462,14 +1472,14 @@ export async function forgotPassword(request, reply) {
       }
 
       // Fallback: If Admin SDK is unconfigured or fails (e.g. offline unit tests), deliver standard OTP email
-      if (!resetLinkDelivered) {
+      if (!resetLinkDelivered && !isFirebaseAdminConfigured()) {
         const emailResult = await sendEmailPasswordResetOtp({
           email: user.email,
           otp,
           name: user.name,
         });
         if (emailResult && !emailResult.success) {
-          request.log.error(`[Email Delivery Failure] Failed to deliver password reset email to ${user.email}: ${emailResult.error}`);
+          request.log.error(`[Email Delivery Failure] Failed to deliver password reset email: ${emailResult.error}`);
         }
       }
     } else if (user.phoneNumber) {
