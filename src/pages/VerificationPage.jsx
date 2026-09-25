@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Mail, ShieldCheck, AlertCircle, ArrowRight, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BackButton } from '../components/BackButton.jsx';
-import { sendFirebaseEmailVerification } from '../lib/firebase.js';
 
 export function VerificationPage({ onNavigate, registrationState }) {
-  const { user, sendEmailVerification, verifyEmail, refreshUser } = useAuth();
+  const { user, sendEmailVerification, verifyEmail, refreshUser, logout } = useAuth();
 
   const [otpCode, setOtpCode] = useState('');
   const [error, setError] = useState(null);
@@ -55,6 +54,13 @@ export function VerificationPage({ onNavigate, registrationState }) {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (_) {}
+    onNavigate('login');
+  };
+
   const handleResendCode = async () => {
     if (resendCooldown > 0 || isResending) return;
     setError(null);
@@ -62,14 +68,8 @@ export function VerificationPage({ onNavigate, registrationState }) {
     setIsResending(true);
 
     try {
-      // Send via Firebase Auth Spark (zero-cost) or backend fallback
-      try {
-        await sendFirebaseEmailVerification();
-      } catch (fbErr) {
-        // Fallback to backend verification dispatch
-        await sendEmailVerification(effectiveEmail || undefined);
-      }
-      setSuccessMsg('New verification instructions sent to your email.');
+      await sendEmailVerification(effectiveEmail || undefined);
+      setSuccessMsg('A new 6-digit verification code has been sent to your email.');
       setResendCooldown(60);
     } catch (err) {
       setError(err.message || 'Failed to resend verification email.');
@@ -81,7 +81,11 @@ export function VerificationPage({ onNavigate, registrationState }) {
   return (
     <div className="max-w-md mx-auto px-4 py-16">
       <div className="mb-6">
-        <BackButton onClick={() => onNavigate('dashboard')} label="Back to Dashboard" />
+        {isVerified ? (
+          <BackButton onClick={() => onNavigate('dashboard')} label="Back to Dashboard" />
+        ) : (
+          <BackButton onClick={handleLogout} label="Sign Out" />
+        )}
       </div>
 
       <div className="p-8 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-2xl backdrop-blur-sm">
@@ -180,13 +184,15 @@ export function VerificationPage({ onNavigate, registrationState }) {
             </span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => onNavigate('dashboard')}
-            className="text-xs text-slate-500 hover:text-slate-400 transition-colors"
-          >
-            I'll verify later
-          </button>
+          {!isVerified && (
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="text-xs text-slate-500 hover:text-slate-400 transition-colors"
+            >
+              Sign out or switch account
+            </button>
+          )}
         </div>
       </div>
     </div>

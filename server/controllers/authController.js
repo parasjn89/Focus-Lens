@@ -922,6 +922,14 @@ export async function sendEmailVerification(request, reply) {
       return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'User not found.' });
     }
 
+    if (user.verificationStatus === 'VERIFIED' && (!request.body?.email || request.body.email.trim().toLowerCase() === user.email)) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'Your email address is already verified.',
+      });
+    }
+
     const emailInput = (request.body && request.body.email) ? request.body.email.trim().toLowerCase() : user.email;
     if (!emailInput) {
       return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Email address is required.' });
@@ -989,6 +997,13 @@ export async function verifyEmail(request, reply) {
 
     if (!user) {
       return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'User not found.' });
+    }
+
+    if (user.verificationStatus === 'VERIFIED') {
+      return reply.send({
+        user: toSafeUser(user),
+        message: 'Your email address is already verified.',
+      });
     }
 
     if (!user.verificationTokenHash) {
