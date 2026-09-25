@@ -36,7 +36,11 @@ export async function authRoutes(fastify, options) {
   fastify.get('/api/auth/check-username', checkUsername);
 
   fastify.get('/api/auth/me', { preHandler: requireAuth }, getCurrentUser);
+  fastify.get('/api/profile', { preHandler: requireAuth }, getCurrentUser);
   fastify.put('/api/auth/profile', { preHandler: requireAuth }, updateProfile);
+  fastify.patch('/api/auth/profile', { preHandler: requireAuth }, updateProfile);
+  fastify.put('/api/profile', { preHandler: requireAuth }, updateProfile);
+  fastify.patch('/api/profile', { preHandler: requireAuth }, updateProfile);
   fastify.post('/api/auth/change-password', { preHandler: requireAuth }, changePassword);
   fastify.post('/api/auth/set-password', { preHandler: requireAuth }, setPassword);
   fastify.delete('/api/account', { preHandler: requireAuth }, deleteAccount);

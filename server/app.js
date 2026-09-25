@@ -16,6 +16,7 @@ import { googleCalendarRoutes } from './routes/googleCalendarRoutes.js';
 import { taskRoutes } from './routes/taskRoutes.js';
 import { buddyRoutes } from './routes/buddyRoutes.js';
 import { messageRoutes } from './routes/messageRoutes.js';
+import { settingsRoutes } from './routes/settingsRoutes.js';
 import { dbStore } from './db/store.js';
 import { postgresSessionStore } from './auth/postgresSessionStore.js';
 
@@ -108,6 +109,7 @@ export function buildApp(options = {}) {
   app.register(taskRoutes);
   app.register(buddyRoutes);
   app.register(messageRoutes);
+  app.register(settingsRoutes);
 
   // Global Error Handler
   app.setErrorHandler((error, request, reply) => {

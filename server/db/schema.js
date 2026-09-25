@@ -140,6 +140,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   passwordResets: many(passwordResets),
   weeklyReviewNotes: many(weeklyReviewNotes),
   googleCalendarConnection: one(googleCalendarConnections),
+  settings: one(userSettings),
 }));
 
 export const tasksRelations = relations(tasks, ({ one }) => ({
@@ -271,6 +272,35 @@ export const authSessions = pgTable('auth_sessions', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 }, (table) => ({
   idxAuthSessionsExpiresAt: index('idx_auth_sessions_expires_at').on(table.expiresAt),
+}));
+
+// Persistent User Settings table (one row per user)
+export const userSettings = pgTable('user_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull().unique(),
+  defaultDuration: integer('default_duration').default(25).notNull(),
+  autoResumePause: boolean('auto_resume_pause').default(true).notNull(),
+  confirmBeforePause: boolean('confirm_before_pause').default(true).notNull(),
+  confirmBeforeEnd: boolean('confirm_before_end').default(false).notNull(),
+  defaultCamera: boolean('default_camera').default(true).notNull(),
+  defaultScreen: boolean('default_screen').default(true).notNull(),
+  defaultCategory: text('default_category').default('ALL').notNull(),
+  showFocusScore: boolean('show_focus_score').default(true).notNull(),
+  showFocusPoints: boolean('show_focus_points').default(true).notNull(),
+  showFocusStreak: boolean('show_focus_streak').default(true).notNull(),
+  autoResumeWarning: boolean('auto_resume_warning').default(true).notNull(),
+  theme: text('theme').default('dark').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  idxUserSettingsUserId: index('idx_user_settings_user_id').on(table.userId),
+}));
+
+export const userSettingsRelations = relations(userSettings, ({ one }) => ({
+  user: one(users, {
+    fields: [userSettings.userId],
+    references: [users.id],
+  }),
 }));
 
 

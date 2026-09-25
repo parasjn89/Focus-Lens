@@ -35,6 +35,7 @@ import {
   saveUserSettings,
   resetUserSettings,
   clearLocalSessionCache,
+  loadUserSettingsFromServer,
 } from '../utils/userSettings';
 import {
   fetchGoogleCalendarStatus,
@@ -80,6 +81,16 @@ export function OptionsPage({ onNavigate }) {
     let isMounted = true;
 
     async function loadData() {
+      // 0. Server-persisted user settings
+      try {
+        const loadedSettings = await loadUserSettingsFromServer();
+        if (isMounted && loadedSettings) {
+          setSettings(loadedSettings);
+        }
+      } catch (err) {
+        console.warn('Settings load notice in OptionsPage:', err);
+      }
+
       // 1. Google Calendar Status
       try {
         const calData = await fetchGoogleCalendarStatus();
@@ -132,6 +143,19 @@ export function OptionsPage({ onNavigate }) {
     loadData();
     return () => {
       isMounted = false;
+    };
+  }, []);
+
+  // Real-time synchronization for settings updates across components
+  useEffect(() => {
+    const handleSettingsUpdated = (e) => {
+      if (e.detail) {
+        setSettings(e.detail);
+      }
+    };
+    window.addEventListener('focuslens_settings_updated', handleSettingsUpdated);
+    return () => {
+      window.removeEventListener('focuslens_settings_updated', handleSettingsUpdated);
     };
   }, []);
 

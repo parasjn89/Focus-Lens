@@ -203,6 +203,27 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS user_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+  default_duration INTEGER NOT NULL DEFAULT 25,
+  auto_resume_pause BOOLEAN NOT NULL DEFAULT true,
+  confirm_before_pause BOOLEAN NOT NULL DEFAULT true,
+  confirm_before_end BOOLEAN NOT NULL DEFAULT false,
+  default_camera BOOLEAN NOT NULL DEFAULT true,
+  default_screen BOOLEAN NOT NULL DEFAULT true,
+  default_category TEXT NOT NULL DEFAULT 'ALL',
+  show_focus_score BOOLEAN NOT NULL DEFAULT true,
+  show_focus_points BOOLEAN NOT NULL DEFAULT true,
+  show_focus_streak BOOLEAN NOT NULL DEFAULT true,
+  auto_resume_warning BOOLEAN NOT NULL DEFAULT true,
+  theme TEXT NOT NULL DEFAULT 'dark',
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id);
 `;
 
 export async function runMigrations() {

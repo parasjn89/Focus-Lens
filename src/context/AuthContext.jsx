@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { apiFetch } from '../api/client.js';
 import { signOutOfFirebase } from '../lib/firebase.js';
+import { loadUserSettingsFromServer, clearUserSettingsCache } from '../utils/userSettings.js';
 
 const AuthContext = createContext(null);
 
@@ -14,6 +15,7 @@ export function AuthProvider({ children }) {
       localStorage.removeItem('focuslens_pending_sync');
       localStorage.removeItem('focuslens_anonymous_id');
       sessionStorage.removeItem('focuslens_active_report_session_id');
+      clearUserSettingsCache();
     } catch (err) {
       console.warn('Failed to clear client user storage:', err);
     }
@@ -29,6 +31,7 @@ export function AuthProvider({ children }) {
           }
           return res.user;
         });
+        loadUserSettingsFromServer().catch(() => {});
       } else {
         setUser(prevUser => {
           if (prevUser) {
@@ -61,6 +64,7 @@ export function AuthProvider({ children }) {
 
     if (res.user) {
       setUser(res.user);
+      loadUserSettingsFromServer().catch(() => {});
     }
     return res;
   };
@@ -74,6 +78,7 @@ export function AuthProvider({ children }) {
 
     if (res.user) {
       setUser(res.user);
+      loadUserSettingsFromServer().catch(() => {});
     }
     return res;
   };
@@ -87,6 +92,7 @@ export function AuthProvider({ children }) {
 
     if (res.user) {
       setUser(res.user);
+      loadUserSettingsFromServer().catch(() => {});
     }
     return res;
   };
@@ -106,6 +112,7 @@ export function AuthProvider({ children }) {
 
     if (res.user) {
       setUser(res.user);
+      loadUserSettingsFromServer().catch(() => {});
     }
     return res;
   };
@@ -126,6 +133,7 @@ export function AuthProvider({ children }) {
 
     if (res.user) {
       setUser(res.user);
+      loadUserSettingsFromServer().catch(() => {});
     }
     return res;
   };

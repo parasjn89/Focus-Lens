@@ -1,9 +1,4 @@
-/**
- * FocusLens User Settings & Preferences Utility
- *
- * Provides persistent storage in localStorage with fallback defaults,
- * reactive update events across components, and helper utilities.
- */
+import { apiFetch } from '../api/client.js';
 
 export const SETTINGS_STORAGE_KEY = 'focuslens_user_settings';
 export const LOCAL_SESSIONS_KEY = 'focuslens_local_sessions';
@@ -62,7 +57,8 @@ export function getUserSettings() {
 
 /**
  * Saves partial or full user settings to localStorage and dispatches
- * a window event to notify active views of the update.
+ * a window event to notify active views of the update. Also synchronizes
+ * asynchronously with the PostgreSQL backend.
  *
  * @param {Partial<typeof DEFAULT_USER_SETTINGS>} partialSettings
  * @returns {typeof DEFAULT_USER_SETTINGS}
@@ -86,11 +82,19 @@ export function saveUserSettings(partialSettings) {
     }
   }
 
+  // Asynchronously synchronize with PostgreSQL backend
+  apiFetch('/api/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(partialSettings),
+  }).catch((err) => {
+    console.warn('[UserSettings] Remote settings sync warning (using local cache):', err?.message || err);
+  });
+
   return next;
 }
 
 /**
- * Resets user settings to default values.
+ * Resets user settings to default values locally and on PostgreSQL backend.
  * @returns {typeof DEFAULT_USER_SETTINGS}
  */
 export function resetUserSettings() {
@@ -102,7 +106,57 @@ export function resetUserSettings() {
       }));
     } catch (err) {}
   }
+
+  // Asynchronously reset on PostgreSQL backend
+  apiFetch('/api/settings/reset', {
+    method: 'POST',
+  }).catch((err) => {
+    console.warn('[UserSettings] Remote settings reset warning (using local cache):', err?.message || err);
+  });
+
   return { ...DEFAULT_USER_SETTINGS };
+}
+
+/**
+ * Loads user settings from the PostgreSQL backend, updates local storage,
+ * and notifies active components.
+ * @returns {Promise<typeof DEFAULT_USER_SETTINGS>}
+ */
+export async function loadUserSettingsFromServer() {
+  try {
+    const res = await apiFetch('/api/settings');
+    if (res && res.settings) {
+      const merged = {
+        ...DEFAULT_USER_SETTINGS,
+        ...res.settings,
+      };
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged));
+        window.dispatchEvent(new CustomEvent('focuslens_settings_updated', {
+          detail: merged,
+        }));
+      }
+      return merged;
+    }
+  } catch (err) {
+    console.warn('[UserSettings] Failed to load settings from server:', err?.message || err);
+  }
+  return getUserSettings();
+}
+
+/**
+ * Clears local settings cache and restores defaults.
+ * Essential on logout / user switch to prevent cross-user leakage.
+ */
+export function clearUserSettingsCache() {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+      window.dispatchEvent(new CustomEvent('focuslens_settings_updated', {
+        detail: { ...DEFAULT_USER_SETTINGS },
+      }));
+    } catch (err) {}
+  }
 }
 
 /**

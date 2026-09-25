@@ -1,6 +1,6 @@
 import { eq, desc, gte, lte, and, or, isNull } from 'drizzle-orm';
 import { db, checkDbConnection } from './client.js';
-import { users, sessions, activitySegments, passwordResets, weeklyReviewNotes, googleCalendarConnections, tasks, focusBuddies, conversations, messages } from './schema.js';
+import { users, sessions, activitySegments, passwordResets, weeklyReviewNotes, googleCalendarConnections, tasks, focusBuddies, conversations, messages, userSettings } from './schema.js';
 import crypto from 'crypto';
 
 // In-Memory Fallback Stores (used if PostgreSQL service is offline)
@@ -14,6 +14,7 @@ const memoryTasks = new Map();
 const memoryBuddies = new Map();
 const memoryConversations = new Map();
 const memoryMessages = new Map();
+const memorySettings = new Map();
 
 export const dbStore = {
   // USER OPERATIONS
@@ -1837,6 +1838,104 @@ export const dbStore = {
   async getUnreadMessagesCount(userId) {
     const conversations = await this.getConversationsForUser(userId);
     return conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
+  },
+
+  // USER SETTINGS & PREFERENCES OPERATIONS
+  async getUserSettings(userId) {
+    if (!userId) return null;
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      try {
+        const [existing] = await db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1);
+        if (existing) return existing;
+
+        const [created] = await db.insert(userSettings).values({
+          userId,
+        }).onConflictDoNothing().returning();
+
+        if (created) return created;
+        const [retry] = await db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1);
+        if (retry) return retry;
+      } catch (err) {
+        console.warn('[DBStore] Error fetching user settings from DB, using fallback:', err.message);
+      }
+    }
+
+    let userPref = memorySettings.get(userId);
+    if (!userPref) {
+      userPref = {
+        id: crypto.randomUUID(),
+        userId,
+        defaultDuration: 25,
+        autoResumePause: true,
+        confirmBeforePause: true,
+        confirmBeforeEnd: false,
+        defaultCamera: true,
+        defaultScreen: true,
+        defaultCategory: 'ALL',
+        showFocusScore: true,
+        showFocusPoints: true,
+        showFocusStreak: true,
+        autoResumeWarning: true,
+        theme: 'dark',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      memorySettings.set(userId, userPref);
+    }
+    return userPref;
+  },
+
+  async updateUserSettings(userId, partialSettings) {
+    if (!userId) return null;
+    const isConnected = await checkDbConnection();
+    // Ensure row exists
+    await this.getUserSettings(userId);
+
+    const updates = {
+      ...partialSettings,
+      updatedAt: new Date(),
+    };
+
+    if (isConnected) {
+      try {
+        const [updated] = await db.update(userSettings)
+          .set(updates)
+          .where(eq(userSettings.userId, userId))
+          .returning();
+        if (updated) return updated;
+      } catch (err) {
+        console.warn('[DBStore] Error updating user settings in DB, using fallback:', err.message);
+      }
+    }
+
+    const current = await this.getUserSettings(userId);
+    const updated = {
+      ...current,
+      ...updates,
+    };
+    memorySettings.set(userId, updated);
+    return updated;
+  },
+
+  async resetUserSettings(userId) {
+    if (!userId) return null;
+    const defaultValues = {
+      defaultDuration: 25,
+      autoResumePause: true,
+      confirmBeforePause: true,
+      confirmBeforeEnd: false,
+      defaultCamera: true,
+      defaultScreen: true,
+      defaultCategory: 'ALL',
+      showFocusScore: true,
+      showFocusPoints: true,
+      showFocusStreak: true,
+      autoResumeWarning: true,
+      theme: 'dark',
+    };
+
+    return await this.updateUserSettings(userId, defaultValues);
   },
 };
 
