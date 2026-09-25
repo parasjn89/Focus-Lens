@@ -1,12 +1,13 @@
 import { ObjectDetector, FilesetResolver } from '@mediapipe/tasks-vision';
+import { MEDIAPIPE_WASM_URL, MEDIAPIPE_MODELS } from './mediapipeConfig.js';
 
 let detectorInstance = null;
 let initPromise = null;
 let delegateUsed = null;
 let lastTimestamp = 0;
 
-const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm';
-const MODEL_ASSET_PATH = 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite';
+const WASM_URL = MEDIAPIPE_WASM_URL;
+const MODEL_ASSET_PATH = MEDIAPIPE_MODELS.objectDetector;
 
 /**
  * Creates ObjectDetector instance trying GPU delegate first with a 20000ms race timeout before falling back to CPU.

@@ -50,6 +50,11 @@ async function sendViaSmtp({ fromEmail, to, subject, text }) {
       return { success: true, provider: 'smtp', messageId: info?.messageId || 'mock-smtp-id' };
     }
 
+    // In test environment without explicit mock transport, avoid outbound network transmission
+    if (config.nodeEnv === 'test') {
+      return { success: true, provider: 'smtp', messageId: 'test-smtp-id' };
+    }
+
     const nodemailer = await import('nodemailer');
     const isSecure = config.emailSecure !== undefined
       ? Boolean(config.emailSecure)

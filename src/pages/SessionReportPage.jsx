@@ -32,7 +32,6 @@ import {
   mergeAdjacentSegments,
   generateSessionInsights,
   exportSessionMetadata,
-  generateMockSessionData,
 } from '../utils/sessionAnalytics.js';
 import { ActivityBreakdownChart, CATEGORY_COLORS } from '../components/ActivityBreakdownChart.jsx';
 import { ActivityTimeline } from '../components/ActivityTimeline.jsx';
@@ -139,12 +138,6 @@ export function SessionReportPage({ reportData: initialReportData, onNewSession,
     } finally {
       setIsPdfExporting(false);
     }
-  };
-
-  // Toggle mock data for dev testing
-  const handleLoadMockData = () => {
-    const mock = generateMockSessionData();
-    setReportData(mock);
   };
 
   const totalMinutesSpent = Math.max(1, Math.round(totalActiveSeconds / 60));

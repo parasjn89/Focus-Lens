@@ -30,7 +30,13 @@ export const config = {
   host: process.env.HOST || '127.0.0.1',
   databaseUrl: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/focuslens',
   sessionSecret: process.env.SESSION_SECRET || 'focuslens_super_secret_session_key_32_chars_min!',
-  nodeEnv: process.env.NODE_ENV || 'development',
+  nodeEnv: process.env.NODE_ENV || (
+    (process.execArgv && process.execArgv.includes('--test')) ||
+    (process.argv && process.argv.some(a => typeof a === 'string' && a.includes('test'))) ||
+    Boolean(process.env.NODE_TEST_CONTEXT)
+      ? 'test'
+      : 'development'
+  ),
   corsOrigin: process.env.CORS_ORIGIN || '*',
   
   // Email Provider Configuration

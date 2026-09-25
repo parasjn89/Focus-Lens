@@ -1,12 +1,13 @@
 import { FaceDetector, FilesetResolver } from '@mediapipe/tasks-vision';
+import { MEDIAPIPE_WASM_URL, MEDIAPIPE_MODELS } from './mediapipeConfig.js';
 
 let detectorInstance = null;
 let initPromise = null;
 let delegateUsed = null;
 let lastTimestamp = 0;
 
-const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm';
-const MODEL_ASSET_PATH = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
+const WASM_URL = MEDIAPIPE_WASM_URL;
+const MODEL_ASSET_PATH = MEDIAPIPE_MODELS.faceDetector;
 
 /**
  * Creates FaceDetector instance trying GPU delegate first with a 20000ms race timeout before falling back to CPU.

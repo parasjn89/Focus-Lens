@@ -1,12 +1,13 @@
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { MEDIAPIPE_WASM_URL, MEDIAPIPE_MODELS } from './mediapipeConfig.js';
 
 let landmarkerInstance = null;
 let initPromise = null;
 let delegateUsed = null;
 let lastTimestamp = 0;
 
-const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm';
-const MODEL_ASSET_PATH = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const WASM_URL = MEDIAPIPE_WASM_URL;
+const MODEL_ASSET_PATH = MEDIAPIPE_MODELS.headLandmarker;
 
 /**
  * Creates FaceLandmarker instance trying GPU delegate first with a 20000ms race timeout before falling back to CPU.

@@ -47,7 +47,7 @@ export function runObjectDetectorTests() {
     assert(pTracker.getCurrentState() === PERSON_STATES.NO_PERSON, 'Person Tracker initial state is NO_PERSON');
 
     // Test 7: Detect 1 person over stabilityThreshold (2 frames) -> ONE_PERSON
-    const onePersonObj = [{ label: 'person', confidence: 0.9, timestamp: 1000 }];
+    const onePersonObj = [{ label: 'person', confidence: 0.9, timestamp: 1000, boundingBox: { x: 50, y: 50, width: 100, height: 200 } }];
     pTracker.processObjects(onePersonObj, 1000);
     const pRes1 = pTracker.processObjects(onePersonObj, 1500);
     assert(pRes1.currentState === PERSON_STATES.ONE_PERSON, '2 frames of 1 person switches to ONE_PERSON');
@@ -55,8 +55,8 @@ export function runObjectDetectorTests() {
 
     // Test 8: Detect 2 people over stabilityThreshold -> MULTIPLE_PEOPLE
     const twoPeopleObjs = [
-      { label: 'person', confidence: 0.95, timestamp: 2000 },
-      { label: 'person', confidence: 0.88, timestamp: 2000 }
+      { label: 'person', confidence: 0.95, timestamp: 2000, boundingBox: { x: 50, y: 50, width: 100, height: 200 } },
+      { label: 'person', confidence: 0.88, timestamp: 2000, boundingBox: { x: 300, y: 50, width: 100, height: 200 } }
     ];
     pTracker.processObjects(twoPeopleObjs, 2000);
     const pRes2 = pTracker.processObjects(twoPeopleObjs, 2500);
