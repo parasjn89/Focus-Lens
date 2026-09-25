@@ -70,7 +70,9 @@ export default defineConfig(({ mode }) => {
   const apiBaseUrl = findValue('VITE_API_BASE_URL', 'API_BASE_URL', 'VITE_BACKEND_URL', 'BACKEND_URL');
 
   // Collect safe diagnostic key names and lengths (NO values/secrets)
-  const detectedKeysDetail = allEntries
+  // NOTE: In production, we omit detailed key names to avoid disclosing integration names via client bundle.
+  const isProductionBuild = mode === 'production';
+  const detectedKeysDetail = isProductionBuild ? [] : allEntries
     .filter(([k]) => /firebase|vite|sms|api|backend/i.test(k) && !/secret|password|private_key/i.test(k))
     .map(([k, v]) => ({
       key: k.trim(),
@@ -78,7 +80,7 @@ export default defineConfig(({ mode }) => {
       cleanLen: cleanVal(v).length,
     }));
 
-  const detectedEnvKeys = Array.from(
+  const detectedEnvKeys = isProductionBuild ? [] : Array.from(
     new Set(detectedKeysDetail.map((item) => item.key))
   ).sort();
 
@@ -88,8 +90,13 @@ export default defineConfig(({ mode }) => {
     isVercel: Boolean(process.env.VERCEL),
     vercelEnv: process.env.VERCEL_ENV || 'unknown',
     vercelGitCommitRef: process.env.VERCEL_GIT_COMMIT_REF || 'unknown',
-    detectedEnvKeys,
-    detectedKeysDetail,
+    // In production, omit key detail to minimize bundle information exposure
+    ...(isProductionBuild ? {
+      detectedKeysCount: allEntries.filter(([k]) => /firebase|vite|sms|api|backend/i.test(k) && !/secret|password|private_key/i.test(k)).length,
+    } : {
+      detectedEnvKeys,
+      detectedKeysDetail,
+    }),
   };
 
   // Safe build-time log for Vercel deployment logs

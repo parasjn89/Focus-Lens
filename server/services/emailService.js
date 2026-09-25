@@ -192,7 +192,7 @@ export async function sendEmailVerificationChallenge({ email, otp, name }) {
   }
 
   // Development Fallback Abstraction
-  if (config.nodeEnv !== 'test') {
+  if (config.nodeEnv !== 'test' && config.nodeEnv !== 'production') {
     console.log(`\n==================================================`);
     console.log(`[EMAIL PROVIDER (DEV)] Verification Challenge`);
     console.log(`To: ${email}`);
@@ -227,7 +227,7 @@ export async function sendEmailPasswordResetOtp({ email, otp, name }) {
   }
 
   // Development Fallback Abstraction
-  if (config.nodeEnv !== 'test') {
+  if (config.nodeEnv !== 'test' && config.nodeEnv !== 'production') {
     console.log(`\n==================================================`);
     console.log(`[EMAIL PROVIDER (DEV)] Password Reset Code`);
     console.log(`To: ${email}`);

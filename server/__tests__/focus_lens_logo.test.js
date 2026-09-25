@@ -1,4 +1,4 @@
-﻿import test from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,15 +11,18 @@ const traverse = _traverse.default || _traverse;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-test('FocusLens Official Brand Logo (F + Lens) Test Suite', async (t) => {
+test('FocusLens Official Brand Logo Test Suite', async (t) => {
   const logoPath = path.resolve(__dirname, '../../src/components/FocusLensLogo.jsx');
   const navbarPath = path.resolve(__dirname, '../../src/components/Navbar.jsx');
   const landingNavPath = path.resolve(__dirname, '../../src/components/LandingNavbar.jsx');
   const sidebarPath = path.resolve(__dirname, '../../src/components/Sidebar.jsx');
   const loginPath = path.resolve(__dirname, '../../src/pages/LoginPage.jsx');
   const registerPath = path.resolve(__dirname, '../../src/pages/RegisterPage.jsx');
+  const resetPassPath = path.resolve(__dirname, '../../src/pages/ResetPasswordPage.jsx');
   const footerPath = path.resolve(__dirname, '../../src/components/Footer.jsx');
-  const faviconPath = path.resolve(__dirname, '../../public/favicon.svg');
+  const fullLogoAsset = path.resolve(__dirname, '../../public/branding/focuslens-logo.png');
+  const iconAsset = path.resolve(__dirname, '../../public/branding/focuslens-icon.png');
+  const faviconPath = path.resolve(__dirname, '../../public/favicon.png');
   const indexHtmlPath = path.resolve(__dirname, '../../index.html');
 
   const logoCode = fs.readFileSync(logoPath, 'utf8');
@@ -30,29 +33,31 @@ test('FocusLens Official Brand Logo (F + Lens) Test Suite', async (t) => {
     assert.ok(logoCode.includes('export default FocusLensLogo'), 'Must have default export');
     assert.ok(logoCode.includes("variant === 'icon'"), 'Must support icon variant');
     assert.ok(logoCode.includes("variant === 'compact'"), 'Must support compact variant');
-    assert.ok(logoCode.includes('variant = \'horizontal\''), 'Must default to horizontal variant');
+    assert.ok(logoCode.includes("variant = 'horizontal'"), 'Must default to horizontal variant');
   });
 
-  await t.test('2. F + Lens Geometric Construction in Logo SVG', () => {
-    // Lens geometry
-    assert.ok(logoCode.includes('<circle'), 'Must contain circular lens elements');
-    assert.ok(logoCode.includes('strokeDasharray="112 14"'), 'Must contain calibrated aperture ring');
-    assert.ok(logoCode.includes('r="21.5"'), 'Must contain outer lens barrel');
-    assert.ok(logoCode.includes('r="2.25"') && logoCode.includes('cx="34"'), 'Must contain central focal core');
+  await t.test('2. Official Brand Logo Asset Integrity & Component Implementation', () => {
+    // Brand assets must exist and have content
+    assert.ok(fs.existsSync(fullLogoAsset), 'public/branding/focuslens-logo.png must exist');
+    assert.ok(fs.statSync(fullLogoAsset).size > 1000, 'focuslens-logo.png must have valid file size');
 
-    // F Letter geometry
-    assert.ok(logoCode.includes('x="11.5"') && logoCode.includes('width="6"'), 'Must contain F vertical spine');
-    assert.ok(logoCode.includes('H34.5') && logoCode.includes('V14'), 'Must contain F top horizontal arm');
-    assert.ok(logoCode.includes('H28.5') && logoCode.includes('V24.5'), 'Must contain F middle crossbar');
-    assert.ok(logoCode.includes('M 21.5 37 A 15 15'), 'Must contain lower-right optic symmetry arc');
+    assert.ok(fs.existsSync(iconAsset), 'public/branding/focuslens-icon.png must exist');
+    assert.ok(fs.statSync(iconAsset).size > 1000, 'focuslens-icon.png must have valid file size');
 
-    // Color gradient
-    assert.ok(logoCode.includes('#22D3EE') || logoCode.includes('#00F2FE'), 'Must use electric cyan primary color');
-    assert.ok(logoCode.includes('#3B82F6'), 'Must use vibrant blue secondary color');
+    // Component must reference official assets
+    assert.ok(logoCode.includes('/branding/focuslens-logo.png'), 'Must render official full logo asset');
+    assert.ok(logoCode.includes('/branding/focuslens-icon.png'), 'Must render official icon asset');
 
-    // Wordmark styling: Focus in white, Lens in cyan
-    assert.ok(logoCode.includes('>Focus</span>'), 'Must contain white Focus portion');
-    assert.ok(logoCode.includes('text-cyan-400') && logoCode.includes('>Lens</span>'), 'Must contain cyan Lens portion');
+    // Proportional integrity: aspect ratios preserved to prevent stretching
+    assert.ok(logoCode.includes('411 / 105'), 'Must enforce 411/105 aspect ratio on horizontal logo');
+    assert.ok(logoCode.includes('1 / 1'), 'Must enforce 1/1 square aspect ratio on icon');
+
+    // Size classes for responsive layout
+    assert.ok(logoCode.includes('h-6') && logoCode.includes('h-8') && logoCode.includes('h-10') && logoCode.includes('h-12'), 'Must support sm, md, lg, xl sizes');
+
+    // Accessibility attributes
+    assert.ok(logoCode.includes('isDecorative'), 'Must support isDecorative prop');
+    assert.ok(logoCode.includes('aria-label') || logoCode.includes('ariaLabel'), 'Must support aria-label');
   });
 
   await t.test('3. Brand logo replaced across all official application touchpoints', () => {
@@ -81,19 +86,22 @@ test('FocusLens Official Brand Logo (F + Lens) Test Suite', async (t) => {
     assert.ok(regCode.includes('FocusLensLogo'), 'RegisterPage must import and use FocusLensLogo');
     assert.ok(!regCode.includes('<Eye className="w-7 h-7 text-white" />'), 'RegisterPage must not use generic Eye icon as logo');
 
+    // ResetPasswordPage
+    const resetCode = fs.readFileSync(resetPassPath, 'utf8');
+    assert.ok(resetCode.includes('FocusLensLogo'), 'ResetPasswordPage must import and use FocusLensLogo');
+
     // Footer
     const footerCode = fs.readFileSync(footerPath, 'utf8');
     assert.ok(footerCode.includes('FocusLensLogo'), 'Footer must import and use FocusLensLogo');
   });
 
-  await t.test('4. Favicon SVG exists and is referenced in index.html', () => {
-    assert.ok(fs.existsSync(faviconPath), 'public/favicon.svg must exist');
-    const favCode = fs.readFileSync(faviconPath, 'utf8');
-    assert.ok(favCode.includes('<svg') && favCode.includes('viewBox="0 0 48 48"'), 'Favicon must be valid vector SVG');
-    assert.ok(favCode.includes('#22D3EE'), 'Favicon must include brand cyan gradient');
+  await t.test('4. Favicon exists and is referenced in index.html', () => {
+    assert.ok(fs.existsSync(faviconPath), 'public/favicon.png must exist');
+    assert.ok(fs.statSync(faviconPath).size > 100, 'public/favicon.png must be non-empty');
 
     const indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
-    assert.ok(indexHtml.includes('href="/favicon.svg"'), 'index.html must reference /favicon.svg');
+    assert.ok(indexHtml.includes('href="/favicon.png"'), 'index.html must reference /favicon.png');
+    assert.ok(indexHtml.includes('href="/branding/focuslens-icon.png"'), 'index.html must reference official icon asset');
     assert.ok(!indexHtml.includes('eye icon.jpeg'), 'index.html must not reference old eye icon');
   });
 
@@ -113,7 +121,7 @@ test('FocusLens Official Brand Logo (F + Lens) Test Suite', async (t) => {
       'crypto', 'Intl'
     ]);
 
-    const filesToCheck = [logoPath, navbarPath, landingNavPath, sidebarPath, loginPath, registerPath, footerPath];
+    const filesToCheck = [logoPath, navbarPath, landingNavPath, sidebarPath, loginPath, registerPath, resetPassPath, footerPath];
 
     for (const f of filesToCheck) {
       const code = fs.readFileSync(f, 'utf8');

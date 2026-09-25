@@ -14,6 +14,7 @@ export function AuthProvider({ children }) {
       localStorage.removeItem('focuslens_local_sessions');
       localStorage.removeItem('focuslens_pending_sync');
       localStorage.removeItem('focuslens_anonymous_id');
+      localStorage.removeItem('focuslens_local_tasks');
       sessionStorage.removeItem('focuslens_active_report_session_id');
       clearUserSettingsCache();
     } catch (err) {
@@ -41,7 +42,12 @@ export function AuthProvider({ children }) {
         });
       }
     } catch (err) {
-      setUser(null);
+      setUser(prevUser => {
+        if (prevUser) {
+          clearClientUserStorage();
+        }
+        return null;
+      });
     } finally {
       setIsLoading(false);
     }
