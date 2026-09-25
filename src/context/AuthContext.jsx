@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { apiFetch } from '../api/client.js';
+import { signOutOfFirebase } from '../lib/firebase.js';
 
 const AuthContext = createContext(null);
 
@@ -135,6 +136,9 @@ export function AuthProvider({ children }) {
     } catch (err) {
       console.warn('Logout API error:', err);
     } finally {
+      try {
+        await signOutOfFirebase();
+      } catch (_) {}
       clearClientUserStorage();
       setUser(null);
     }

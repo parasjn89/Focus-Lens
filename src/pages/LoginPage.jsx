@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { FocusLensLogo } from '../components/FocusLensLogo.jsx';
 import { GoogleIcon } from '../components/GoogleIcon.jsx';
 import { signInWithGoogle, isFirebaseConfigured, loginWithEmailPassword, getSignInMethods } from '../lib/firebase.js';
+import { apiFetch } from '../api/client.js';
 
 export function LoginPage({ onNavigate, onLoginSuccess }) {
   const { login, loginWithGoogle } = useAuth();
