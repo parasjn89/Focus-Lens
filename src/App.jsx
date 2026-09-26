@@ -29,11 +29,23 @@ import { CalendarPage } from './pages/CalendarPage';
 import { OptionsPage } from './pages/OptionsPage';
 import { MessagesPage } from './pages/MessagesPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { startSession, saveSessionSegments, finalizeSession, fetchSessionById, getLocalSessions, saveLocalSessions, sendSessionHeartbeat } from './api/sessionApi';
+import { startSession, saveSessionSegments, finalizeSession, fetchSessionById, fetchSessionsHistory, getLocalSessions, saveLocalSessions, sendSessionHeartbeat } from './api/sessionApi';
 import { initBackgroundSync } from './api/syncManager';
 import { ROUTE_PATH_MAP, PATH_ALIASES, resolveViewFromLocation } from './utils/routes';
 import { MAX_PAUSE_DURATION_MS, AUTO_RESUME_NOTIFICATION_MESSAGE } from './utils/sessionTimer';
 import { getUserSettings } from './utils/userSettings';
+
+export const PROTECTED_VIEWS = [
+  'dashboard', 'tasks', 'profile', 'history', 'verify',
+  'coach', 'consistency', 'recommendations', 'weekly-review',
+  'journal', 'messages', 'calendar', 'options', 'setup', 'active'
+];
+
+export const UNVERIFIED_BLOCKED_VIEWS = [
+  'dashboard', 'tasks', 'setup', 'active', 'history',
+  'coach', 'consistency', 'recommendations', 'weekly-review',
+  'journal', 'messages', 'calendar', 'options'
+];
 
 function AppContent() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -42,11 +54,8 @@ function AppContent() {
     if (typeof window !== 'undefined') {
       const resolved = resolveViewFromLocation(window.location);
       const savedReportSessionId = sessionStorage.getItem('focuslens_active_report_session_id');
-      if (savedReportSessionId && (resolved === 'landing' || resolved === 'report')) {
+      if (savedReportSessionId && resolved === 'report') {
         return 'report';
-      }
-      if (resolved === 'active') {
-        return 'dashboard';
       }
       return resolved;
     }
@@ -88,14 +97,12 @@ function AppContent() {
   const handleNavigate = (view, options = {}) => {
     const { fromPopState = false, replace = false } = options;
 
-    const protectedViews = ['dashboard', 'tasks', 'profile', 'history', 'verify', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
-    if (protectedViews.includes(view) && !isAuthenticated && !isLoading) {
+    if (PROTECTED_VIEWS.includes(view) && !isAuthenticated && !isLoading) {
       handleNavigate('login', { replace: true });
       return;
     }
     // Prevent unverified accounts from bypassing verification to access session/dashboard views
-    const unverifiedBlockedViews = ['dashboard', 'tasks', 'setup', 'history', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
-    if (isAuthenticated && user && user.verificationStatus !== 'VERIFIED' && unverifiedBlockedViews.includes(view)) {
+    if (isAuthenticated && user && user.verificationStatus !== 'VERIFIED' && UNVERIFIED_BLOCKED_VIEWS.includes(view)) {
       handleNavigate('verify', { replace: true });
       return;
     }
@@ -223,20 +230,75 @@ function AppContent() {
     };
   }, []);
 
-  // Keep unverified authenticated users on the verification view or redirect unauthenticated
+  // Redirect unauthenticated visitors away from protected views; redirect authenticated users from landing/login/register to dashboard
   useEffect(() => {
     if (!isLoading) {
-      const protectedViews = ['dashboard', 'tasks', 'profile', 'history', 'verify', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
-      if (protectedViews.includes(currentView) && !isAuthenticated) {
-        handleNavigate('login', { replace: true });
-        return;
-      }
-      const unverifiedBlockedViews = ['dashboard', 'tasks', 'setup', 'history', 'coach', 'consistency', 'recommendations', 'weekly-review', 'journal', 'messages', 'calendar', 'options'];
-      if (isAuthenticated && user && user.verificationStatus !== 'VERIFIED' && unverifiedBlockedViews.includes(currentView)) {
-        handleNavigate('verify', { replace: true });
+      if (!isAuthenticated) {
+        if (PROTECTED_VIEWS.includes(currentView)) {
+          handleNavigate('login', { replace: true });
+          return;
+        }
+      } else {
+        // Authenticated user
+        if (user && user.verificationStatus !== 'VERIFIED' && UNVERIFIED_BLOCKED_VIEWS.includes(currentView)) {
+          handleNavigate('verify', { replace: true });
+          return;
+        }
+
+        // Authenticated user opening root URL (/), login, or register
+        if (currentView === 'landing' || currentView === 'login' || currentView === 'register') {
+          handleNavigate('dashboard', { replace: true });
+          return;
+        }
       }
     }
   }, [isLoading, isAuthenticated, user?.verificationStatus, currentView]);
+
+  // Active session restoration guard for /active or /active-session
+  const hasCheckedActiveSessionRef = useRef(false);
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && currentView === 'active' && !isTimerRunning && !hasCheckedActiveSessionRef.current) {
+      hasCheckedActiveSessionRef.current = true;
+      fetchSessionsHistory({ limit: 1 })
+        .then((res) => {
+          const latest = res?.sessions?.[0] || (Array.isArray(res) ? res[0] : null);
+          if (latest && latest.status === 'ACTIVE') {
+            const startedMs = new Date(latest.startedAt).getTime();
+            const plannedMs = Number(latest.plannedDurationMs) || (25 * 60 * 1000);
+            const pausedMs = Number(latest.pausedDurationMs) || 0;
+            const elapsedMs = Date.now() - startedMs - pausedMs;
+            const totalPlannedSecs = Math.round(plannedMs / 1000);
+            const remaining = Math.max(1, totalPlannedSecs - Math.floor(elapsedMs / 1000));
+
+            if (elapsedMs < plannedMs) {
+              setSessionConfig({
+                activity: latest.selectedActivity || 'Studying',
+                durationMinutes: Math.round(plannedMs / 60000),
+                goalText: latest.goalText,
+                goalType: latest.goalType,
+                targetValue: latest.targetValue,
+                targetUnit: latest.targetUnit,
+                goalProgress: latest.goalProgress,
+                goalCompleted: latest.goalCompleted,
+              });
+              setActiveBackendSession(latest);
+              activeBackendSessionRef.current = latest;
+              timerStartedAtRef.current = startedMs;
+              totalPausedMsRef.current = pausedMs;
+              setRemainingSeconds(remaining);
+              setIsTimerRunning(true);
+              setIsTimerPaused(false);
+              return;
+            }
+          }
+          // No active session or expired -> redirect to dashboard
+          handleNavigate('dashboard', { replace: true });
+        })
+        .catch(() => {
+          handleNavigate('dashboard', { replace: true });
+        });
+    }
+  }, [isLoading, isAuthenticated, currentView, isTimerRunning]);
 
   const handleStartRecommendedSession = (suggestedSession) => {
     if (!suggestedSession) {
@@ -816,6 +878,14 @@ function AppContent() {
 
     setReportData((prev) => (prev ? { ...prev, isLoading: false } : null));
   };
+
+  if (isLoading && PROTECTED_VIEWS.includes(currentView)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-navy-950 text-slate-400">
+        <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   const isAppView = isAuthenticated && !['landing', 'login', 'register', 'verify', 'forgot-password', 'reset-password', 'active'].includes(currentView);
 

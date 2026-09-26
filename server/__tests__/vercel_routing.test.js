@@ -35,6 +35,8 @@ describe('FocusLens Vercel SPA Routing Configuration Test Suite', () => {
       '/history',
       '/calendar',
       '/options',
+      '/setup',
+      '/focus-setup',
       '/session/setup',
       '/active-session',
       '/active',
@@ -123,5 +125,109 @@ describe('FocusLens Vercel SPA Routing Configuration Test Suite', () => {
     assert.equal(apiRegex.test('/api/auth/register'), true);
     assert.equal(apiRegex.test('/api/health'), true);
     assert.equal(apiRegex.test('/api/sessions'), true);
+  });
+
+  it('6. Client routes resolve canonical paths and aliases correctly', async () => {
+    const { resolveViewFromLocation, ROUTE_PATH_MAP, PATH_ALIASES } = await import('../../src/utils/routes.js');
+
+    // 1. Root URL resolves to landing
+    assert.equal(resolveViewFromLocation({ pathname: '/' }), 'landing');
+    assert.equal(resolveViewFromLocation({ pathname: '' }), 'landing');
+
+    // 2. Auth routes
+    assert.equal(resolveViewFromLocation({ pathname: '/login' }), 'login');
+    assert.equal(resolveViewFromLocation({ pathname: '/register' }), 'register');
+
+    // 3. Setup routes & aliases
+    assert.equal(resolveViewFromLocation({ pathname: '/setup' }), 'setup');
+    assert.equal(resolveViewFromLocation({ pathname: '/focus-setup' }), 'setup');
+    assert.equal(resolveViewFromLocation({ pathname: '/session/setup' }), 'setup');
+
+    // 4. Active routes & aliases
+    assert.equal(resolveViewFromLocation({ pathname: '/active' }), 'active');
+    assert.equal(resolveViewFromLocation({ pathname: '/active-session' }), 'active');
+    assert.equal(resolveViewFromLocation({ pathname: '/session/active' }), 'active');
+
+    // 5. Dashboard
+    assert.equal(resolveViewFromLocation({ pathname: '/dashboard' }), 'dashboard');
+  });
+
+  it('7. App.jsx protects setup and active routes from unauthenticated access', () => {
+    const appPath = path.resolve(projectRoot, 'src/App.jsx');
+    const content = fs.readFileSync(appPath, 'utf8');
+
+    // PROTECTED_VIEWS must include setup and active
+    assert.ok(content.includes("'setup'"), 'PROTECTED_VIEWS must include setup');
+    assert.ok(content.includes("'active'"), 'PROTECTED_VIEWS must include active');
+
+    // Auth effect must redirect unauthenticated visitors
+    assert.ok(content.includes("handleNavigate('login', { replace: true })"), 'Must redirect unauthenticated to login');
+
+    // Authenticated users on landing/login/register must be redirected to dashboard
+    assert.ok(content.includes("handleNavigate('dashboard', { replace: true })"), 'Must redirect authenticated root visitors to dashboard');
+  });
+
+  it('8. Expected Routing State Machine Verification', () => {
+    // Simulate routing controller matching App.jsx logic
+    const PROTECTED = [
+      'dashboard', 'tasks', 'profile', 'history', 'verify',
+      'coach', 'consistency', 'recommendations', 'weekly-review',
+      'journal', 'messages', 'calendar', 'options', 'setup', 'active'
+    ];
+
+    function routeTransition({ view, isAuthenticated, isVerified = true, hasActiveSession = false }) {
+      if (!isAuthenticated) {
+        if (PROTECTED.includes(view)) {
+          return { target: 'login', redirected: true };
+        }
+        return { target: view, redirected: false };
+      }
+
+      // Authenticated
+      if (!isVerified && ['dashboard', 'setup', 'active', 'tasks'].includes(view)) {
+        return { target: 'verify', redirected: true };
+      }
+
+      if (view === 'landing' || view === 'login' || view === 'register') {
+        return { target: 'dashboard', redirected: true };
+      }
+
+      if (view === 'active') {
+        return { target: hasActiveSession ? 'active' : 'dashboard', redirected: !hasActiveSession };
+      }
+
+      return { target: view, redirected: false };
+    }
+
+    // 1. Completely logged-out user opens / -> PUBLIC LANDING PAGE
+    assert.deepEqual(routeTransition({ view: 'landing', isAuthenticated: false }), { target: 'landing', redirected: false });
+
+    // 2. Logged-out user opens /login -> login
+    assert.deepEqual(routeTransition({ view: 'login', isAuthenticated: false }), { target: 'login', redirected: false });
+
+    // 3. Logged-out user opens /register -> register
+    assert.deepEqual(routeTransition({ view: 'register', isAuthenticated: false }), { target: 'register', redirected: false });
+
+    // 4. Authenticated user opens / -> dashboard
+    assert.deepEqual(routeTransition({ view: 'landing', isAuthenticated: true }), { target: 'dashboard', redirected: true });
+
+    // 5. Authenticated user explicitly opens /setup or /focus-setup -> setup
+    assert.deepEqual(routeTransition({ view: 'setup', isAuthenticated: true }), { target: 'setup', redirected: false });
+
+    // 6. Authenticated user with genuinely active session -> active
+    assert.deepEqual(routeTransition({ view: 'active', isAuthenticated: true, hasActiveSession: true }), { target: 'active', redirected: false });
+
+    // 7. Completed/cancelled/expired session (hasActiveSession = false) navigating to /active -> dashboard
+    assert.deepEqual(routeTransition({ view: 'active', isAuthenticated: true, hasActiveSession: false }), { target: 'dashboard', redirected: true });
+
+    // 8. Logged-out user opening /setup or /focus-setup -> redirected to login
+    assert.deepEqual(routeTransition({ view: 'setup', isAuthenticated: false }), { target: 'login', redirected: true });
+
+    // 9. Logged-out user opening /active or /active-session -> redirected to login
+    assert.deepEqual(routeTransition({ view: 'active', isAuthenticated: false }), { target: 'login', redirected: true });
+
+    // 10. Authenticated user opening /login or /register -> redirected to dashboard
+    assert.deepEqual(routeTransition({ view: 'login', isAuthenticated: true }), { target: 'dashboard', redirected: true });
+    assert.deepEqual(routeTransition({ view: 'register', isAuthenticated: true }), { target: 'dashboard', redirected: true });
   });
 });

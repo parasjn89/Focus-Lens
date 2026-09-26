@@ -35,14 +35,24 @@ describe('FocusLens Browser Navigation & History Synchronization Test Suite', ()
       assert.strictEqual(resolveViewFromLocation({ pathname: '/settings', hash: '', search: '' }), 'profile');
     });
 
-    it('resolves password reset token search param to forgot-password view', () => {
+    it('resolves password reset token search param to reset-password view', () => {
       const loc = { pathname: '/', search: '?token=abc123xyz', hash: '' };
-      assert.strictEqual(resolveViewFromLocation(loc), 'forgot-password');
+      assert.strictEqual(resolveViewFromLocation(loc), 'reset-password');
     });
 
-    it('resolves "/reset-password" alias to forgot-password view', () => {
+    it('resolves "/reset-password" to reset-password view', () => {
       const loc = { pathname: '/reset-password', search: '', hash: '' };
-      assert.strictEqual(resolveViewFromLocation(loc), 'forgot-password');
+      assert.strictEqual(resolveViewFromLocation(loc), 'reset-password');
+    });
+
+    it('resolves "/focus-setup" alias to setup view', () => {
+      const loc = { pathname: '/focus-setup', search: '', hash: '' };
+      assert.strictEqual(resolveViewFromLocation(loc), 'setup');
+    });
+
+    it('resolves "/active-session" alias to active view', () => {
+      const loc = { pathname: '/active-session', search: '', hash: '' };
+      assert.strictEqual(resolveViewFromLocation(loc), 'active');
     });
 
     it('resolves URL hashes correctly (#dashboard, #setup, #recommendations)', () => {

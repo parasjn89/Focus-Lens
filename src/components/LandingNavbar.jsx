@@ -51,7 +51,7 @@ export function LandingNavbar({ onNavigate }) {
               Sign In
             </button>
             <button
-              onClick={() => onNavigate('setup')}
+              onClick={() => onNavigate('register')}
               className="text-sm font-semibold bg-brand-sand hover:bg-[#A37856] text-brand-navy px-5 py-2 rounded-full transition-all hover:shadow-lg hover:shadow-brand-sand/20 hover:-translate-y-0.5"
             >
               Start for Free &rarr;

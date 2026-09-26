@@ -34,6 +34,10 @@ export const ROUTE_PATH_MAP = {
 export const PATH_ALIASES = {
   activity: 'history',
   settings: 'profile',
+  'focus-setup': 'setup',
+  'active-session': 'active',
+  'session/setup': 'setup',
+  'session/active': 'active',
 };
 
 // Map child views to their contextual parent in-app back destinations
