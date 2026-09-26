@@ -30,3 +30,4 @@ scratch/
 .vercel
 .env*
 uploads/
+backup/

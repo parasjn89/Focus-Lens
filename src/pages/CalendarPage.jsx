@@ -180,7 +180,7 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
     try {
       const status = await fetchGoogleCalendarStatus();
       setGoogleStatus(status);
-      if (status.connected) {
+      if (status.connected && !status.missingScope) {
         loadGoogleCalendars();
         loadGoogleEvents(currentYearMonth, status.selectedCalendarId);
       }
@@ -210,7 +210,7 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
 
   useEffect(() => {
     loadCalendar(currentYearMonth);
-    if (googleStatus.connected) {
+    if (googleStatus.connected && !googleStatus.missingScope) {
       loadGoogleEvents(currentYearMonth, googleStatus.selectedCalendarId);
     }
   }, [currentYearMonth]);
@@ -1032,8 +1032,11 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 <span>Google Calendar Events ({selectedDayGoogleEvents.length})</span>
               </span>
-              {googleStatus.connected && (
+              {googleStatus.connected && !googleStatus.missingScope && (
                 <span className="text-[10px] text-emerald-400 font-medium">Sync Active</span>
+              )}
+              {googleStatus.connected && googleStatus.missingScope && (
+                <span className="text-[10px] text-amber-400 font-medium">Permission Missing</span>
               )}
             </div>
 
@@ -1056,7 +1059,40 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
               </div>
             )}
 
-            {!googleStatus.connected ? (
+            {googleStatus.connected && googleStatus.missingScope ? (
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-3 text-center">
+                <AlertCircle className="w-6 h-6 text-amber-400 mx-auto" />
+                <div>
+                  <p className="text-xs text-amber-300 font-semibold">Calendar Permission Missing</p>
+                  <p className="text-[11px] text-amber-400/90 mt-1 leading-relaxed">
+                    Google Calendar is connected, but calendar permission was not granted. Please reconnect and allow calendar access.
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleConnectGoogle}
+                    disabled={isGoogleLoading}
+                    className="flex-1 py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-md shadow-amber-600/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                  >
+                    {isGoogleLoading && (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                    )}
+                    <span>{isGoogleLoading ? 'Connecting...' : 'Reconnect Google Calendar'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDisconnectGoogle}
+                    disabled={isDisconnecting}
+                    className="py-2 px-3 rounded-xl bg-slate-900 hover:bg-rose-950 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-900 text-xs font-medium transition-colors cursor-pointer"
+                    title="Disconnect"
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              </div>
+            ) : !googleStatus.connected ? (
               <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-3 text-center">
                 <CalendarDays className="w-6 h-6 text-slate-500 mx-auto" />
                 <div>
@@ -1161,7 +1197,7 @@ export function CalendarPage({ onSelectSession, onNewSession, onNavigate }) {
           </div>
 
           {/* Google Calendar Account Management Widget */}
-          {googleStatus.connected && (
+          {googleStatus.connected && !googleStatus.missingScope && (
             <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-2.5">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-[11px] text-slate-400 truncate max-w-[170px]" title={googleStatus.email}>

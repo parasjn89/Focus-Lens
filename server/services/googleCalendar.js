@@ -14,6 +14,23 @@ export const REQUIRED_SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email',
 ];
 
+/**
+ * Checks whether an OAuth scope string contains the required Google Calendar scopes.
+ *
+ * @param {string} scopeString - Space-delimited scope string returned by Google
+ * @returns {boolean} True if calendar.readonly or full calendar scope is present
+ */
+export function hasCalendarScope(scopeString) {
+  if (!scopeString || typeof scopeString !== 'string') return false;
+  const scopes = scopeString.split(/\s+/).filter(Boolean);
+  return scopes.some(
+    (s) =>
+      s === 'https://www.googleapis.com/auth/calendar.readonly' ||
+      s === 'https://www.googleapis.com/auth/calendar' ||
+      s === 'calendar.readonly'
+  );
+}
+
 // Mock adapter hook for unit tests
 let apiFetchOverride = null;
 
@@ -268,6 +285,13 @@ export async function getValidAccessToken(connection) {
     const err = new Error('Google Calendar connection not found.');
     err.statusCode = 404;
     err.code = 'NOT_CONNECTED';
+    throw err;
+  }
+
+  if (connection.scope && !hasCalendarScope(connection.scope)) {
+    const err = new Error('Google Calendar permission was not granted. Please reconnect and allow calendar access.');
+    err.statusCode = 403;
+    err.code = 'INSUFFICIENT_SCOPES';
     throw err;
   }
 

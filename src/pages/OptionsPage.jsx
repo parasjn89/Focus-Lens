@@ -98,6 +98,7 @@ export function OptionsPage({ onNavigate }) {
           setCalendarStatus({
             loading: false,
             connected: Boolean(calData.connected),
+            missingScope: Boolean(calData.missingScope),
             email: calData.email || null,
             error: null,
           });
@@ -1130,6 +1131,13 @@ export function OptionsPage({ onNavigate }) {
                         <span className="text-[11px] font-mono text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-full border border-slate-700">
                           Checking...
                         </span>
+                      ) : calendarStatus.connected && calendarStatus.missingScope ? (
+                        <div className="flex items-center space-x-2">
+                          <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                            <span>Permission Missing</span>
+                          </span>
+                        </div>
                       ) : calendarStatus.connected ? (
                         <div className="flex items-center space-x-2">
                           <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
@@ -1148,7 +1156,11 @@ export function OptionsPage({ onNavigate }) {
 
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-800/60">
                     <div className="text-xs text-slate-400">
-                      {calendarStatus.connected && calendarStatus.email ? (
+                      {calendarStatus.connected && calendarStatus.missingScope ? (
+                        <span className="text-amber-300">
+                          Google Calendar is connected, but calendar permission was not granted. Please reconnect and allow calendar access.
+                        </span>
+                      ) : calendarStatus.connected && calendarStatus.email ? (
                         <span>Linked account: <strong className="text-slate-200">{calendarStatus.email}</strong></span>
                       ) : (
                         <span>Connect your Google account to enable two-way event scheduling.</span>
@@ -1156,7 +1168,26 @@ export function OptionsPage({ onNavigate }) {
                     </div>
 
                     <div className="shrink-0">
-                      {calendarStatus.connected ? (
+                      {calendarStatus.connected && calendarStatus.missingScope ? (
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            disabled={isConnectingCalendar}
+                            onClick={handleConnectCalendar}
+                            className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-md shadow-amber-600/20 transition cursor-pointer disabled:opacity-50"
+                          >
+                            {isConnectingCalendar ? 'Connecting...' : 'Reconnect Calendar'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isDisconnectingCalendar}
+                            onClick={handleDisconnectCalendar}
+                            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-rose-950 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-900 text-xs font-medium transition cursor-pointer disabled:opacity-50"
+                          >
+                            Disconnect
+                          </button>
+                        </div>
+                      ) : calendarStatus.connected ? (
                         <button
                           type="button"
                           disabled={isDisconnectingCalendar}

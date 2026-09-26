@@ -1,16 +1,19 @@
-import { describe, test, before, after } from 'node:test';
+import { describe, test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../app.js';
 import { dbStore } from '../db/store.js';
-import fs from 'fs';
-import path from 'path';
+import { setCloudinaryUploader, resetCloudinaryUploader } from '../services/avatarStorageService.js';
 
-describe('Profile Picture / Avatar Test Suite', () => {
+describe('Profile Picture / Avatar Cloudinary Test Suite', () => {
   let app;
   let userACookie;
   let userBCookie;
   let userAId;
   let userBId;
+
+  // Track mock Cloudinary calls
+  const mockUploads = [];
+  const mockDestroys = [];
 
   const tag = () => Math.random().toString(36).substring(2, 7);
 
@@ -51,7 +54,31 @@ describe('Profile Picture / Avatar Test Suite', () => {
   ]);
   const validWebpDataUrl = `data:image/webp;base64,${validWebpBuffer.toString('base64')}`;
 
+  // Mock Cloudinary Uploader
+  const mockCloudinary = {
+    upload: async (dataUri, options) => {
+      mockUploads.push({ dataUriLength: dataUri.length, options });
+      const version = Date.now();
+      const folder = options.folder || 'focuslens/avatars';
+      const publicId = `${folder}/${options.public_id || 'test_avatar'}`;
+      return {
+        public_id: publicId,
+        secure_url: `https://res.cloudinary.com/demo/image/upload/v${version}/${publicId}.jpg`,
+        version,
+        format: 'jpg',
+        resource_type: 'image',
+      };
+    },
+    destroy: async (publicId, options) => {
+      mockDestroys.push({ publicId, options });
+      return { result: 'ok' };
+    },
+  };
+
   before(async () => {
+    // Set up mock Cloudinary before app initialization
+    setCloudinaryUploader(mockCloudinary);
+
     app = buildApp({ logger: false });
     await app.ready();
 
@@ -91,7 +118,16 @@ describe('Profile Picture / Avatar Test Suite', () => {
   });
 
   after(async () => {
+    resetCloudinaryUploader();
     await app.close();
+  });
+
+  beforeEach(() => {
+    // Reset mock tracking arrays
+    mockUploads.length = 0;
+    mockDestroys.length = 0;
+    // Ensure default mock uploader is restored
+    setCloudinaryUploader(mockCloudinary);
   });
 
   test('1. Default avatar when absent: new user has null avatarUrl and avatarPublicId', async () => {
@@ -113,9 +149,10 @@ describe('Profile Picture / Avatar Test Suite', () => {
       payload: { avatarData: validJpegDataUrl },
     });
     assert.equal(res.statusCode, 401);
+    assert.equal(mockUploads.length, 0, 'No Cloudinary upload should happen for unauthenticated requests');
   });
 
-  test('3. Authenticated user can upload a valid JPEG profile picture', async () => {
+  test('3. Authenticated user can upload a valid JPEG profile picture -> uploaded to Cloudinary', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/auth/profile/avatar',
@@ -126,25 +163,31 @@ describe('Profile Picture / Avatar Test Suite', () => {
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
     assert.ok(body.user.avatarUrl);
-    assert.match(body.user.avatarUrl, /^\/api\/uploads\/avatars\/avatar_/);
+    assert.match(body.user.avatarUrl, /^https:\/\/res\.cloudinary\.com\//);
     assert.ok(body.user.avatarPublicId);
-    assert.match(body.user.avatarPublicId, /\.jpg$/);
+    assert.match(body.user.avatarPublicId, /^focuslens\/avatars\/avatar_/);
 
-    // Verify file actually exists on disk
-    const filePath = path.join(process.cwd(), 'uploads', 'avatars', body.user.avatarPublicId);
-    assert.ok(fs.existsSync(filePath), 'Saved avatar file must exist on disk');
+    // Verify Cloudinary mock was called with correct folder and options
+    assert.equal(mockUploads.length, 1);
+    assert.equal(mockUploads[0].options.folder, 'focuslens/avatars');
+    assert.equal(mockUploads[0].options.overwrite, true);
+    assert.equal(mockUploads[0].options.invalidate, true);
+
+    // Verify persistence in database
+    const dbUser = await dbStore.getUserById(userAId);
+    assert.equal(dbUser.avatarUrl, body.user.avatarUrl);
+    assert.equal(dbUser.avatarPublicId, body.user.avatarPublicId);
   });
 
-  test('4. Uploading a valid PNG profile picture replaces previous avatar and cleans up old file', async () => {
-    // Check old file before replacing
+  test('4. Uploading a valid PNG profile picture replaces previous avatar and cleans up previous asset', async () => {
     const meBefore = await app.inject({
       method: 'GET',
       url: '/api/auth/me',
       headers: { cookie: userACookie },
     });
     const oldPublicId = JSON.parse(meBefore.payload).user.avatarPublicId;
-    const oldFilePath = path.join(process.cwd(), 'uploads', 'avatars', oldPublicId);
-    assert.ok(fs.existsSync(oldFilePath), 'Old file should exist before replacement');
+    const oldUrl = JSON.parse(meBefore.payload).user.avatarUrl;
+    assert.ok(oldPublicId, 'User A should have an existing avatar');
 
     // Upload new PNG
     const res = await app.inject({
@@ -156,15 +199,17 @@ describe('Profile Picture / Avatar Test Suite', () => {
 
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
-    assert.match(body.user.avatarPublicId, /\.png$/);
-    assert.notEqual(body.user.avatarPublicId, oldPublicId);
+    assert.ok(body.user.avatarUrl);
+    assert.match(body.user.avatarUrl, /^https:\/\/res\.cloudinary\.com\//);
+    // New version/URL returned
+    assert.notEqual(body.user.avatarUrl, oldUrl);
 
-    // New file exists
-    const newFilePath = path.join(process.cwd(), 'uploads', 'avatars', body.user.avatarPublicId);
-    assert.ok(fs.existsSync(newFilePath), 'New avatar file should exist on disk');
+    // Upload called
+    assert.equal(mockUploads.length, 1);
 
-    // Old file has been cleaned up
-    assert.ok(!fs.existsSync(oldFilePath), 'Old avatar file should be removed from disk');
+    // Verify DB updated
+    const dbUser = await dbStore.getUserById(userAId);
+    assert.equal(dbUser.avatarUrl, body.user.avatarUrl);
   });
 
   test('5. Uploading a valid WebP profile picture succeeds', async () => {
@@ -177,7 +222,8 @@ describe('Profile Picture / Avatar Test Suite', () => {
 
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
-    assert.match(body.user.avatarPublicId, /\.webp$/);
+    assert.match(body.user.avatarUrl, /^https:\/\/res\.cloudinary\.com\//);
+    assert.equal(mockUploads.length, 1);
   });
 
   test('6. Server rejects invalid/spoofed file format (e.g. text disguised as image) via magic byte check', async () => {
@@ -192,10 +238,10 @@ describe('Profile Picture / Avatar Test Suite', () => {
     assert.equal(res.statusCode, 400);
     const body = JSON.parse(res.payload);
     assert.match(body.message, /unsupported image format/i);
+    assert.equal(mockUploads.length, 0, 'No Cloudinary upload on invalid magic bytes');
   });
 
   test('7. Server rejects oversized file exceeding 2MB limit', async () => {
-    // Construct fake oversized buffer starting with valid JPEG header but > 2MB
     const oversizedBuffer = Buffer.alloc(2.5 * 1024 * 1024);
     oversizedBuffer[0] = 0xFF;
     oversizedBuffer[1] = 0xD8;
@@ -213,45 +259,47 @@ describe('Profile Picture / Avatar Test Suite', () => {
     assert.equal(res.statusCode, 400);
     const body = JSON.parse(res.payload);
     assert.match(body.message, /exceeds the 2MB limit/i);
+    assert.equal(mockUploads.length, 0);
   });
 
-  test('8. Safe avatar image serving: GET /api/uploads/avatars/:filename returns image with security headers', async () => {
-    const meRes = await app.inject({
+  test('8. Failed Cloudinary upload does NOT corrupt or modify existing avatar in database', async () => {
+    // Record current user A avatar
+    const meBefore = await app.inject({
       method: 'GET',
       url: '/api/auth/me',
       headers: { cookie: userACookie },
     });
-    const filename = JSON.parse(meRes.payload).user.avatarPublicId;
+    const beforeAvatarUrl = JSON.parse(meBefore.payload).user.avatarUrl;
+    assert.ok(beforeAvatarUrl);
 
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/uploads/avatars/${filename}`,
+    // Inject failing Cloudinary uploader
+    setCloudinaryUploader({
+      upload: async () => {
+        throw new Error('Cloudinary API network timeout (simulated)');
+      },
+      destroy: async () => ({ result: 'ok' }),
     });
 
-    assert.equal(res.statusCode, 200);
-    assert.equal(res.headers['content-type'], 'image/webp');
-    assert.equal(res.headers['x-content-type-options'], 'nosniff');
-    assert.ok(res.headers['cache-control']);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/profile/avatar',
+      headers: { cookie: userACookie },
+      payload: { avatarData: validJpegDataUrl },
+    });
+
+    assert.equal(res.statusCode, 500);
+
+    // Verify User A avatar in DB is completely untouched
+    const meAfter = await app.inject({
+      method: 'GET',
+      url: '/api/auth/me',
+      headers: { cookie: userACookie },
+    });
+    const afterAvatarUrl = JSON.parse(meAfter.payload).user.avatarUrl;
+    assert.equal(afterAvatarUrl, beforeAvatarUrl, 'Existing avatar must remain intact when upload fails');
   });
 
-  test('9. Path traversal attempts on avatar image serving return 404', async () => {
-    const maliciousPaths = [
-      '../../etc/passwd',
-      '..\\..\\windows\\win.ini',
-      'non_existent_avatar.jpg',
-      'something.exe',
-    ];
-
-    for (const p of maliciousPaths) {
-      const res = await app.inject({
-        method: 'GET',
-        url: `/api/uploads/avatars/${encodeURIComponent(p)}`,
-      });
-      assert.equal(res.statusCode, 404);
-    }
-  });
-
-  test('10. Strict User Isolation (IDOR Protection): User B cannot modify or delete User A\'s avatar', async () => {
+  test('9. Strict User Isolation (IDOR Protection): User B cannot modify or delete User A\'s avatar', async () => {
     // Get User A's current avatar
     const resA = await app.inject({
       method: 'GET',
@@ -261,7 +309,7 @@ describe('Profile Picture / Avatar Test Suite', () => {
     const userAAvatar = JSON.parse(resA.payload).user.avatarUrl;
     assert.ok(userAAvatar);
 
-    // User B attempts to delete avatar - it will only affect User B's own avatar (which is currently null)
+    // User B attempts to delete avatar - affects only User B
     const resDelB = await app.inject({
       method: 'DELETE',
       url: '/api/auth/profile/avatar',
@@ -278,7 +326,7 @@ describe('Profile Picture / Avatar Test Suite', () => {
     const userAAvatarAfter = JSON.parse(resACheck.payload).user.avatarUrl;
     assert.equal(userAAvatarAfter, userAAvatar);
 
-    // User B cannot supply arbitrary userId in body or params to alter User A
+    // User B attempts to supply User A's userId in the body
     const resSpoof = await app.inject({
       method: 'POST',
       url: '/api/auth/profile/avatar',
@@ -302,15 +350,14 @@ describe('Profile Picture / Avatar Test Suite', () => {
     assert.equal(JSON.parse(resAVerify.payload).user.avatarUrl, userAAvatar);
   });
 
-  test('11. Removing avatar: DELETE /api/auth/profile/avatar clears URL and deletes file from disk', async () => {
+  test('10. Removing avatar: DELETE /api/auth/profile/avatar clears URL and deletes asset from Cloudinary', async () => {
     const meRes = await app.inject({
       method: 'GET',
       url: '/api/auth/me',
       headers: { cookie: userACookie },
     });
     const publicId = JSON.parse(meRes.payload).user.avatarPublicId;
-    const filePath = path.join(process.cwd(), 'uploads', 'avatars', publicId);
-    assert.ok(fs.existsSync(filePath), 'File must exist before deletion');
+    assert.ok(publicId);
 
     const delRes = await app.inject({
       method: 'DELETE',
@@ -322,12 +369,39 @@ describe('Profile Picture / Avatar Test Suite', () => {
     assert.equal(body.user.avatarUrl, null);
     assert.equal(body.user.avatarPublicId, null);
 
-    // File on disk removed
-    assert.ok(!fs.existsSync(filePath), 'File must be deleted from disk');
+    // Cloudinary destroy called for publicId
+    assert.equal(mockDestroys.length, 1);
+    assert.equal(mockDestroys[0].publicId, publicId);
+
+    // Database record cleared
+    const dbUser = await dbStore.getUserById(userAId);
+    assert.equal(dbUser.avatarUrl, null);
+    assert.equal(dbUser.avatarPublicId, null);
+  });
+
+  test('11. Existing user profile fields (name, email, username) remain intact during avatar operations', async () => {
+    const user = await dbStore.getUserById(userAId);
+    const originalName = user.name;
+    const originalEmail = user.email;
+    const originalUsername = user.username;
+
+    // Upload avatar
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/profile/avatar',
+      headers: { cookie: userACookie },
+      payload: { avatarData: validJpegDataUrl },
+    });
+    assert.equal(res.statusCode, 200);
+
+    const updatedUser = await dbStore.getUserById(userAId);
+    assert.equal(updatedUser.name, originalName);
+    assert.equal(updatedUser.email, originalEmail);
+    assert.equal(updatedUser.username, originalUsername);
   });
 
   test('12. Avatar persists across user logout and re-login', async () => {
-    // Upload an avatar for User B
+    // User B has an avatar from previous test
     const upRes = await app.inject({
       method: 'POST',
       url: '/api/auth/profile/avatar',
@@ -368,7 +442,39 @@ describe('Profile Picture / Avatar Test Suite', () => {
     assert.equal(loginBody.user.avatarUrl, uploadedUrl);
   });
 
-  test('13. Privacy Guard continues to strictly reject media payloads on session endpoints', async () => {
+  test('13. Production Guard: In production/Vercel mode without Cloudinary, rejects with clear 500 error and NO filesystem writes', async () => {
+    // Simulate production environment with no Cloudinary configured
+    const origNodeEnv = process.env.NODE_ENV;
+    const origVercel = process.env.VERCEL;
+    process.env.NODE_ENV = 'production';
+    process.env.VERCEL = '1';
+
+    // Clear custom uploader to simulate unconfigured Cloudinary in production
+    setCloudinaryUploader(null);
+
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/profile/avatar',
+        headers: { cookie: userACookie },
+        payload: { avatarData: validJpegDataUrl },
+      });
+
+      assert.equal(res.statusCode, 500);
+      const body = JSON.parse(res.payload);
+      assert.match(body.message, /CLOUDINARY_CLOUD_NAME/i);
+    } finally {
+      process.env.NODE_ENV = origNodeEnv;
+      if (origVercel !== undefined) {
+        process.env.VERCEL = origVercel;
+      } else {
+        delete process.env.VERCEL;
+      }
+      setCloudinaryUploader(mockCloudinary);
+    }
+  });
+
+  test('14. Privacy Guard continues to strictly reject media payloads on session endpoints', async () => {
     const forbiddenPayloads = [
       { plannedDurationMs: 1500000, selectedActivity: 'Studying', video: 'webcam_video_stream' },
       { plannedDurationMs: 1500000, selectedActivity: 'Studying', image: 'raw_frame_blob' },

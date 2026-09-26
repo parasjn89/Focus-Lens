@@ -86,6 +86,19 @@ test('Google Calendar Integration Test Suite', async (t) => {
             json: async () => ({ error: 'invalid_grant', error_description: 'Bad Request' }),
           };
         }
+        if (bodyStr.includes('missing_scope') || bodyStr.includes('partial_scope')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              access_token: 'mock_partial_access_token',
+              refresh_token: 'mock_partial_refresh_token',
+              expires_in: 3600,
+              scope: 'https://www.googleapis.com/auth/userinfo.email openid',
+              id_token: null,
+            }),
+          };
+        }
         if (bodyStr.includes('fail_refresh')) {
           return {
             ok: false,
@@ -730,6 +743,7 @@ test('Google Calendar Integration Test Suite', async (t) => {
       googleAccountEmail: 'revoked_user@gmail.com',
       accessTokenEncrypted: encryptToken('expired_access_token_111'),
       refreshTokenEncrypted: encryptToken('fail_refresh_token_222'),
+      scope: 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email',
       tokenExpiry: new Date(Date.now() - 60000), // Expired 1 min ago
     });
 
@@ -768,6 +782,161 @@ test('Google Calendar Integration Test Suite', async (t) => {
     // User B must NOT have any Google Calendar connection in database
     const connB = await dbStore.getGoogleCalendarConnection(userB.id);
     assert.equal(connB, null, 'User B must not have any connection created');
+  });
+
+  await t.test('25. Granular/partial OAuth permission without calendar.readonly does NOT save connection and redirects with friendly error', async () => {
+    await dbStore.deleteGoogleCalendarConnection(userA.id);
+
+    const state = generateOAuthState(userA.id);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/calendar/google/callback?code=mock_missing_scope_code&state=${encodeURIComponent(state)}`,
+      headers: { cookie: cookieA },
+    });
+
+    assert.equal(res.statusCode, 302);
+    const location = res.headers.location;
+    assert.ok(location.includes('/calendar?google=error'));
+    assert.ok(decodeURIComponent(location).includes('Calendar permission was not granted'));
+
+    const conn = await dbStore.getGoogleCalendarConnection(userA.id);
+    assert.equal(conn, null, 'Connection must NOT be saved when calendar.readonly is missing');
+  });
+
+  await t.test('26. OAuth callback with calendar.readonly saves connection successfully', async () => {
+    const state = generateOAuthState(userA.id);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/calendar/google/callback?code=mock_valid_code&state=${encodeURIComponent(state)}`,
+      headers: { cookie: cookieA },
+    });
+
+    assert.equal(res.statusCode, 302);
+    assert.ok(res.headers.location.includes('/calendar?google=connected'));
+
+    const conn = await dbStore.getGoogleCalendarConnection(userA.id);
+    assert.ok(conn, 'Connection must be saved when calendar.readonly is granted');
+    assert.ok(conn.scope.includes('calendar.readonly'));
+
+    const statusRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/google/status',
+      headers: { cookie: cookieA },
+    });
+    const statusBody = JSON.parse(statusRes.payload);
+    assert.equal(statusBody.connected, true);
+    assert.equal(statusBody.missingScope, false);
+  });
+
+  await t.test('27. Stored connection with missing calendar.readonly scope is treated as invalid (missingScope: true, 403 on data endpoints)', async () => {
+    // Manually set stored scope to only email/openid
+    await dbStore.upsertGoogleCalendarConnection(userA.id, {
+      accessTokenEncrypted: encryptToken(mockTokens.access_token),
+      refreshTokenEncrypted: encryptToken(mockTokens.refresh_token),
+      scope: 'https://www.googleapis.com/auth/userinfo.email openid',
+      tokenExpiry: new Date(Date.now() + 3600000),
+    });
+
+    // 1. Status check reports missingScope: true
+    const statusRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/google/status',
+      headers: { cookie: cookieA },
+    });
+    const statusBody = JSON.parse(statusRes.payload);
+    assert.equal(statusBody.connected, true);
+    assert.equal(statusBody.missingScope, true);
+
+    // 2. Fetching calendars returns 403 Forbidden with INSUFFICIENT_SCOPES
+    const calsRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/google/calendars',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(calsRes.statusCode, 403);
+    const calsBody = JSON.parse(calsRes.payload);
+    assert.equal(calsBody.code, 'INSUFFICIENT_SCOPES');
+    assert.match(calsBody.message, /calendar permission was not granted/i);
+
+    // 3. Fetching events returns 403 Forbidden with INSUFFICIENT_SCOPES
+    const evtsRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/events',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(evtsRes.statusCode, 403);
+    const evtsBody = JSON.parse(evtsRes.payload);
+    assert.equal(evtsBody.code, 'INSUFFICIENT_SCOPES');
+    assert.match(evtsBody.message, /calendar permission was not granted/i);
+
+    // 4. Selecting calendar returns 403 Forbidden with INSUFFICIENT_SCOPES
+    const selRes = await app.inject({
+      method: 'POST',
+      url: '/api/calendar/google/select-calendar',
+      headers: { cookie: cookieA, 'content-type': 'application/json' },
+      payload: JSON.stringify({ calendarId: 'primary' }),
+    });
+    assert.equal(selRes.statusCode, 403);
+    const selBody = JSON.parse(selRes.payload);
+    assert.equal(selBody.code, 'INSUFFICIENT_SCOPES');
+  });
+
+  await t.test('28. Existing valid connection with calendar.readonly continues working normally', async () => {
+    // Restore valid connection
+    await dbStore.upsertGoogleCalendarConnection(userA.id, {
+      accessTokenEncrypted: encryptToken(mockTokens.access_token),
+      refreshTokenEncrypted: encryptToken(mockTokens.refresh_token),
+      scope: 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email',
+      tokenExpiry: new Date(Date.now() + 3600000),
+    });
+
+    const statusRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/google/status',
+      headers: { cookie: cookieA },
+    });
+    const statusBody = JSON.parse(statusRes.payload);
+    assert.equal(statusBody.connected, true);
+    assert.equal(statusBody.missingScope, false);
+
+    const calsRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/google/calendars',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(calsRes.statusCode, 200);
+
+    const evtsRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/events',
+      headers: { cookie: cookieA },
+    });
+    assert.equal(evtsRes.statusCode, 200);
+  });
+
+  await t.test('29. User isolation: User B cannot access User A Google Calendar connection or data', async () => {
+    await dbStore.deleteGoogleCalendarConnection(userB.id);
+
+    const statusRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/google/status',
+      headers: { cookie: cookieB },
+    });
+    assert.equal(JSON.parse(statusRes.payload).connected, false);
+
+    const calsRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/google/calendars',
+      headers: { cookie: cookieB },
+    });
+    assert.equal(calsRes.statusCode, 404);
+
+    const evtsRes = await app.inject({
+      method: 'GET',
+      url: '/api/calendar/events',
+      headers: { cookie: cookieB },
+    });
+    assert.equal(evtsRes.statusCode, 404);
   });
 
   setGoogleApiFetchOverride(null);

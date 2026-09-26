@@ -8,6 +8,7 @@ import {
   revokeGoogleToken,
   listGoogleCalendars,
   listGoogleCalendarEvents,
+  hasCalendarScope,
 } from '../services/googleCalendar.js';
 import { decryptToken, encryptToken } from '../utils/encryption.js';
 import { config } from '../config/env.js';
@@ -93,6 +94,20 @@ export async function googleCalendarCallback(request, reply) {
   try {
     // Exchange code for tokens
     const tokens = await exchangeCodeForTokens(code);
+
+    // Verify required calendar scope was granted
+    if (!hasCalendarScope(tokens.scope)) {
+      request.log.warn(
+        { userId: authenticatedUserId, grantedScopes: tokens.scope },
+        'Google OAuth completed but calendar.readonly scope was not granted.'
+      );
+      if (tokens.accessToken) {
+        await revokeGoogleToken(tokens.accessToken).catch(() => {});
+      }
+      const errMsg = 'Calendar permission was not granted. Please select the calendar permission and try again.';
+      return reply.redirect(`${config.frontendUrl}/calendar?google=error&message=${encodeURIComponent(errMsg)}`);
+    }
+
     const email = await getConnectedUserEmail(tokens.accessToken, tokens.idToken);
     const tokenExpiry = new Date(Date.now() + tokens.expiresIn * 1000);
 
@@ -138,8 +153,19 @@ export async function getGoogleCalendarStatus(request, reply) {
       });
     }
 
+    const hasPermission = hasCalendarScope(connection.scope);
+    if (!hasPermission) {
+      return reply.send({
+        connected: true,
+        missingScope: true,
+        email: connection.googleAccountEmail || null,
+        selectedCalendarId: 'primary',
+      });
+    }
+
     return reply.send({
       connected: true,
+      missingScope: false,
       email: connection.googleAccountEmail || null,
       selectedCalendarId: connection.calendarId || 'primary',
     });
@@ -168,6 +194,15 @@ export async function getGoogleCalendars(request, reply) {
         statusCode: 404,
         error: 'Not Found',
         message: 'Google Calendar is not connected. Please connect your account first.',
+      });
+    }
+
+    if (!hasCalendarScope(connection.scope)) {
+      return reply.status(403).send({
+        statusCode: 403,
+        error: 'Forbidden',
+        code: 'INSUFFICIENT_SCOPES',
+        message: 'Google Calendar is connected, but calendar permission was not granted. Please reconnect and allow calendar access.',
       });
     }
 
@@ -220,6 +255,15 @@ export async function selectGoogleCalendar(request, reply) {
       });
     }
 
+    if (!hasCalendarScope(connection.scope)) {
+      return reply.status(403).send({
+        statusCode: 403,
+        error: 'Forbidden',
+        code: 'INSUFFICIENT_SCOPES',
+        message: 'Google Calendar is connected, but calendar permission was not granted. Please reconnect and allow calendar access.',
+      });
+    }
+
     const updated = await dbStore.updateGoogleCalendarSelectedCalendar(userId, calendarId.trim());
 
     return reply.send({
@@ -252,6 +296,15 @@ export async function getGoogleCalendarEvents(request, reply) {
         statusCode: 404,
         error: 'Not Found',
         message: 'Google Calendar is not connected. Please connect your account first.',
+      });
+    }
+
+    if (!hasCalendarScope(connection.scope)) {
+      return reply.status(403).send({
+        statusCode: 403,
+        error: 'Forbidden',
+        code: 'INSUFFICIENT_SCOPES',
+        message: 'Google Calendar is connected, but calendar permission was not granted. Please reconnect and allow calendar access.',
       });
     }
 

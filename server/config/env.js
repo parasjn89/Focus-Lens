@@ -70,6 +70,20 @@ export const config = {
   firebaseProjectId: (process.env.FIREBASE_PROJECT_ID || '').trim(),
   firebaseClientEmail: (process.env.FIREBASE_CLIENT_EMAIL || '').trim(),
   firebasePrivateKey: normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY),
+
+  // Cloudinary Configuration (Profile Picture Storage)
+  cloudinaryCloudName: (process.env.CLOUDINARY_CLOUD_NAME || '').trim(),
+  cloudinaryApiKey: (process.env.CLOUDINARY_API_KEY || '').trim(),
+  cloudinaryApiSecret: (process.env.CLOUDINARY_API_SECRET || '').trim(),
 };
+
+export function isCloudinaryConfigured() {
+  const cloudName = (config.cloudinaryCloudName || process.env.CLOUDINARY_CLOUD_NAME || '').trim();
+  const apiKey = (config.cloudinaryApiKey || process.env.CLOUDINARY_API_KEY || '').trim();
+  const apiSecret = (config.cloudinaryApiSecret || process.env.CLOUDINARY_API_SECRET || '').trim();
+  const cloudinaryUrl = (process.env.CLOUDINARY_URL || '').trim();
+
+  return Boolean((cloudName && apiKey && apiSecret) || cloudinaryUrl);
+}
 
 
