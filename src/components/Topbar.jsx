@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Bell, Plus, Calendar as CalendarIcon } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserAvatar } from './UserAvatar.jsx';
 
@@ -39,7 +39,7 @@ export function Topbar({ currentView, onNavigate }) {
         </span>
       </div>
 
-      <div className="flex items-center space-x-4">
+      <div className="flex items-center space-x-3 sm:space-x-4">
         {/* Focus Buddies / Team Members */}
         <button
           type="button"
@@ -53,16 +53,15 @@ export function Topbar({ currentView, onNavigate }) {
           <span className="text-xs font-medium">Focus Buddies</span>
         </button>
 
-        <button className="w-10 h-10 rounded-full bg-navy-800/80 border border-slate-700/50 flex items-center justify-center text-slate-300 hover:text-white transition">
-          <Search className="w-4 h-4" />
-        </button>
-        <button className="w-10 h-10 rounded-full bg-navy-800/80 border border-slate-700/50 flex items-center justify-center text-slate-300 hover:text-white transition relative">
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-2 right-2 w-2 h-2 bg-brand-500 rounded-full"></span>
-        </button>
-        
         {/* User Profile */}
-        <UserAvatar user={user} size="md" roundedFull className="ml-2 border-2 border-slate-700/50" />
+        <button
+          type="button"
+          onClick={() => onNavigate && onNavigate('profile')}
+          className="cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/50 rounded-full transition hover:opacity-90"
+          title={user?.name || user?.username || 'Profile'}
+        >
+          <UserAvatar user={user} size="md" roundedFull className="border-2 border-slate-700/50" />
+        </button>
       </div>
     </header>
   );

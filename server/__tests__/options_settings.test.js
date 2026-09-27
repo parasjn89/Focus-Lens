@@ -202,12 +202,15 @@ describe('FocusLens Options & User Settings Hub Suite', () => {
     assert.ok(content.includes('Need Help?'), 'Must have Need Help card');
   });
 
-  it('5b. Topbar.jsx has no fake avatars (JD, AL) and renders clean Focus Buddies control', () => {
+  it('5b. Topbar.jsx has no fake avatars (JD, AL) and renders clean Focus Buddies control without dummy Search or Bell buttons', () => {
     const topbarPath = resolve(process.cwd(), 'src/components/Topbar.jsx');
     const content = readFileSync(topbarPath, 'utf-8');
     assert.strictEqual(content.includes('>JD<'), false, 'Topbar must not have fake JD avatar');
     assert.strictEqual(content.includes('>AL<'), false, 'Topbar must not have fake AL avatar');
     assert.ok(content.includes('Focus Buddies'), 'Topbar must have Focus Buddies control');
+    assert.strictEqual(content.includes('<Search'), false, 'Topbar must not contain Search button');
+    assert.strictEqual(content.includes('<Bell'), false, 'Topbar must not contain Bell/notification button');
+    assert.ok(content.includes('<UserAvatar'), 'Topbar must preserve UserAvatar');
   });
 
   it('6. App.jsx routes currentView === "options" to <OptionsPage /> and separates messages placeholder', () => {
