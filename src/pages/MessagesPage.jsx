@@ -95,8 +95,9 @@ export function MessagesPage({ onNavigate }) {
       setConversations(convList);
       setPendingRequests(pending);
 
-      // Determine active conversation
-      const targetId = selectedIdToKeep || activeConversationId || (convList.length > 0 ? convList[0].id : null);
+      // Determine active conversation using ref to avoid stale closure
+      const currentActive = activeConversationIdRef.current;
+      const targetId = selectedIdToKeep || currentActive || (convList.length > 0 ? convList[0].id : null);
       if (targetId && convList.some((c) => c.id === targetId)) {
         setActiveConversationId(targetId);
       } else if (convList.length > 0) {
@@ -144,10 +145,16 @@ export function MessagesPage({ onNavigate }) {
         // Mark as read
         await markConversationRead(activeConversationId).catch(() => {});
 
-        // Update local unreadCount for this conversation in list
+        // Update local unreadCount for this conversation in list, safely preserving buddy info
         setConversations((prev) =>
           prev.map((c) =>
-            c.id === activeConversationId ? { ...c, unreadCount: 0 } : c
+            c.id === activeConversationId
+              ? {
+                  ...c,
+                  unreadCount: 0,
+                  buddy: c.buddy || res?.buddy || res?.conversation?.buddy || null,
+                }
+              : c
           )
         );
 
@@ -360,9 +367,9 @@ export function MessagesPage({ onNavigate }) {
   const filteredConversations = conversations.filter((c) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
-    const nameMatch = c.buddy?.name?.toLowerCase().includes(q);
-    const userMatch = c.buddy?.username?.toLowerCase().includes(q);
-    const contentMatch = c.lastMessageContent?.toLowerCase().includes(q);
+    const nameMatch = c.buddy?.name ? c.buddy.name.toLowerCase().includes(q) : false;
+    const userMatch = c.buddy?.username ? c.buddy.username.toLowerCase().includes(q) : false;
+    const contentMatch = c.lastMessageContent ? c.lastMessageContent.toLowerCase().includes(q) : false;
     return nameMatch || userMatch || contentMatch;
   });
 
@@ -537,6 +544,7 @@ export function MessagesPage({ onNavigate }) {
             ) : (
               filteredConversations.map((c) => {
                 const isSelected = c.id === activeConversationId;
+                const buddyName = c.buddy?.name || c.buddy?.username || 'Focus Buddy';
                 return (
                   <button
                     key={c.id}
@@ -547,19 +555,24 @@ export function MessagesPage({ onNavigate }) {
                     }}
                     className={`w-full p-3.5 text-left flex items-start space-x-3 transition cursor-pointer ${
                       isSelected
-                        ? 'bg-cyan-950/30 border-l-2 border-cyan-400'
-                        : 'hover:bg-slate-900/60'
+                        ? 'bg-cyan-950/40 border-l-2 border-cyan-400 text-white shadow-inner'
+                        : 'hover:bg-slate-900/60 text-slate-200 border-l-2 border-transparent'
                     }`}
                   >
-                    <UserAvatar user={c.buddy} size="md" roundedFull />
+                    <UserAvatar
+                      user={c.buddy}
+                      size="md"
+                      roundedFull
+                      alt={buddyName}
+                    />
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <span className={`text-xs font-bold truncate ${isSelected ? 'text-white' : 'text-slate-200'}`}>
-                          {c.buddy?.name || c.buddy?.username}
+                          {buddyName}
                         </span>
                         <span className="text-[10px] font-mono text-slate-500 shrink-0 ml-2">
-                          {formatMessageTime(c.lastMessageAt)}
+                          {c.lastMessageAt ? formatMessageTime(c.lastMessageAt) : ''}
                         </span>
                       </div>
 
@@ -603,11 +616,16 @@ export function MessagesPage({ onNavigate }) {
                     <ChevronLeft className="w-4 h-4" />
                   </button>
 
-                  <UserAvatar user={activeBuddy} size="md" roundedFull />
+                  <UserAvatar
+                    user={activeBuddy}
+                    size="md"
+                    roundedFull
+                    alt={activeBuddy.name || activeBuddy.username || 'Focus Buddy'}
+                  />
                   <div>
                     <div className="flex items-center space-x-2">
                       <h2 className="text-sm font-bold text-white">
-                        {activeBuddy.name || activeBuddy.username}
+                        {activeBuddy.name || activeBuddy.username || 'Focus Buddy'}
                       </h2>
                       <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/25">
                         <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
@@ -615,7 +633,7 @@ export function MessagesPage({ onNavigate }) {
                       </span>
                     </div>
                     <span className="text-[11px] text-slate-400 font-mono block">
-                      @{activeBuddy.username}
+                      @{activeBuddy.username || 'user'}
                     </span>
                   </div>
                 </div>
@@ -636,7 +654,7 @@ export function MessagesPage({ onNavigate }) {
                     <div>
                       <h4 className="text-sm font-bold text-white">Accountability Channel Ready</h4>
                       <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                        Say hi to {activeBuddy.name || activeBuddy.username}! Coordinate focus sessions, celebrate milestones, and encourage each other.
+                        Say hi to {activeBuddy.name || activeBuddy.username || 'your Focus Buddy'}! Coordinate focus sessions, celebrate milestones, and encourage each other.
                       </p>
                     </div>
                   </div>

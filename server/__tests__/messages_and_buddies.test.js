@@ -303,4 +303,58 @@ test('FocusLens Focus Buddy & Accountability Messages Test Suite', async (t) => 
     assert.strictEqual(body.messages[1].messageType, 'ACTIVITY');
     assert.strictEqual(body.buddy.username, userB.username);
   });
+
+  await t.test('16. Listing conversations always includes valid buddy metadata (id, name, username)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/messages/conversations',
+      headers: { cookie: cookieA },
+    });
+    assert.strictEqual(res.statusCode, 200);
+    const body = JSON.parse(res.payload);
+    assert.ok(Array.isArray(body.conversations));
+    assert.ok(body.conversations.length >= 1);
+    for (const c of body.conversations) {
+      assert.ok(c.id, 'conversation has valid id');
+      assert.ok(c.buddy, 'conversation includes buddy object');
+      assert.ok(c.buddy.id, 'buddy has valid id');
+      assert.ok(c.buddy.username, 'buddy has valid username');
+      assert.ok(c.buddy.name, 'buddy has non-empty name');
+    }
+  });
+
+  await t.test('17. User A connects with User C -> both conversations remain persistent and accessible', async () => {
+    // User A invites User C
+    const inviteRes = await app.inject({
+      method: 'POST',
+      url: '/api/buddies/request',
+      headers: { cookie: cookieA },
+      payload: { usernameOrEmail: userC.username },
+    });
+    assert.strictEqual(inviteRes.statusCode, 201);
+    const reqCId = JSON.parse(inviteRes.payload).request.id;
+
+    // User C accepts
+    const acceptRes = await app.inject({
+      method: 'PATCH',
+      url: `/api/buddies/requests/${reqCId}`,
+      headers: { cookie: cookieC },
+      payload: { action: 'ACCEPT' },
+    });
+    assert.strictEqual(acceptRes.statusCode, 200);
+
+    // User A fetches all conversations -> must contain both User B and User C
+    const listRes = await app.inject({
+      method: 'GET',
+      url: '/api/messages/conversations',
+      headers: { cookie: cookieA },
+    });
+    assert.strictEqual(listRes.statusCode, 200);
+    const convs = JSON.parse(listRes.payload).conversations;
+    assert.strictEqual(convs.length, 2, 'User A should have exactly 2 conversations');
+
+    const buddyUsernames = convs.map(c => c.buddy.username);
+    assert.ok(buddyUsernames.includes(userB.username), 'Includes User B conversation');
+    assert.ok(buddyUsernames.includes(userC.username), 'Includes User C conversation');
+  });
 });
