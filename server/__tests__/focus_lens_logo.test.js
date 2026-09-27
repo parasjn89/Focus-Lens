@@ -169,14 +169,86 @@ test('FocusLens Official Brand Logo Test Suite', async (t) => {
     assert.ok(footerCode.includes('FocusLensLogo'), 'Footer must import and use FocusLensLogo');
   });
 
-  await t.test('4. Favicon exists and is referenced in index.html', () => {
+  const faviconSvgPath = path.resolve(__dirname, '../../public/favicon.svg');
+  const faviconIcoPath = path.resolve(__dirname, '../../public/favicon.ico');
+
+  await t.test('4. Favicon exists, has transparent background, and is referenced in index.html', async () => {
     assert.ok(fs.existsSync(faviconPath), 'public/favicon.png must exist');
     assert.ok(fs.statSync(faviconPath).size > 100, 'public/favicon.png must be non-empty');
 
+    assert.ok(fs.existsSync(faviconSvgPath), 'public/favicon.svg must exist');
+    assert.ok(fs.statSync(faviconSvgPath).size > 100, 'public/favicon.svg must be non-empty');
+
+    assert.ok(fs.existsSync(faviconIcoPath), 'public/favicon.ico must exist');
+    assert.ok(fs.statSync(faviconIcoPath).size > 100, 'public/favicon.ico must be non-empty');
+
     const indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
+    assert.ok(indexHtml.includes('href="/favicon.svg"'), 'index.html must reference /favicon.svg');
     assert.ok(indexHtml.includes('href="/favicon.png"'), 'index.html must reference /favicon.png');
     assert.ok(indexHtml.includes('href="/branding/focuslens-icon.png"'), 'index.html must reference official icon asset');
     assert.ok(!indexHtml.includes('eye icon.jpeg'), 'index.html must not reference old eye icon');
+
+    // Verify favicon.svg background transparency (no baked-in dark rectangle)
+    const zlib = await import('node:zlib');
+    function decodeAlphaFromBuffer(buf) {
+      let pos = 8;
+      const idatParts = [];
+      let width, height;
+      while (pos < buf.length) {
+        const len = buf.readUInt32BE(pos);
+        const type = buf.subarray(pos + 4, pos + 8).toString('ascii');
+        const data = buf.subarray(pos + 8, pos + 8 + len);
+        if (type === 'IHDR') {
+          width = data.readUInt32BE(0);
+          height = data.readUInt32BE(4);
+        }
+        if (type === 'IDAT') idatParts.push(data);
+        pos += 8 + len + 4;
+      }
+      const decompressed = zlib.inflateSync(Buffer.concat(idatParts));
+      const bytesPerPixel = 4;
+      const stride = 1 + width * bytesPerPixel;
+      const raw = Buffer.alloc(width * height * 4);
+      for (let y = 0; y < height; y++) {
+        const filter = decompressed[y * stride];
+        const scanline = decompressed.subarray(y * stride + 1, (y + 1) * stride);
+        const prevLine = y > 0 ? raw.subarray((y - 1) * width * 4, y * width * 4) : null;
+        const currLine = raw.subarray(y * width * 4, (y + 1) * width * 4);
+        for (let x = 0; x < width * 4; x++) {
+          const a = x >= bytesPerPixel ? currLine[x - bytesPerPixel] : 0;
+          const b = prevLine ? prevLine[x] : 0;
+          const c = (prevLine && x >= bytesPerPixel) ? prevLine[x - bytesPerPixel] : 0;
+          let val = scanline[x];
+          if (filter === 0) {}
+          else if (filter === 1) val = (val + a) & 0xff;
+          else if (filter === 2) val = (val + b) & 0xff;
+          else if (filter === 3) val = (val + Math.floor((a + b) / 2)) & 0xff;
+          else if (filter === 4) {
+            const p = a + b - c;
+            const pa = Math.abs(p - a);
+            const pb = Math.abs(p - b);
+            const pc = Math.abs(p - c);
+            let pr = pa <= pb && pa <= pc ? a : (pb <= pc ? b : c);
+            val = (val + pr) & 0xff;
+          }
+          currLine[x] = val;
+        }
+      }
+      return { width, height, raw };
+    }
+
+    const svgContent = fs.readFileSync(faviconSvgPath, 'utf8');
+    const match = svgContent.match(/base64,([A-Za-z0-9+/=]+)/);
+    assert.ok(match, 'public/favicon.svg must contain base64 image data');
+    const svgImg = decodeAlphaFromBuffer(Buffer.from(match[1], 'base64'));
+    assert.strictEqual(svgImg.raw[3], 0, 'favicon.svg top-left corner must be fully transparent');
+    assert.strictEqual(svgImg.raw[(svgImg.width - 1) * 4 + 3], 0, 'favicon.svg top-right corner must be fully transparent');
+    assert.strictEqual(svgImg.raw[((svgImg.height - 1) * svgImg.width) * 4 + 3], 0, 'favicon.svg bottom-left corner must be fully transparent');
+    assert.strictEqual(svgImg.raw[((svgImg.height - 1) * svgImg.width + (svgImg.width - 1)) * 4 + 3], 0, 'favicon.svg bottom-right corner must be fully transparent');
+
+    const favPng = decodeAlphaFromBuffer(fs.readFileSync(faviconPath));
+    assert.strictEqual(favPng.raw[3], 0, 'favicon.png top-left corner must be fully transparent');
+    assert.strictEqual(favPng.raw[(favPng.width - 1) * 4 + 3], 0, 'favicon.png top-right corner must be fully transparent');
   });
 
   await t.test('5. AST Scope Analysis: 0 undeclared identifiers across all updated files', () => {
