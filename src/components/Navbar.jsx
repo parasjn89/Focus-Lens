@@ -158,22 +158,30 @@ export function Navbar({ currentView, onNavigate, activeSession }) {
             {/* Authenticated User */}
             {isAuthenticated ? (
               <button
+                type="button"
                 onClick={() => onNavigate('profile')}
-                className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onNavigate('profile');
+                  }
+                }}
+                aria-label="Open profile"
+                className={`flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950 ${
                   currentView === 'profile'
                     ? 'bg-slate-800 text-white border-slate-700'
                     : 'text-slate-300 hover:text-white border-slate-800 hover:bg-slate-900'
                 }`}
-                title={user?.email}
+                title={user?.name ? `${user.name} – Open profile` : 'Open profile'}
               >
                 <UserAvatar
                   user={user}
                   size="xs"
                   roundedFull
-                  className="w-4 h-4 text-[9px]"
+                  className="w-4 h-4 text-[9px] pointer-events-none"
                 />
 
-                <span className="max-w-[80px] sm:max-w-[120px] truncate hidden xs:inline-block">
+                <span className="max-w-[80px] sm:max-w-[120px] truncate hidden xs:inline-block pointer-events-none">
                   {user?.name ||
                     (user?.username ? `@${user.username}` : 'Profile')}
                 </span>

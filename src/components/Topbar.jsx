@@ -57,10 +57,22 @@ export function Topbar({ currentView, onNavigate }) {
         <button
           type="button"
           onClick={() => onNavigate && onNavigate('profile')}
-          className="cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/50 rounded-full transition hover:opacity-90"
-          title={user?.name || user?.username || 'Profile'}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onNavigate && onNavigate('profile');
+            }
+          }}
+          aria-label="Open profile"
+          className="group relative cursor-pointer rounded-full p-0.5 border-0 bg-transparent transition-all duration-200 hover:opacity-95 hover:scale-105 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950 shrink-0"
+          title={user?.name ? `${user.name} – Open profile` : 'Open profile'}
         >
-          <UserAvatar user={user} size="md" roundedFull className="border-2 border-slate-700/50" />
+          <UserAvatar
+            user={user}
+            size="md"
+            roundedFull
+            className="border-2 border-slate-700/50 group-hover:border-brand-500/60 transition-colors pointer-events-none"
+          />
         </button>
       </div>
     </header>
