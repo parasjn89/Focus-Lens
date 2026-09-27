@@ -374,4 +374,24 @@ test('Historical Session Data Persistence & Retrieval Test Suite', async (t) => 
       assert.ok(Number.isFinite(p));
     });
   });
+
+  await t.test('9. SessionHistoryPage UI: zero PostgreSQL technology badges exposed to users', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const pagePath = path.resolve(process.cwd(), 'src/pages/SessionHistoryPage.jsx');
+    const content = fs.readFileSync(pagePath, 'utf8');
+
+    // Ensure PostgreSQL badge and Database icon are NOT rendered
+    assert.strictEqual(content.includes('<span>PostgreSQL</span>'), false, 'SessionHistoryPage must not render PostgreSQL badge');
+    assert.strictEqual(content.includes('<Database'), false, 'SessionHistoryPage must not render Database icon');
+    assert.strictEqual(content.includes('Database,'), false, 'SessionHistoryPage must not import Database icon');
+    assert.strictEqual(content.includes('Persisted in PostgreSQL database'), false, 'SessionHistoryPage must not render PostgreSQL tooltip');
+
+    // Ensure session core metadata & categories remain fully intact
+    assert.ok(content.includes('title'), 'Must preserve session title');
+    assert.ok(content.includes('selectedActivity'), 'Must preserve session selectedActivity');
+    assert.ok(content.includes('Local Cache'), 'Must preserve offline Local Cache fallback indicator');
+    assert.ok(content.includes('COMPLETED'), 'Must preserve session status');
+  });
 });
+

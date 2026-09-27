@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   History, Calendar, Clock, CheckCircle2, AlertCircle, RefreshCw,
-  ChevronRight, HardDrive, Database, Target, Flame, Play, Activity
+  ChevronRight, HardDrive, Target, Flame, Play, Activity
 } from 'lucide-react';
 import { fetchSessionsHistory } from '../api/sessionApi';
 import { syncPendingSessions } from '../api/syncManager';
@@ -150,7 +150,7 @@ export function SessionHistoryPage({ onSelectSession, onNewSession }) {
             onClick={handleManualSync}
             disabled={isSyncing}
             className="flex items-center space-x-1.5 text-xs font-medium px-3 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-slate-700 transition cursor-pointer disabled:opacity-50 shadow-sm"
-            title="Sync pending offline sessions to PostgreSQL"
+            title="Sync pending offline sessions to cloud"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-cyan-400' : 'text-slate-400'}`} />
             <span>{isSyncing ? 'Syncing...' : 'Sync Pending'}</span>
@@ -229,7 +229,7 @@ export function SessionHistoryPage({ onSelectSession, onNewSession }) {
           <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
           <div>
             <span className="font-semibold text-amber-300">Backend API Offline (Local Cache Active):</span>
-            {' '}Showing locally persisted focus sessions stored safely in your browser. When the backend server restarts, pending sessions will automatically sync to PostgreSQL.
+            {' '}Showing locally persisted focus sessions stored safely in your browser. When the backend server restarts, pending sessions will automatically sync to cloud.
           </div>
         </div>
       )}
@@ -324,21 +324,13 @@ export function SessionHistoryPage({ onSelectSession, onNewSession }) {
                               </span>
                             )}
 
-                            {isLocal ? (
+                            {isLocal && (
                               <span
                                 className="inline-flex items-center space-x-1 text-[10px] font-medium px-2 py-0.2 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0"
                                 title="Saved locally in browser"
                               >
                                 <HardDrive className="w-2.5 h-2.5" />
                                 <span>Local Cache</span>
-                              </span>
-                            ) : (
-                              <span
-                                className="inline-flex items-center space-x-1 text-[10px] font-medium px-2 py-0.2 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0"
-                                title="Persisted in PostgreSQL database"
-                              >
-                                <Database className="w-2.5 h-2.5" />
-                                <span>PostgreSQL</span>
                               </span>
                             )}
                           </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, Calendar, Clock, Award, Target, Flame, ChevronRight, RefreshCw, AlertCircle, Edit3, X, CheckCircle2, HardDrive, Database } from 'lucide-react';
+import { BookOpen, Calendar, Clock, Award, Target, Flame, ChevronRight, RefreshCw, AlertCircle, Edit3, X, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '../api/client';
 import { BackButton } from '../components/BackButton.jsx';
 
