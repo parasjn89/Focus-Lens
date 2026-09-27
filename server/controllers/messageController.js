@@ -1,4 +1,5 @@
 import { dbStore } from '../db/store.js';
+import { realtimeMessageService } from '../services/realtimeMessageService.js';
 
 export async function listConversations(request, reply) {
   const userId = request.user.id;
@@ -75,6 +76,20 @@ export async function sendMessage(request, reply) {
       messageType,
       activityMetadata,
     });
+
+    try {
+      const conv = await dbStore.getConversationById(conversationId, senderUserId);
+      if (conv) {
+        realtimeMessageService.broadcastMessageCreated({
+          conversationId,
+          message,
+          participantUserIds: [conv.user1Id, conv.user2Id],
+        });
+      }
+    } catch (broadcastErr) {
+      request.log?.warn?.(`[Realtime] Failed to broadcast message: ${broadcastErr.message}`);
+    }
+
     return reply.status(201).send({
       success: true,
       message,
@@ -155,3 +170,58 @@ export async function startConversationWithBuddy(request, reply) {
     });
   }
 }
+
+/**
+ * Server-Sent Events (SSE) streaming endpoint for real-time messaging updates.
+ * Handled via GET /api/messages/events with requireAuth preHandler.
+ */
+export async function streamMessageEvents(request, reply) {
+  const userId = request.user.id;
+
+  // Set SSE response headers
+  reply.raw.setHeader('Content-Type', 'text/event-stream');
+  reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
+  reply.raw.setHeader('Connection', 'keep-alive');
+  reply.raw.setHeader('X-Accel-Buffering', 'no');
+
+  const origin = request.headers.origin;
+  if (origin) {
+    reply.raw.setHeader('Access-Control-Allow-Origin', origin);
+    reply.raw.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+
+  if (typeof reply.raw.flushHeaders === 'function') {
+    reply.raw.flushHeaders();
+  }
+
+  // Initial connection acknowledgement
+  reply.raw.write(': connected\n\n');
+
+  realtimeMessageService.registerConnection(userId, reply.raw);
+
+  // In serverless environments (e.g. Vercel with 15-60s limit), gracefully end before timeout
+  const isServerless = Boolean(process.env.VERCEL);
+  let serverlessTimer = null;
+  if (isServerless) {
+    serverlessTimer = setTimeout(() => {
+      try {
+        if (!reply.raw.writableEnded && !reply.raw.destroyed) {
+          reply.raw.write(': reconnect\n\n');
+          reply.raw.end();
+        }
+      } catch (_) {}
+    }, 45000);
+  }
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      if (serverlessTimer) clearTimeout(serverlessTimer);
+      realtimeMessageService.unregisterConnection(userId, reply.raw);
+      resolve();
+    };
+
+    request.raw.on('close', cleanup);
+    request.raw.on('error', cleanup);
+  });
+}
+

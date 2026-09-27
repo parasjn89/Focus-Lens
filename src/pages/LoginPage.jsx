@@ -62,8 +62,6 @@ export function LoginPage({ onNavigate, onLoginSuccess }) {
       console.log('[Auth Diagnostic] Backend login succeeded');
       if (onLoginSuccess) {
         onLoginSuccess(res?.user);
-      } else if (res?.user?.verificationStatus !== 'VERIFIED') {
-        onNavigate('verify');
       } else {
         onNavigate('dashboard');
       }

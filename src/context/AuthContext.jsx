@@ -1,13 +1,15 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../api/client.js';
-import { signOutOfFirebase } from '../lib/firebase.js';
+import { signOutOfFirebase, subscribeToAuthState, isFirebaseConfigured } from '../lib/firebase.js';
 import { loadUserSettingsFromServer, clearUserSettingsCache } from '../utils/userSettings.js';
+import { realtimeMessages } from '../services/realtimeMessages.js';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const authUserRef = useRef(null);
 
   const clearClientUserStorage = () => {
     try {
@@ -26,6 +28,7 @@ export function AuthProvider({ children }) {
     try {
       const res = await apiFetch('/api/auth/me');
       if (res.user) {
+        authUserRef.current = res.user;
         setUser(prevUser => {
           if (prevUser && prevUser.id !== res.user.id) {
             clearClientUserStorage();
@@ -33,28 +36,83 @@ export function AuthProvider({ children }) {
           return res.user;
         });
         loadUserSettingsFromServer().catch(() => {});
+        return res.user;
       } else {
+        authUserRef.current = null;
         setUser(prevUser => {
           if (prevUser) {
             clearClientUserStorage();
           }
           return null;
         });
+        return null;
       }
     } catch (err) {
+      authUserRef.current = null;
       setUser(prevUser => {
         if (prevUser) {
           clearClientUserStorage();
         }
         return null;
       });
+      return null;
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    refreshUser();
+    let isMounted = true;
+    let unsubscribeFirebase = () => {};
+
+    const initAuth = async () => {
+      try {
+        const currentUser = await refreshUser();
+        if (currentUser && isMounted) {
+          return;
+        }
+      } catch (_) {}
+
+      // If backend session not found, check Firebase auth state restoration if configured
+      if (isFirebaseConfigured()) {
+        try {
+          unsubscribeFirebase = subscribeToAuthState(async (fbUser) => {
+            if (!isMounted) return;
+            if (fbUser) {
+              try {
+                const idToken = await fbUser.getIdToken();
+                const googleRes = await apiFetch('/api/auth/google', {
+                  method: 'POST',
+                  body: JSON.stringify({ idToken }),
+                });
+                if (googleRes?.user && isMounted) {
+                  authUserRef.current = googleRes.user;
+                  setUser(googleRes.user);
+                  loadUserSettingsFromServer().catch(() => {});
+                  setIsLoading(false);
+                  return;
+                }
+              } catch (_) {}
+            }
+            if (isMounted) {
+              setIsLoading(false);
+            }
+          });
+          return;
+        } catch (_) {}
+      }
+
+      if (isMounted) {
+        setIsLoading(false);
+      }
+    };
+
+    initAuth();
+
+    return () => {
+      isMounted = false;
+      unsubscribeFirebase();
+    };
   }, []);
 
   const login = async (identifierOrEmail, password) => {
@@ -69,6 +127,7 @@ export function AuthProvider({ children }) {
     });
 
     if (res.user) {
+      authUserRef.current = res.user;
       setUser(res.user);
       loadUserSettingsFromServer().catch(() => {});
     }
@@ -83,6 +142,7 @@ export function AuthProvider({ children }) {
     });
 
     if (res.user) {
+      authUserRef.current = res.user;
       setUser(res.user);
       loadUserSettingsFromServer().catch(() => {});
     }
@@ -97,6 +157,7 @@ export function AuthProvider({ children }) {
     });
 
     if (res.user) {
+      authUserRef.current = res.user;
       setUser(res.user);
       loadUserSettingsFromServer().catch(() => {});
     }
@@ -117,6 +178,7 @@ export function AuthProvider({ children }) {
     });
 
     if (res.user) {
+      authUserRef.current = res.user;
       setUser(res.user);
       loadUserSettingsFromServer().catch(() => {});
     }
@@ -138,6 +200,7 @@ export function AuthProvider({ children }) {
     });
 
     if (res.user) {
+      authUserRef.current = res.user;
       setUser(res.user);
       loadUserSettingsFromServer().catch(() => {});
     }
@@ -153,7 +216,11 @@ export function AuthProvider({ children }) {
       try {
         await signOutOfFirebase();
       } catch (_) {}
+      try {
+        realtimeMessages.disconnect();
+      } catch (_) {}
       clearClientUserStorage();
+      authUserRef.current = null;
       setUser(null);
     }
   };
@@ -299,8 +366,9 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider
       value={{
         user,
-        isAuthenticated: !!user,
+        isAuthenticated: !!user || !!authUserRef.current,
         isLoading,
+        authUserRef,
         login,
         loginWithGoogle,
         loginWithFirebasePhone,

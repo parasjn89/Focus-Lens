@@ -152,16 +152,16 @@ export function RegisterPage({ onNavigate, onRegisterSuccess }) {
         ''
       );
 
-      showToast('Account created successfully! Please verify your email.', 'success');
+      showToast('Account created successfully!', 'success');
 
       if (onRegisterSuccess) {
-        onRegisterSuccess('verify', {
+        onRegisterSuccess('dashboard', {
           method: 'EMAIL',
           email: email.trim(),
           user: res?.user,
         });
       } else {
-        onNavigate('verify');
+        onNavigate('dashboard');
       }
     } catch (err) {
       const { field, message } = mapErrorToField(err);

@@ -42,13 +42,13 @@ export const PROTECTED_VIEWS = [
 ];
 
 export const UNVERIFIED_BLOCKED_VIEWS = [
-  'dashboard', 'tasks', 'setup', 'active', 'history',
+  'tasks', 'setup', 'active', 'history',
   'coach', 'consistency', 'recommendations', 'weekly-review',
   'journal', 'messages', 'calendar', 'options'
 ];
 
 function AppContent() {
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading, authUserRef } = useAuth();
   // Navigation state initialized from location or active report session in storage
   const [currentView, setCurrentView] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -95,14 +95,17 @@ function AppContent() {
 
   // Handle protected route navigation with browser history synchronization
   const handleNavigate = (view, options = {}) => {
-    const { fromPopState = false, replace = false } = options;
+    const { fromPopState = false, replace = false, authenticatedUser = null } = options;
 
-    if (PROTECTED_VIEWS.includes(view) && !isAuthenticated && !isLoading) {
+    const currentUser = authenticatedUser || user || authUserRef?.current;
+    const isUserAuthenticated = Boolean(currentUser);
+
+    if (PROTECTED_VIEWS.includes(view) && !isUserAuthenticated && !isLoading) {
       handleNavigate('login', { replace: true });
       return;
     }
-    // Prevent unverified accounts from bypassing verification to access session/dashboard views
-    if (isAuthenticated && user && user.verificationStatus !== 'VERIFIED' && UNVERIFIED_BLOCKED_VIEWS.includes(view)) {
+    // Prevent unverified accounts from bypassing verification to access session/setup views
+    if (isUserAuthenticated && currentUser && currentUser.verificationStatus !== 'VERIFIED' && UNVERIFIED_BLOCKED_VIEWS.includes(view)) {
       handleNavigate('verify', { replace: true });
       return;
     }
@@ -233,26 +236,29 @@ function AppContent() {
   // Redirect unauthenticated visitors away from protected views; redirect authenticated users from landing/login/register to dashboard
   useEffect(() => {
     if (!isLoading) {
-      if (!isAuthenticated) {
+      const currentUser = user || authUserRef?.current;
+      const isCurrentlyAuth = Boolean(currentUser);
+
+      if (!isCurrentlyAuth) {
         if (PROTECTED_VIEWS.includes(currentView)) {
           handleNavigate('login', { replace: true });
           return;
         }
       } else {
-        // Authenticated user
-        if (user && user.verificationStatus !== 'VERIFIED' && UNVERIFIED_BLOCKED_VIEWS.includes(currentView)) {
-          handleNavigate('verify', { replace: true });
+        // Authenticated user opening /login or /register
+        if (currentView === 'login' || currentView === 'register') {
+          handleNavigate('dashboard', { replace: true, authenticatedUser: currentUser });
           return;
         }
 
-        // Authenticated user opening root URL (/), login, or register
-        if (currentView === 'landing' || currentView === 'login' || currentView === 'register') {
-          handleNavigate('dashboard', { replace: true });
+        // Prevent unverified accounts from accessing unverified-blocked views (setup, active, etc.)
+        if (currentUser && currentUser.verificationStatus !== 'VERIFIED' && UNVERIFIED_BLOCKED_VIEWS.includes(currentView)) {
+          handleNavigate('verify', { replace: true });
           return;
         }
       }
     }
-  }, [isLoading, isAuthenticated, user?.verificationStatus, currentView]);
+  }, [isLoading, isAuthenticated, currentView]);
 
   // Active session restoration guard for /active or /active-session
   const hasCheckedActiveSessionRef = useRef(false);
@@ -913,7 +919,12 @@ function AppContent() {
         {/* Main View Router */}
         <main className={`flex-1 ${isAppView ? 'overflow-y-auto relative z-0' : ''} ${!isAppView && currentView !== 'landing' ? 'pt-28 pb-12' : ''}`}>
         {currentView === 'landing' && (
-          <LandingPage onStartSetup={() => handleNavigate('setup')} />
+          <LandingPage
+            onStartSetup={() => {
+              const currentUser = user || authUserRef?.current;
+              handleNavigate(currentUser ? 'setup' : 'register');
+            }}
+          />
         )}
 
         {currentView === 'setup' && (
@@ -1025,11 +1036,7 @@ function AppContent() {
           <LoginPage
             onNavigate={handleNavigate}
             onLoginSuccess={(loggedInUser) => {
-              if (loggedInUser?.verificationStatus !== 'VERIFIED') {
-                handleNavigate('verify');
-              } else {
-                handleNavigate('dashboard');
-              }
+              handleNavigate('dashboard', { authenticatedUser: loggedInUser });
             }}
           />
         )}
@@ -1039,7 +1046,7 @@ function AppContent() {
             onNavigate={handleNavigate}
             onRegisterSuccess={(targetView, regInfo) => {
               if (regInfo) setRegistrationState(regInfo);
-              handleNavigate(targetView || 'verify');
+              handleNavigate('dashboard', { authenticatedUser: regInfo?.user });
             }}
           />
         )}

@@ -64,7 +64,13 @@ export function LandingPage({ onStartSetup }) {
                 <span>Start a Focus Session</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
-              <button className="w-full sm:w-auto px-8 py-3.5 rounded-full border border-brand-slate hover:bg-brand-slate/50 text-white font-medium text-base transition-all flex items-center justify-center space-x-2">
+              <button
+                onClick={() => {
+                  const demoEl = document.getElementById('how-it-works');
+                  if (demoEl) demoEl.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="w-full sm:w-auto px-8 py-3.5 rounded-full border border-brand-slate hover:bg-brand-slate/50 text-white font-medium text-base transition-all flex items-center justify-center space-x-2 cursor-pointer"
+              >
                 <Play className="w-4 h-4" />
                 <span>Watch Demo</span>
               </button>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FocusLensLogo } from './FocusLensLogo.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 
 export function LandingNavbar({ onNavigate }) {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -11,6 +12,9 @@ export function LandingNavbar({ onNavigate }) {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  const { isAuthenticated, user, authUserRef } = useAuth();
+  const isAuth = isAuthenticated || Boolean(user || authUserRef?.current);
 
   return (
     <div className={`fixed inset-x-0 z-50 flex justify-center px-4 transition-all duration-500 pointer-events-none ${isScrolled ? 'top-4' : 'top-6'}`}>
@@ -44,18 +48,29 @@ export function LandingNavbar({ onNavigate }) {
 
           {/* Right: CTA */}
           <div className="flex items-center space-x-6">
-            <button
-              onClick={() => onNavigate('login')}
-              className="hidden sm:block text-sm font-medium text-brand-gray hover:text-white transition-colors"
-            >
-              Sign In
-            </button>
-            <button
-              onClick={() => onNavigate('register')}
-              className="text-sm font-semibold bg-brand-sand hover:bg-[#A37856] text-brand-navy px-5 py-2 rounded-full transition-all hover:shadow-lg hover:shadow-brand-sand/20 hover:-translate-y-0.5"
-            >
-              Start for Free &rarr;
-            </button>
+            {isAuth ? (
+              <button
+                onClick={() => onNavigate('dashboard')}
+                className="text-sm font-semibold bg-brand-sand hover:bg-[#A37856] text-brand-navy px-5 py-2 rounded-full transition-all hover:shadow-lg hover:shadow-brand-sand/20 hover:-translate-y-0.5 cursor-pointer"
+              >
+                Dashboard &rarr;
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => onNavigate('login')}
+                  className="hidden sm:block text-sm font-medium text-brand-gray hover:text-white transition-colors cursor-pointer"
+                >
+                  Sign In
+                </button>
+                <button
+                  onClick={() => onNavigate('register')}
+                  className="text-sm font-semibold bg-brand-sand hover:bg-[#A37856] text-brand-navy px-5 py-2 rounded-full transition-all hover:shadow-lg hover:shadow-brand-sand/20 hover:-translate-y-0.5 cursor-pointer"
+                >
+                  Start for Free &rarr;
+                </button>
+              </>
+            )}
           </div>
 
         </div>

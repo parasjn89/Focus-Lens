@@ -13,6 +13,7 @@ import {
   fetchSignInMethodsForEmail,
   EmailAuthProvider,
   linkWithCredential,
+  onAuthStateChanged,
 } from 'firebase/auth';
 
 export function getFirebaseConfig() {
@@ -267,6 +268,19 @@ export async function signOutOfFirebase() {
     }
   } catch (err) {
     // Non-blocking cleanup
+  }
+}
+
+/**
+ * Subscribes to Firebase auth state changes (used during app auth initialization)
+ */
+export function subscribeToAuthState(callback) {
+  if (!isFirebaseConfigured()) return () => {};
+  try {
+    const auth = getFirebaseAuth();
+    return onAuthStateChanged(auth, callback);
+  } catch (err) {
+    return () => {};
   }
 }
 

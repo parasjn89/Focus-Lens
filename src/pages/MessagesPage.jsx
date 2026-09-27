@@ -32,6 +32,7 @@ import {
   fetchBuddies,
   respondToBuddyRequest,
 } from '../api/messageApi';
+import { realtimeMessages } from '../services/realtimeMessages';
 
 export function MessagesPage({ onNavigate }) {
   const { user: currentUser } = useAuth();
@@ -61,8 +62,16 @@ export function MessagesPage({ onNavigate }) {
   // Mobile navigation state
   const [showMobileChat, setShowMobileChat] = useState(false);
 
+  // Real-time SSE Connection State
+  const [realtimeStatus, setRealtimeStatus] = useState('disconnected');
+
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const activeConversationIdRef = useRef(activeConversationId);
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
 
   // Scroll to bottom helper
   const scrollToBottom = (behavior = 'smooth') => {
@@ -172,20 +181,26 @@ export function MessagesPage({ onNavigate }) {
     try {
       const res = await sendMessage(activeConversationId, content, messageType, activityMetadata);
       if (res?.message) {
-        setActiveMessages((prev) => [...prev, res.message]);
+        // Safe deduplication: check if already appended via realtime event
+        setActiveMessages((prev) => {
+          if (prev.some((m) => m.id === res.message.id)) {
+            return prev;
+          }
+          return [...prev, res.message];
+        });
 
-        // Update latest snippet in conversation list
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === activeConversationId
-              ? {
-                  ...c,
-                  lastMessageContent: content,
-                  lastMessageAt: res.message.createdAt,
-                }
-              : c
-          )
-        );
+        // Update latest snippet in conversation list and move to top
+        setConversations((prev) => {
+          const existing = prev.find((c) => c.id === activeConversationId);
+          if (!existing) return prev;
+          const updated = {
+            ...existing,
+            lastMessageContent: content,
+            lastMessageAt: res.message.createdAt,
+          };
+          const others = prev.filter((c) => c.id !== activeConversationId);
+          return [updated, ...others];
+        });
 
         setTimeout(() => scrollToBottom('smooth'), 50);
       }
@@ -196,6 +211,125 @@ export function MessagesPage({ onNavigate }) {
       setIsSending(false);
     }
   };
+
+  // 4. Real-time SSE Subscription with Deduplication & Auto-Reconciliation
+  useEffect(() => {
+    const unsubscribe = realtimeMessages.subscribe({
+      onStatusChange: (status) => {
+        if (status === 'reconcile') {
+          const currentActiveId = activeConversationIdRef.current;
+          if (currentActiveId) {
+            fetchConversation(currentActiveId)
+              .then((res) => {
+                if (res?.messages) {
+                  setActiveMessages((prev) => {
+                    const seen = new Set(prev.map((m) => m.id));
+                    const fresh = res.messages.filter((m) => !seen.has(m.id));
+                    if (fresh.length > 0) {
+                      return [...prev, ...fresh].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+                    }
+                    return prev;
+                  });
+                }
+              })
+              .catch(() => {});
+          }
+          fetchConversations()
+            .then((res) => {
+              if (res?.conversations) {
+                setConversations(res.conversations);
+              }
+            })
+            .catch(() => {});
+        } else {
+          setRealtimeStatus(status);
+          if (status === 'connected') {
+            const currentActiveId = activeConversationIdRef.current;
+            if (currentActiveId) {
+              fetchConversation(currentActiveId)
+                .then((res) => {
+                  if (res?.messages) {
+                    setActiveMessages((prev) => {
+                      const seen = new Set(prev.map((m) => m.id));
+                      const fresh = res.messages.filter((m) => !seen.has(m.id));
+                      if (fresh.length > 0) {
+                        return [...prev, ...fresh].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+                      }
+                      return prev;
+                    });
+                  }
+                })
+                .catch(() => {});
+            }
+          }
+        }
+      },
+      onMessageCreated: (payload) => {
+        const { conversationId, message } = payload || {};
+        if (!conversationId || !message || !message.id) return;
+
+        const currentActiveId = activeConversationIdRef.current;
+
+        if (currentActiveId === conversationId) {
+          // Message belongs to currently open conversation:
+          // Append with deduplication by message ID
+          setActiveMessages((prev) => {
+            if (prev.some((m) => m.id === message.id)) {
+              return prev;
+            }
+            const updated = [...prev, message];
+            setTimeout(() => scrollToBottom('smooth'), 50);
+            return updated;
+          });
+
+          // If the message came from the buddy, mark conversation as read
+          if (message.senderUserId !== currentUser?.id) {
+            markConversationRead(conversationId).catch(() => {});
+          }
+
+          // Update conversation in list: set snippet, timestamp, clear unread, and move to top
+          setConversations((prev) => {
+            const existing = prev.find((c) => c.id === conversationId);
+            if (!existing) {
+              loadConversationsAndBuddies(conversationId);
+              return prev;
+            }
+            const updated = {
+              ...existing,
+              lastMessageContent: message.content,
+              lastMessageAt: message.createdAt,
+              unreadCount: 0,
+            };
+            const others = prev.filter((c) => c.id !== conversationId);
+            return [updated, ...others];
+          });
+        } else {
+          // Message belongs to an inactive conversation:
+          // Increment unread count, update snippet and timestamp, and move to top
+          setConversations((prev) => {
+            const existing = prev.find((c) => c.id === conversationId);
+            if (!existing) {
+              loadConversationsAndBuddies();
+              return prev;
+            }
+            const isFromOther = message.senderUserId !== currentUser?.id;
+            const updated = {
+              ...existing,
+              lastMessageContent: message.content,
+              lastMessageAt: message.createdAt,
+              unreadCount: (existing.unreadCount || 0) + (isFromOther ? 1 : 0),
+            };
+            const others = prev.filter((c) => c.id !== conversationId);
+            return [updated, ...others];
+          });
+        }
+      },
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [currentUser?.id]);
 
   // Handle Quick Action Cheer Click
   const handleQuickAction = (quickText) => {
@@ -258,8 +392,20 @@ export function MessagesPage({ onNavigate }) {
             </span>
             <span>Messages</span>
           </h1>
-          <p className="text-xs text-slate-400 font-medium mt-0.5">
-            Stay connected. Stay focused.
+          <p className="text-xs text-slate-400 font-medium mt-0.5 flex items-center space-x-2">
+            <span>Stay connected. Stay focused.</span>
+            {realtimeStatus === 'connected' && (
+              <span className="inline-flex items-center space-x-1 text-[10px] text-emerald-400 font-mono font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Live</span>
+              </span>
+            )}
+            {realtimeStatus === 'reconnecting' && (
+              <span className="inline-flex items-center space-x-1 text-[10px] text-amber-400 font-mono font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                <span>Reconnecting...</span>
+              </span>
+            )}
           </p>
         </div>
 

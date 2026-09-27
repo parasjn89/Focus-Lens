@@ -163,8 +163,8 @@ describe('FocusLens Vercel SPA Routing Configuration Test Suite', () => {
     // Auth effect must redirect unauthenticated visitors
     assert.ok(content.includes("handleNavigate('login', { replace: true })"), 'Must redirect unauthenticated to login');
 
-    // Authenticated users on landing/login/register must be redirected to dashboard
-    assert.ok(content.includes("handleNavigate('dashboard', { replace: true })"), 'Must redirect authenticated root visitors to dashboard');
+    // Authenticated users on login/register must be redirected to dashboard
+    assert.ok(content.includes("handleNavigate('dashboard', { replace: true"), 'Must redirect authenticated visitors on login/register to dashboard');
   });
 
   it('8. Expected Routing State Machine Verification', () => {
@@ -184,11 +184,11 @@ describe('FocusLens Vercel SPA Routing Configuration Test Suite', () => {
       }
 
       // Authenticated
-      if (!isVerified && ['dashboard', 'setup', 'active', 'tasks'].includes(view)) {
+      if (!isVerified && ['setup', 'active', 'tasks'].includes(view)) {
         return { target: 'verify', redirected: true };
       }
 
-      if (view === 'landing' || view === 'login' || view === 'register') {
+      if (view === 'login' || view === 'register') {
         return { target: 'dashboard', redirected: true };
       }
 
@@ -208,8 +208,8 @@ describe('FocusLens Vercel SPA Routing Configuration Test Suite', () => {
     // 3. Logged-out user opens /register -> register
     assert.deepEqual(routeTransition({ view: 'register', isAuthenticated: false }), { target: 'register', redirected: false });
 
-    // 4. Authenticated user opens / -> dashboard
-    assert.deepEqual(routeTransition({ view: 'landing', isAuthenticated: true }), { target: 'dashboard', redirected: true });
+    // 4. Authenticated user opens / -> PUBLIC LANDING PAGE
+    assert.deepEqual(routeTransition({ view: 'landing', isAuthenticated: true }), { target: 'landing', redirected: false });
 
     // 5. Authenticated user explicitly opens /setup or /focus-setup -> setup
     assert.deepEqual(routeTransition({ view: 'setup', isAuthenticated: true }), { target: 'setup', redirected: false });
@@ -229,5 +229,66 @@ describe('FocusLens Vercel SPA Routing Configuration Test Suite', () => {
     // 10. Authenticated user opening /login or /register -> redirected to dashboard
     assert.deepEqual(routeTransition({ view: 'login', isAuthenticated: true }), { target: 'dashboard', redirected: true });
     assert.deepEqual(routeTransition({ view: 'register', isAuthenticated: true }), { target: 'dashboard', redirected: true });
+
+    // 11. Newly authenticated user (even if unverified) navigating to /dashboard -> stays on dashboard
+    assert.deepEqual(routeTransition({ view: 'dashboard', isAuthenticated: true, isVerified: false }), { target: 'dashboard', redirected: false });
+  });
+
+  it('9. Post-authentication state synchronization prevents race condition redirection back to login', () => {
+    // Simulates handleNavigate behavior with authUserRef
+    class AuthNavigationSimulation {
+      constructor() {
+        this.user = null;
+        this.authUserRef = { current: null };
+        this.isLoading = false;
+        this.currentView = 'login';
+        this.PROTECTED = ['dashboard', 'setup', 'active'];
+      }
+
+      handleNavigate(view, { authenticatedUser = null } = {}) {
+        const currentUser = authenticatedUser || this.user || this.authUserRef.current;
+        const isAuth = Boolean(currentUser);
+
+        if (this.PROTECTED.includes(view) && !isAuth && !this.isLoading) {
+          this.currentView = 'login';
+          return 'login';
+        }
+        this.currentView = view;
+        return view;
+      }
+
+      // Email/Password or Google login
+      login() {
+        const fakeUser = { id: 'u_123', email: 'test@example.com' };
+        // Synchronous ref update in AuthContext
+        this.authUserRef.current = fakeUser;
+        // React asynchronous state update queued (this.user is still null!)
+        // Immediate navigation call from onLoginSuccess:
+        return this.handleNavigate('dashboard', { authenticatedUser: fakeUser });
+      }
+
+      // Signup
+      signup() {
+        const newUser = { id: 'u_456', email: 'new@example.com' };
+        this.authUserRef.current = newUser;
+        return this.handleNavigate('dashboard', { authenticatedUser: newUser });
+      }
+    }
+
+    const sim = new AuthNavigationSimulation();
+
+    // Before login: navigation to dashboard is blocked and redirected to login
+    assert.equal(sim.handleNavigate('dashboard'), 'login');
+    assert.equal(sim.currentView, 'login');
+
+    // On login: synchronous ref allows immediate navigation to dashboard without being bounced to login
+    assert.equal(sim.login(), 'dashboard');
+    assert.equal(sim.currentView, 'dashboard');
+
+    // On signup: synchronous ref allows immediate navigation to dashboard
+    const sim2 = new AuthNavigationSimulation();
+    sim2.currentView = 'register';
+    assert.equal(sim2.signup(), 'dashboard');
+    assert.equal(sim2.currentView, 'dashboard');
   });
 });

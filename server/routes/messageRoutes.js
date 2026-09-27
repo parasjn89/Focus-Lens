@@ -5,10 +5,12 @@ import {
   markConversationRead,
   getUnreadCount,
   startConversationWithBuddy,
+  streamMessageEvents,
 } from '../controllers/messageController.js';
 import { requireAuth } from '../middleware/auth.js';
 
 export async function messageRoutes(fastify, options) {
+  fastify.get('/api/messages/events', { preHandler: requireAuth }, streamMessageEvents);
   fastify.get('/api/messages/conversations', { preHandler: requireAuth }, listConversations);
   fastify.get('/api/messages/conversations/:conversationId', { preHandler: requireAuth }, getConversation);
   fastify.post('/api/messages/conversations/:conversationId', { preHandler: requireAuth }, sendMessage);
