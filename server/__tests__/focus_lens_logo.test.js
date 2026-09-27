@@ -60,6 +60,80 @@ test('FocusLens Official Brand Logo Test Suite', async (t) => {
     assert.ok(logoCode.includes('aria-label') || logoCode.includes('ariaLabel'), 'Must support aria-label');
   });
 
+  await t.test('2b. Brand assets have transparent background (zero dark rectangular background)', async () => {
+    const zlib = await import('node:zlib');
+
+    function decodeAlpha(filePath) {
+      const buf = fs.readFileSync(filePath);
+      let pos = 8;
+      const idatParts = [];
+      let width, height;
+      while (pos < buf.length) {
+        const len = buf.readUInt32BE(pos);
+        const type = buf.subarray(pos + 4, pos + 8).toString('ascii');
+        const data = buf.subarray(pos + 8, pos + 8 + len);
+        if (type === 'IHDR') {
+          width = data.readUInt32BE(0);
+          height = data.readUInt32BE(4);
+        }
+        if (type === 'IDAT') idatParts.push(data);
+        pos += 8 + len + 4;
+      }
+      const decompressed = zlib.inflateSync(Buffer.concat(idatParts));
+      const bytesPerPixel = 4;
+      const stride = 1 + width * bytesPerPixel;
+      const raw = Buffer.alloc(width * height * 4);
+      for (let y = 0; y < height; y++) {
+        const filter = decompressed[y * stride];
+        const scanline = decompressed.subarray(y * stride + 1, (y + 1) * stride);
+        const prevLine = y > 0 ? raw.subarray((y - 1) * width * 4, y * width * 4) : null;
+        const currLine = raw.subarray(y * width * 4, (y + 1) * width * 4);
+        for (let x = 0; x < width * 4; x++) {
+          const a = x >= bytesPerPixel ? currLine[x - bytesPerPixel] : 0;
+          const b = prevLine ? prevLine[x] : 0;
+          const c = (prevLine && x >= bytesPerPixel) ? prevLine[x - bytesPerPixel] : 0;
+          let val = scanline[x];
+          if (filter === 0) {}
+          else if (filter === 1) val = (val + a) & 0xff;
+          else if (filter === 2) val = (val + b) & 0xff;
+          else if (filter === 3) val = (val + Math.floor((a + b) / 2)) & 0xff;
+          else if (filter === 4) {
+            const p = a + b - c;
+            const pa = Math.abs(p - a);
+            const pb = Math.abs(p - b);
+            const pc = Math.abs(p - c);
+            let pr = pa <= pb && pa <= pc ? a : (pb <= pc ? b : c);
+            val = (val + pr) & 0xff;
+          }
+          currLine[x] = val;
+        }
+      }
+      return { width, height, raw };
+    }
+
+    const logo = decodeAlpha(fullLogoAsset);
+    const corners = [
+      (0 * logo.width + 0) * 4 + 3,
+      (0 * logo.width + (logo.width - 1)) * 4 + 3,
+      ((logo.height - 1) * logo.width + 0) * 4 + 3,
+      ((logo.height - 1) * logo.width + (logo.width - 1)) * 4 + 3,
+    ];
+    for (const alphaIdx of corners) {
+      assert.strictEqual(logo.raw[alphaIdx], 0, 'Logo corners must be fully transparent');
+    }
+
+    const icon = decodeAlpha(iconAsset);
+    const iconCorners = [
+      (0 * icon.width + 0) * 4 + 3,
+      (0 * icon.width + (icon.width - 1)) * 4 + 3,
+      ((icon.height - 1) * icon.width + 0) * 4 + 3,
+      ((icon.height - 1) * icon.width + (icon.width - 1)) * 4 + 3,
+    ];
+    for (const alphaIdx of iconCorners) {
+      assert.strictEqual(icon.raw[alphaIdx], 0, 'Icon corners must be fully transparent');
+    }
+  });
+
   await t.test('3. Brand logo replaced across all official application touchpoints', () => {
     // Navbar
     const navCode = fs.readFileSync(navbarPath, 'utf8');

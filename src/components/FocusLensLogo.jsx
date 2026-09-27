@@ -96,7 +96,7 @@ export function FocusLensLogo({
           width={currentSize.height}
           height={currentSize.height}
           style={{ aspectRatio: '1 / 1' }}
-          className={`${currentSize.iconClass} object-contain rounded-lg shrink-0 ${imgClassName}`}
+          className={`${currentSize.iconClass} object-contain shrink-0 ${imgClassName}`}
           loading="eager"
           decoding="async"
         />
@@ -115,7 +115,7 @@ export function FocusLensLogo({
           width={currentSize.height}
           height={currentSize.height}
           style={{ aspectRatio: '1 / 1' }}
-          className={`block sm:hidden ${currentSize.iconClass} object-contain rounded-lg shrink-0 ${imgClassName}`}
+          className={`block sm:hidden ${currentSize.iconClass} object-contain shrink-0 ${imgClassName}`}
           loading="eager"
           decoding="async"
         />
@@ -126,7 +126,7 @@ export function FocusLensLogo({
           width={currentSize.width}
           height={currentSize.height}
           style={{ aspectRatio: '411 / 105' }}
-          className={`hidden sm:block ${currentSize.horizontalClass} w-auto object-contain rounded-lg shrink-0 ${imgClassName}`}
+          className={`hidden sm:block ${currentSize.horizontalClass} w-auto object-contain shrink-0 ${imgClassName}`}
           loading="eager"
           decoding="async"
         />
@@ -143,7 +143,7 @@ export function FocusLensLogo({
         width={currentSize.width}
         height={currentSize.height}
         style={{ aspectRatio: '411 / 105' }}
-        className={`${currentSize.horizontalClass} w-auto object-contain rounded-lg shrink-0 ${imgClassName}`}
+        className={`${currentSize.horizontalClass} w-auto object-contain shrink-0 ${imgClassName}`}
         loading="eager"
         decoding="async"
       />
