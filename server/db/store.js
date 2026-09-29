@@ -1,6 +1,6 @@
 import { eq, desc, gte, lte, and, or, isNull } from 'drizzle-orm';
 import { db, checkDbConnection } from './client.js';
-import { users, sessions, activitySegments, passwordResets, weeklyReviewNotes, googleCalendarConnections, tasks, focusBuddies, conversations, messages, userSettings } from './schema.js';
+import { users, sessions, activitySegments, passwordResets, weeklyReviewNotes, googleCalendarConnections, tasks, focusBuddies, conversations, messages, userSettings, focusPresence } from './schema.js';
 import crypto from 'crypto';
 
 // In-Memory Fallback Stores (used if PostgreSQL service is offline)
@@ -15,6 +15,13 @@ const memoryBuddies = new Map();
 const memoryConversations = new Map();
 const memoryMessages = new Map();
 const memorySettings = new Map();
+const memoryPresence = new Map();
+
+// UUID validation guard to prevent PostgreSQL 22P02 invalid input syntax errors
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isValidUuid(id) {
+  return typeof id === 'string' && UUID_REGEX.test(id);
+}
 
 export const dbStore = {
   // USER OPERATIONS
@@ -53,6 +60,9 @@ export const dbStore = {
   async getUserById(id) {
     const isConnected = await checkDbConnection();
     if (isConnected) {
+      if (!isValidUuid(id)) {
+        return null;
+      }
       const rows = await db.select().from(users).where(eq(users.id, id)).limit(1);
       return rows[0] || null;
     }
@@ -1460,6 +1470,7 @@ export const dbStore = {
   async getBuddyRelationship(userAId, userBId) {
     const isConnected = await checkDbConnection();
     if (isConnected) {
+      if (!isValidUuid(userAId) || !isValidUuid(userBId)) return null;
       const rows = await db.select().from(focusBuddies).where(
         or(
           and(eq(focusBuddies.senderUserId, userAId), eq(focusBuddies.receiverUserId, userBId)),
@@ -1483,6 +1494,7 @@ export const dbStore = {
     let requests = [];
 
     if (isConnected) {
+      if (!isValidUuid(userId)) return [];
       requests = await db.select().from(focusBuddies)
         .where(and(eq(focusBuddies.receiverUserId, userId), eq(focusBuddies.status, 'PENDING')))
         .orderBy(desc(focusBuddies.createdAt));
@@ -1515,6 +1527,7 @@ export const dbStore = {
     let records = [];
 
     if (isConnected) {
+      if (!isValidUuid(userId)) return [];
       records = await db.select().from(focusBuddies).where(
         and(
           eq(focusBuddies.status, 'ACCEPTED'),
@@ -1550,6 +1563,7 @@ export const dbStore = {
     let record = null;
 
     if (isConnected) {
+      if (!isValidUuid(requestId)) return null;
       const rows = await db.select().from(focusBuddies).where(eq(focusBuddies.id, requestId)).limit(1);
       record = rows[0] || null;
     } else {
@@ -1589,6 +1603,7 @@ export const dbStore = {
   async removeBuddy(userAId, userBId) {
     const isConnected = await checkDbConnection();
     if (isConnected) {
+      if (!isValidUuid(userAId) || !isValidUuid(userBId)) return true;
       await db.delete(focusBuddies).where(
         or(
           and(eq(focusBuddies.senderUserId, userAId), eq(focusBuddies.receiverUserId, userBId)),
@@ -1610,6 +1625,7 @@ export const dbStore = {
   // CONVERSATION OPERATIONS
 
   async getOrCreateConversation(userAId, userBId) {
+    if (!isValidUuid(userAId) || !isValidUuid(userBId)) return null;
     const [user1Id, user2Id] = [userAId, userBId].sort();
     const isConnected = await checkDbConnection();
 
@@ -1655,6 +1671,7 @@ export const dbStore = {
     let convList = [];
 
     if (isConnected) {
+      if (!isValidUuid(userId)) return [];
       convList = await db.select().from(conversations).where(
         or(eq(conversations.user1Id, userId), eq(conversations.user2Id, userId))
       );
@@ -1673,14 +1690,16 @@ export const dbStore = {
       // Count unread messages
       let unreadCount = 0;
       if (isConnected) {
-        const unreadRows = await db.select().from(messages).where(
-          and(
-            eq(messages.conversationId, conv.id),
-            eq(messages.senderUserId, buddyId),
-            isNull(messages.readAt)
-          )
-        );
-        unreadCount = unreadRows.length;
+        if (isValidUuid(conv.id) && isValidUuid(buddyId)) {
+          const unreadRows = await db.select().from(messages).where(
+            and(
+              eq(messages.conversationId, conv.id),
+              eq(messages.senderUserId, buddyId),
+              isNull(messages.readAt)
+            )
+          );
+          unreadCount = unreadRows.length;
+        }
       } else {
         unreadCount = Array.from(memoryMessages.values()).filter(
           m => m.conversationId === conv.id && m.senderUserId === buddyId && !m.readAt
@@ -1710,6 +1729,7 @@ export const dbStore = {
     let conv = null;
 
     if (isConnected) {
+      if (!isValidUuid(conversationId)) return null;
       const rows = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
       conv = rows[0] || null;
     } else {
@@ -1744,6 +1764,7 @@ export const dbStore = {
 
     const isConnected = await checkDbConnection();
     if (isConnected) {
+      if (!isValidUuid(conversationId)) return [];
       const rows = await db.select().from(messages)
         .where(eq(messages.conversationId, conversationId))
         .orderBy(messages.createdAt)
@@ -1844,7 +1865,7 @@ export const dbStore = {
   async getUserSettings(userId) {
     if (!userId) return null;
     const isConnected = await checkDbConnection();
-    if (isConnected) {
+    if (isConnected && isValidUuid(userId)) {
       try {
         const [existing] = await db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1);
         if (existing) return existing;
@@ -1877,6 +1898,7 @@ export const dbStore = {
         showFocusPoints: true,
         showFocusStreak: true,
         autoResumeWarning: true,
+        shareFocusStatus: true,
         theme: 'dark',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -1897,7 +1919,7 @@ export const dbStore = {
       updatedAt: new Date(),
     };
 
-    if (isConnected) {
+    if (isConnected && isValidUuid(userId)) {
       try {
         const [updated] = await db.update(userSettings)
           .set(updates)
@@ -1932,10 +1954,243 @@ export const dbStore = {
       showFocusPoints: true,
       showFocusStreak: true,
       autoResumeWarning: true,
+      shareFocusStatus: true,
       theme: 'dark',
     };
 
     return await this.updateUserSettings(userId, defaultValues);
+  },
+
+  // BUDDY RELATIONSHIP CHECK
+  async areAcceptedBuddies(user1Id, user2Id) {
+    if (!user1Id || !user2Id) return false;
+    if (user1Id === user2Id) return true; // Self is always authorized
+    const isConnected = await checkDbConnection();
+    if (isConnected) {
+      if (!isValidUuid(user1Id) || !isValidUuid(user2Id)) return false;
+      const rows = await db.select().from(focusBuddies).where(
+        and(
+          eq(focusBuddies.status, 'ACCEPTED'),
+          or(
+            and(eq(focusBuddies.senderUserId, user1Id), eq(focusBuddies.receiverUserId, user2Id)),
+            and(eq(focusBuddies.senderUserId, user2Id), eq(focusBuddies.receiverUserId, user1Id))
+          )
+        )
+      ).limit(1);
+      return rows.length > 0;
+    }
+    for (const b of memoryBuddies.values()) {
+      if (
+        b.status === 'ACCEPTED' &&
+        ((b.senderUserId === user1Id && b.receiverUserId === user2Id) ||
+         (b.senderUserId === user2Id && b.receiverUserId === user1Id))
+      ) {
+        return true;
+      }
+    }
+    return false;
+  },
+
+  // FOCUS PRESENCE OPERATIONS
+  async upsertPresence(userId, presenceData = {}) {
+    if (!userId) return null;
+    const now = new Date();
+    const isConnected = await checkDbConnection();
+
+    const dataToSave = {
+      userId,
+      sessionId: (presenceData.sessionId && isValidUuid(presenceData.sessionId)) ? presenceData.sessionId : null,
+      status: presenceData.status || 'IDLE',
+      startedAt: presenceData.startedAt ? new Date(presenceData.startedAt) : null,
+      endsAt: presenceData.endsAt ? new Date(presenceData.endsAt) : null,
+      pauseStartedAt: presenceData.pauseStartedAt ? new Date(presenceData.pauseStartedAt) : null,
+      updatedAt: now,
+      expiresAt: presenceData.expiresAt ? new Date(presenceData.expiresAt) : null,
+    };
+
+    if (isConnected) {
+      if (!isValidUuid(userId)) return null;
+      const [upserted] = await db.insert(focusPresence)
+        .values({
+          id: crypto.randomUUID(),
+          ...dataToSave,
+        })
+        .onConflictDoUpdate({
+          target: focusPresence.userId,
+          set: {
+            sessionId: dataToSave.sessionId,
+            status: dataToSave.status,
+            startedAt: dataToSave.startedAt,
+            endsAt: dataToSave.endsAt,
+            pauseStartedAt: dataToSave.pauseStartedAt,
+            updatedAt: now,
+            expiresAt: dataToSave.expiresAt,
+          },
+        })
+        .returning();
+      if (upserted) {
+        return upserted;
+      }
+    }
+
+    const current = memoryPresence.get(userId) || { id: crypto.randomUUID(), userId };
+    const updated = {
+      ...current,
+      ...dataToSave,
+    };
+    memoryPresence.set(userId, updated);
+    return updated;
+  },
+
+  async getPresenceByUserId(userId) {
+    if (!userId) {
+      return {
+        userId,
+        status: 'IDLE',
+        sessionId: null,
+        startedAt: null,
+        endsAt: null,
+        pauseStartedAt: null,
+      };
+    }
+    const isConnected = await checkDbConnection();
+    let row = null;
+
+    if (isConnected) {
+      if (!isValidUuid(userId)) {
+        return {
+          userId,
+          status: 'IDLE',
+          sessionId: null,
+          startedAt: null,
+          endsAt: null,
+          pauseStartedAt: null,
+        };
+      }
+      const rows = await db.select().from(focusPresence).where(eq(focusPresence.userId, userId)).limit(1);
+      row = rows[0] || null;
+    } else {
+      row = memoryPresence.get(userId) || null;
+    }
+
+    if (!row) {
+      return {
+        userId,
+        status: 'IDLE',
+        sessionId: null,
+        startedAt: null,
+        endsAt: null,
+        pauseStartedAt: null,
+      };
+    }
+
+    // Check expiration if status is not IDLE
+    if (row.status !== 'IDLE' && row.expiresAt) {
+      const expTime = new Date(row.expiresAt).getTime();
+      if (!isNaN(expTime) && expTime < Date.now()) {
+        return {
+          ...row,
+          status: 'IDLE',
+          sessionId: null,
+          startedAt: null,
+          endsAt: null,
+          pauseStartedAt: null,
+        };
+      }
+    }
+
+    return row;
+  },
+
+  async clearPresence(userId) {
+    if (!userId) return null;
+    return await this.upsertPresence(userId, {
+      sessionId: null,
+      status: 'IDLE',
+      startedAt: null,
+      endsAt: null,
+      pauseStartedAt: null,
+      expiresAt: null,
+    });
+  },
+
+  async getBuddyPresence(requestingUserId) {
+    if (!requestingUserId) return [];
+    // 1. Get accepted buddies of requesting user
+    const buddies = await this.getAcceptedBuddies(requestingUserId);
+    if (!buddies || buddies.length === 0) {
+      return [];
+    }
+
+    const results = [];
+    for (const buddy of buddies) {
+      const buddyUserId = buddy.userId;
+      // 2. Check buddy's privacy settings
+      const settings = await this.getUserSettings(buddyUserId);
+      if (settings?.shareFocusStatus === false) {
+        results.push({
+          userId: buddyUserId,
+          username: buddy.username,
+          name: buddy.name,
+          avatarUrl: buddy.avatarUrl,
+          status: 'IDLE',
+        });
+        continue;
+      }
+
+      // 3. Fetch sanitized presence
+      const presence = await this.getPresenceByUserId(buddyUserId);
+      if (presence.status === 'FOCUSING' || presence.status === 'PAUSED') {
+        results.push({
+          userId: buddyUserId,
+          username: buddy.username,
+          name: buddy.name,
+          avatarUrl: buddy.avatarUrl,
+          status: presence.status,
+          startedAt: presence.startedAt ? (presence.startedAt instanceof Date ? presence.startedAt.toISOString() : presence.startedAt) : null,
+          endsAt: presence.endsAt ? (presence.endsAt instanceof Date ? presence.endsAt.toISOString() : presence.endsAt) : null,
+        });
+      } else {
+        results.push({
+          userId: buddyUserId,
+          username: buddy.username,
+          name: buddy.name,
+          avatarUrl: buddy.avatarUrl,
+          status: 'IDLE',
+        });
+      }
+    }
+
+    return results;
+  },
+
+  async getExpiredActivePresences() {
+    const now = new Date();
+    const isConnected = await checkDbConnection();
+    const expiredList = [];
+
+    if (isConnected) {
+      try {
+        const rows = await db.select().from(focusPresence).where(
+          and(
+            or(eq(focusPresence.status, 'FOCUSING'), eq(focusPresence.status, 'PAUSED')),
+            lte(focusPresence.expiresAt, now)
+          )
+        );
+        return rows;
+      } catch (err) {
+        console.warn('[DBStore] Error checking expired presences in DB, using fallback:', err.message);
+      }
+    }
+
+    for (const p of memoryPresence.values()) {
+      if ((p.status === 'FOCUSING' || p.status === 'PAUSED') && p.expiresAt) {
+        if (new Date(p.expiresAt).getTime() <= now.getTime()) {
+          expiredList.push(p);
+        }
+      }
+    }
+    return expiredList;
   },
 };
 

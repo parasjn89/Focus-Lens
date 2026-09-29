@@ -11,6 +11,7 @@ import { sendEmailVerificationChallenge, sendEmailPasswordResetLink, sendEmailPa
 import { sendSmsOtpChallenge, sendSmsPasswordResetOtp } from '../services/smsService.js';
 import { saveAvatar, deleteAvatarFile } from '../services/avatarStorageService.js';
 import { verifyFirebaseIdToken, getFirebaseAuth, isFirebaseAdminConfigured } from '../services/firebaseAuth.js';
+import { realtimeMessageService } from '../services/realtimeMessageService.js';
 
 
 export function toSafeUser(user) {
@@ -678,6 +679,18 @@ export async function firebasePhoneAuth(request, reply) {
 
 // Handler: POST /api/auth/logout
 export async function logout(request, reply) {
+  const userId = request.user?.id || request.session?.userId;
+  if (userId) {
+    try {
+      await dbStore.clearPresence(userId);
+      await realtimeMessageService.broadcastPresenceToBuddies({
+        userId,
+        eventType: 'focus.presence.expired',
+        presence: { status: 'IDLE' },
+      }).catch(() => null);
+    } catch (e) {}
+  }
+
   if (request.session) {
     return new Promise((resolve) => {
       request.session.destroy((err) => {

@@ -690,6 +690,34 @@ export function OptionsPage({ onNavigate }) {
                       />
                     </button>
                   </div>
+
+                  {/* Control: Focus Buddy Live Presence Visibility */}
+                  <div className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950/50 border border-slate-800/60">
+                    <div>
+                      <span className="text-xs font-semibold text-slate-200 block">
+                        Focus Buddy Presence Visibility
+                      </span>
+                      <span className="text-[11px] text-slate-400 block mt-0.5">
+                        Share live focus/pause state with accepted Focus Buddies
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => updateSetting('shareFocusStatus', settings.shareFocusStatus === false ? true : false)}
+                      className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors duration-200 cursor-pointer ${
+                        settings.shareFocusStatus !== false ? 'bg-cyan-500' : 'bg-slate-800'
+                      }`}
+                      role="switch"
+                      aria-checked={settings.shareFocusStatus !== false}
+                      title="Toggle Focus Buddy presence visibility"
+                    >
+                      <div
+                        className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ${
+                          settings.shareFocusStatus !== false ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1106,6 +1134,45 @@ export function OptionsPage({ onNavigate }) {
                   </div>
                   <p className="text-xs text-slate-400 leading-relaxed">
                     All computer vision inference (MediaPipe face detection, head pose, and object detection) runs directly inside your web browser using WebAssembly. Camera video streams and screen captures never leave your machine and are never uploaded to our servers.
+                  </p>
+                </div>
+
+                {/* Privacy / Focus Buddy Visibility Card */}
+                <div className="p-4 rounded-2xl bg-slate-950/50 border border-slate-800/60 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center space-x-3">
+                      <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
+                        <UserCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-sm font-semibold text-slate-200 block">
+                          Show my focus status to Focus Buddies
+                        </span>
+                        <span className="text-xs text-slate-400 block mt-0.5">
+                          Let your accepted Focus Buddies see when you're currently focusing.
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => updateSetting('shareFocusStatus', settings.shareFocusStatus === false ? true : false)}
+                      className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-200 cursor-pointer shrink-0 ${
+                        settings.shareFocusStatus !== false ? 'bg-cyan-500' : 'bg-slate-800'
+                      }`}
+                      role="switch"
+                      aria-checked={settings.shareFocusStatus !== false}
+                      title="Toggle Focus Buddy visibility"
+                    >
+                      <div
+                        className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ${
+                          settings.shareFocusStatus !== false ? 'translate-x-6' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed border-t border-slate-800/60 pt-2.5">
+                    Your accepted Focus Buddies can see when you're focusing or taking a break. Your camera, screen, and AI monitoring data are never shared.
                   </p>
                 </div>
 

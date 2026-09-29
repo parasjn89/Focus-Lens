@@ -33,9 +33,13 @@ import {
   respondToBuddyRequest,
 } from '../api/messageApi';
 import { realtimeMessages } from '../services/realtimeMessages';
+import { useAllBuddyPresence, formatPresenceStatus } from '../services/presenceService';
 
 export function MessagesPage({ onNavigate }) {
   const { user: currentUser } = useAuth();
+
+  // Live Focus Buddy Presence State
+  const presenceMap = useAllBuddyPresence();
 
   // Conversations & Buddies State
   const [conversations, setConversations] = useState([]);
@@ -545,6 +549,10 @@ export function MessagesPage({ onNavigate }) {
               filteredConversations.map((c) => {
                 const isSelected = c.id === activeConversationId;
                 const buddyName = c.buddy?.name || c.buddy?.username || 'Focus Buddy';
+                const buddyId = c.buddy?.id || c.buddy?.userId;
+                const buddyPresence = presenceMap[buddyId] || { status: 'IDLE' };
+                const presenceStatus = formatPresenceStatus(buddyPresence, 'short');
+
                 return (
                   <button
                     key={c.id}
@@ -559,12 +567,18 @@ export function MessagesPage({ onNavigate }) {
                         : 'hover:bg-slate-900/60 text-slate-200 border-l-2 border-transparent'
                     }`}
                   >
-                    <UserAvatar
-                      user={c.buddy}
-                      size="md"
-                      roundedFull
-                      alt={buddyName}
-                    />
+                    <div className="relative shrink-0">
+                      <UserAvatar
+                        user={c.buddy}
+                        size="md"
+                        roundedFull
+                        alt={buddyName}
+                      />
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-950 ${presenceStatus.dotClass}`}
+                        title={presenceStatus.label}
+                      />
+                    </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
@@ -573,6 +587,20 @@ export function MessagesPage({ onNavigate }) {
                         </span>
                         <span className="text-[10px] font-mono text-slate-500 shrink-0 ml-2">
                           {c.lastMessageAt ? formatMessageTime(c.lastMessageAt) : ''}
+                        </span>
+                      </div>
+
+                      {/* Live Focus Status Indicator */}
+                      <div className="flex items-center space-x-1.5 mt-0.5">
+                        <span className={`w-1.5 h-1.5 rounded-full ${presenceStatus.dotClass}`} />
+                        <span className={`text-[10px] truncate ${
+                          presenceStatus.color === 'emerald'
+                            ? 'text-emerald-400 font-semibold'
+                            : presenceStatus.color === 'amber'
+                            ? 'text-amber-400 font-medium'
+                            : 'text-slate-500'
+                        }`}>
+                          {presenceStatus.label}
                         </span>
                       </div>
 
@@ -605,39 +633,68 @@ export function MessagesPage({ onNavigate }) {
           {activeBuddy ? (
             <>
               {/* Active Conversation Header */}
-              <div className="p-3.5 sm:p-4 border-b border-slate-800/80 flex items-center justify-between bg-slate-900/40 shrink-0">
-                <div className="flex items-center space-x-3">
-                  {/* Mobile Back Button */}
-                  <button
-                    type="button"
-                    onClick={() => setShowMobileChat(false)}
-                    className="md:hidden p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
+              {(() => {
+                const activeBuddyId = activeBuddy?.id || activeBuddy?.userId;
+                const activeBuddyPresence = presenceMap[activeBuddyId] || { status: 'IDLE' };
+                const activeStatus = formatPresenceStatus(activeBuddyPresence, 'full');
 
-                  <UserAvatar
-                    user={activeBuddy}
-                    size="md"
-                    roundedFull
-                    alt={activeBuddy.name || activeBuddy.username || 'Focus Buddy'}
-                  />
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <h2 className="text-sm font-bold text-white">
-                        {activeBuddy.name || activeBuddy.username || 'Focus Buddy'}
-                      </h2>
-                      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/25">
-                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                        <span>Focus Buddy</span>
-                      </span>
+                return (
+                  <div className="p-3.5 sm:p-4 border-b border-slate-800/80 flex items-center justify-between bg-slate-900/40 shrink-0">
+                    <div className="flex items-center space-x-3">
+                      {/* Mobile Back Button */}
+                      <button
+                        type="button"
+                        onClick={() => setShowMobileChat(false)}
+                        className="md:hidden p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+
+                      <div className="relative shrink-0">
+                        <UserAvatar
+                          user={activeBuddy}
+                          size="md"
+                          roundedFull
+                          alt={activeBuddy.name || activeBuddy.username || 'Focus Buddy'}
+                        />
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-950 ${activeStatus.dotClass}`}
+                          title={activeStatus.label}
+                        />
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <h2 className="text-sm font-bold text-white">
+                            {activeBuddy.name || activeBuddy.username || 'Focus Buddy'}
+                          </h2>
+                          <span className={`inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${activeStatus.badgeClass}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${activeStatus.dotClass}`} />
+                            <span>{activeStatus.label}</span>
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-slate-400 font-mono block">
+                          @{activeBuddy.username || 'user'}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-[11px] text-slate-400 font-mono block">
-                      @{activeBuddy.username || 'user'}
-                    </span>
+
+                    {/* Start your own session button when buddy is focusing */}
+                    {activeBuddyPresence.status === 'FOCUSING' && (
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => onNavigate && onNavigate('setup')}
+                          className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition cursor-pointer shadow-sm shadow-cyan-500/10"
+                          title="Start your own focus session alongside your buddy"
+                        >
+                          <Zap className="w-3.5 h-3.5 text-cyan-400 fill-cyan-400/30" />
+                          <span>Start your own session</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* Message History Area */}
               <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">

@@ -15,6 +15,7 @@ export const DEFAULT_USER_SETTINGS = {
   defaultScreen: true, // Screen share requested by default during session setup
 
   // 3. Privacy & Integrations
+  shareFocusStatus: true, // "Show my focus status to Focus Buddies" (default: ON)
   // Google Calendar integration is server-authenticated via OAuth tokens
 
   // 4. Dashboard Preferences

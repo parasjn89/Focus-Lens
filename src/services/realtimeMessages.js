@@ -57,6 +57,18 @@ class RealtimeMessageClient {
     }
   }
 
+  notifyPresenceUpdate(payload) {
+    for (const sub of this.subscribers) {
+      if (typeof sub.onPresenceUpdate === 'function') {
+        try {
+          sub.onPresenceUpdate(payload);
+        } catch (err) {
+          console.error('[RealtimeMessages] Error in onPresenceUpdate listener:', err);
+        }
+      }
+    }
+  }
+
   connect() {
     if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
       return;
@@ -89,6 +101,26 @@ class RealtimeMessageClient {
           console.warn('[RealtimeMessages] Failed to parse message.created event payload:', err);
         }
       });
+
+      const presenceEvents = [
+        'focus.presence.started',
+        'focus.presence.paused',
+        'focus.presence.resumed',
+        'focus.presence.completed',
+        'focus.presence.cancelled',
+        'focus.presence.expired',
+      ];
+
+      for (const ev of presenceEvents) {
+        this.eventSource.addEventListener(ev, (e) => {
+          try {
+            const parsed = JSON.parse(e.data);
+            this.notifyPresenceUpdate(parsed);
+          } catch (err) {
+            console.warn(`[RealtimeMessages] Failed to parse ${ev} event payload:`, err);
+          }
+        });
+      }
 
       this.eventSource.onerror = (e) => {
         console.warn('[RealtimeMessages] EventSource error/disconnect, readyState:', this.eventSource?.readyState);

@@ -4,6 +4,7 @@ import { calculateSessionAnalytics } from '../utils/analytics.js';
 import { generateFocusCoachAnalysis } from '../utils/focusCoachEngine.js';
 import { generateConsistencyAnalysis } from '../utils/consistencyEngine.js';
 import { generateAdaptiveSessionRecommendation } from '../utils/adaptiveSessionEngine.js';
+import { realtimeMessageService } from '../services/realtimeMessageService.js';
 
 // Request Validation Schemas using Zod
 export const CreateSessionSchema = z.object({
@@ -163,6 +164,30 @@ export async function createSession(request, reply) {
       goalProgress: 0,
       goalCompleted: false,
     });
+
+    // Update Live Focus Presence: transition to FOCUSING
+    const plannedDurationMs = Number(body.plannedDurationMs);
+    const endsAt = new Date(sessionStartedAt.getTime() + plannedDurationMs);
+    const expiresAt = new Date(Date.now() + 45000);
+
+    await dbStore.upsertPresence(userId, {
+      sessionId: session.id,
+      status: 'FOCUSING',
+      startedAt: sessionStartedAt,
+      endsAt,
+      pauseStartedAt: null,
+      expiresAt,
+    });
+
+    await realtimeMessageService.broadcastPresenceToBuddies({
+      userId,
+      eventType: 'focus.presence.started',
+      presence: {
+        status: 'FOCUSING',
+        startedAt: sessionStartedAt,
+        endsAt,
+      },
+    }).catch(() => null);
 
     return reply.status(201).send({
       session,
@@ -327,6 +352,65 @@ export async function heartbeatSession(request, reply) {
       });
     }
 
+    // Refresh & synchronize Focus Presence
+    const currentPresence = await dbStore.getPresenceByUserId(userId);
+    const expiresAt = new Date(Date.now() + 45000);
+
+    if (body.isPaused === true) {
+      const prevStatus = currentPresence?.status;
+      const pauseStartedAt = currentPresence?.pauseStartedAt || new Date();
+      await dbStore.upsertPresence(userId, {
+        sessionId: id,
+        status: 'PAUSED',
+        startedAt: currentPresence?.startedAt || updated.startedAt,
+        endsAt: currentPresence?.endsAt,
+        pauseStartedAt,
+        expiresAt,
+      });
+
+      if (prevStatus !== 'PAUSED') {
+        await realtimeMessageService.broadcastPresenceToBuddies({
+          userId,
+          eventType: 'focus.presence.paused',
+          presence: {
+            status: 'PAUSED',
+            startedAt: currentPresence?.startedAt || updated.startedAt,
+            endsAt: currentPresence?.endsAt,
+          },
+        }).catch(() => null);
+      }
+    } else {
+      const prevStatus = currentPresence?.status;
+      let endsAt = currentPresence?.endsAt;
+      if (prevStatus === 'PAUSED' && currentPresence?.pauseStartedAt && endsAt) {
+        const pauseElapsed = Math.max(0, Date.now() - new Date(currentPresence.pauseStartedAt).getTime());
+        endsAt = new Date(new Date(endsAt).getTime() + pauseElapsed);
+      } else if (!endsAt && updated.startedAt && updated.plannedDurationMs) {
+        endsAt = new Date(new Date(updated.startedAt).getTime() + Number(updated.plannedDurationMs));
+      }
+
+      await dbStore.upsertPresence(userId, {
+        sessionId: id,
+        status: 'FOCUSING',
+        startedAt: currentPresence?.startedAt || updated.startedAt,
+        endsAt,
+        pauseStartedAt: null,
+        expiresAt,
+      });
+
+      if (prevStatus === 'PAUSED') {
+        await realtimeMessageService.broadcastPresenceToBuddies({
+          userId,
+          eventType: 'focus.presence.resumed',
+          presence: {
+            status: 'FOCUSING',
+            startedAt: currentPresence?.startedAt || updated.startedAt,
+            endsAt,
+          },
+        }).catch(() => null);
+      }
+    }
+
     return reply.send({
       success: true,
       sessionId: updated.id,
@@ -400,6 +484,17 @@ export async function updateSession(request, reply) {
 
     const updated = await dbStore.updateSession(id, userId, updates);
 
+    // If session ended, clear Live Focus Presence
+    if (updates.status === 'COMPLETED' || updates.status === 'CANCELLED') {
+      await dbStore.clearPresence(userId);
+      const eventType = updates.status === 'COMPLETED' ? 'focus.presence.completed' : 'focus.presence.cancelled';
+      await realtimeMessageService.broadcastPresenceToBuddies({
+        userId,
+        eventType,
+        presence: { status: 'IDLE' },
+      }).catch(() => null);
+    }
+
     const statistics = calculateSessionAnalytics(updated, segments);
 
     return reply.send({
@@ -438,6 +533,13 @@ export async function deleteSession(request, reply) {
         message: `Session with ID "${id}" was not found or access is forbidden.`,
       });
     }
+
+    await dbStore.clearPresence(userId);
+    await realtimeMessageService.broadcastPresenceToBuddies({
+      userId,
+      eventType: 'focus.presence.cancelled',
+      presence: { status: 'IDLE' },
+    }).catch(() => null);
 
     return reply.send({
       success: true,

@@ -66,6 +66,21 @@ export async function checkDbConnection() {
           updated_at TIMESTAMP NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id);
+        ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS share_focus_status BOOLEAN NOT NULL DEFAULT true;
+
+        CREATE TABLE IF NOT EXISTS focus_presence (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+          session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+          status TEXT NOT NULL DEFAULT 'IDLE',
+          started_at TIMESTAMP,
+          ends_at TIMESTAMP,
+          pause_started_at TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          expires_at TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_focus_presence_user_id ON focus_presence(user_id);
+        CREATE INDEX IF NOT EXISTS idx_focus_presence_session_id ON focus_presence(session_id);
       `);
     } catch (e) {
       // Ignore if table not yet created

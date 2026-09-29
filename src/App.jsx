@@ -384,12 +384,11 @@ function AppContent() {
         }).catch(() => null);
       };
 
-      // Initial heartbeat ping after session initializes
-      const initialTimer = setTimeout(sendPing, 1500);
+      // Immediate heartbeat ping on session start and pause/resume status toggle
+      sendPing();
       heartbeatIntervalId = setInterval(sendPing, 15000);
 
       return () => {
-        clearTimeout(initialTimer);
         if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
       };
     }

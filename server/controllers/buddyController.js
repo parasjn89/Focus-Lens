@@ -117,3 +117,18 @@ export async function removeBuddy(request, reply) {
     });
   }
 }
+
+export async function getBuddyPresence(request, reply) {
+  const userId = request.user.id;
+  try {
+    const presenceList = await dbStore.getBuddyPresence(userId);
+    return reply.send(presenceList);
+  } catch (err) {
+    request.log.error(err);
+    return reply.status(500).send({
+      statusCode: 500,
+      error: 'Internal Server Error',
+      message: 'Failed to retrieve buddy presence.',
+    });
+  }
+}

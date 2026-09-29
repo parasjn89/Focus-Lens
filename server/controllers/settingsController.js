@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { dbStore } from '../db/store.js';
+import { realtimeMessageService } from '../services/realtimeMessageService.js';
 
 export function toSafeSettings(settings) {
   if (!settings) return null;
@@ -15,6 +16,7 @@ export function toSafeSettings(settings) {
     showFocusPoints: settings.showFocusPoints ?? true,
     showFocusStreak: settings.showFocusStreak ?? true,
     autoResumeWarning: settings.autoResumeWarning ?? true,
+    shareFocusStatus: settings.shareFocusStatus ?? true,
     theme: settings.theme || 'dark',
     updatedAt: settings.updatedAt || null,
   };
@@ -32,6 +34,7 @@ export const UpdateSettingsSchema = z.object({
   showFocusPoints: z.boolean().optional(),
   showFocusStreak: z.boolean().optional(),
   autoResumeWarning: z.boolean().optional(),
+  shareFocusStatus: z.boolean().optional(),
   theme: z.enum(['dark', 'navy', 'slate']).optional(),
 }).strict();
 
@@ -73,6 +76,25 @@ export async function updateSettings(request, reply) {
   try {
     const parsed = UpdateSettingsSchema.parse(request.body);
     const updated = await dbStore.updateUserSettings(userId, parsed);
+
+    if (parsed.shareFocusStatus === false) {
+      realtimeMessageService.broadcastPresenceToBuddies({
+        userId,
+        eventType: 'focus.presence.expired',
+        presence: { status: 'IDLE' },
+      }).catch(() => null);
+    } else if (parsed.shareFocusStatus === true) {
+      const currentPresence = await dbStore.getPresenceByUserId(userId);
+      if (currentPresence && (currentPresence.status === 'FOCUSING' || currentPresence.status === 'PAUSED')) {
+        const eventType = currentPresence.status === 'FOCUSING' ? 'focus.presence.started' : 'focus.presence.paused';
+        realtimeMessageService.broadcastPresenceToBuddies({
+          userId,
+          eventType,
+          presence: currentPresence,
+        }).catch(() => null);
+      }
+    }
+
     return reply.send({
       success: true,
       settings: toSafeSettings(updated),

@@ -141,6 +141,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   weeklyReviewNotes: many(weeklyReviewNotes),
   googleCalendarConnection: one(googleCalendarConnections),
   settings: one(userSettings),
+  presence: one(focusPresence),
 }));
 
 export const tasksRelations = relations(tasks, ({ one }) => ({
@@ -289,6 +290,7 @@ export const userSettings = pgTable('user_settings', {
   showFocusPoints: boolean('show_focus_points').default(true).notNull(),
   showFocusStreak: boolean('show_focus_streak').default(true).notNull(),
   autoResumeWarning: boolean('auto_resume_warning').default(true).notNull(),
+  shareFocusStatus: boolean('share_focus_status').default(true).notNull(),
   theme: text('theme').default('dark').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -300,6 +302,33 @@ export const userSettingsRelations = relations(userSettings, ({ one }) => ({
   user: one(users, {
     fields: [userSettings.userId],
     references: [users.id],
+  }),
+}));
+
+// Live Focus Buddy Presence table (one active record per user)
+export const focusPresence = pgTable('focus_presence', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull().unique(),
+  sessionId: uuid('session_id').references(() => sessions.id, { onDelete: 'cascade' }),
+  status: text('status').default('IDLE').notNull(), // 'IDLE' | 'FOCUSING' | 'PAUSED'
+  startedAt: timestamp('started_at'),
+  endsAt: timestamp('ends_at'),
+  pauseStartedAt: timestamp('pause_started_at'),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at'),
+}, (table) => ({
+  idxFocusPresenceUserId: index('idx_focus_presence_user_id').on(table.userId),
+  idxFocusPresenceSessionId: index('idx_focus_presence_session_id').on(table.sessionId),
+}));
+
+export const focusPresenceRelations = relations(focusPresence, ({ one }) => ({
+  user: one(users, {
+    fields: [focusPresence.userId],
+    references: [users.id],
+  }),
+  session: one(sessions, {
+    fields: [focusPresence.sessionId],
+    references: [sessions.id],
   }),
 }));
 
