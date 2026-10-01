@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import {
   MessageSquare,
   Search,
@@ -69,20 +69,60 @@ export function MessagesPage({ onNavigate }) {
   // Real-time SSE Connection State
   const [realtimeStatus, setRealtimeStatus] = useState('disconnected');
 
-  const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const hubContainerRef = useRef(null);
   const textareaRef = useRef(null);
   const activeConversationIdRef = useRef(activeConversationId);
+  const isInitialConvLoadRef = useRef(true);
+  const prevActiveConvIdRef = useRef(activeConversationId);
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
   }, [activeConversationId]);
 
-  // Scroll to bottom helper
+  // Scroll to bottom helper strictly targeting the message container (never ancestor elements)
   const scrollToBottom = (behavior = 'smooth') => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior });
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    if (behavior === 'auto' || behavior === 'instant') {
+      container.scrollTop = container.scrollHeight;
+    } else {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      });
     }
   };
+
+  // Synchronous post-render auto-scroll strictly targeting the message list container
+  useLayoutEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    if (prevActiveConvIdRef.current !== activeConversationId) {
+      prevActiveConvIdRef.current = activeConversationId;
+      isInitialConvLoadRef.current = true;
+    }
+
+    if (isInitialConvLoadRef.current) {
+      container.scrollTop = container.scrollHeight;
+      if (activeMessages.length > 0) {
+        isInitialConvLoadRef.current = false;
+      }
+    } else {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  }, [activeMessages, activeConversationId]);
+
+  // Guard against any ancestor scrolling on the hub container
+  useLayoutEffect(() => {
+    if (hubContainerRef.current && hubContainerRef.current.scrollTop !== 0) {
+      hubContainerRef.current.scrollTop = 0;
+    }
+  });
 
   // 1. Initial Load: Conversations and Pending Requests
   const loadConversationsAndBuddies = async (selectedIdToKeep = null) => {
@@ -161,8 +201,6 @@ export function MessagesPage({ onNavigate }) {
               : c
           )
         );
-
-        setTimeout(() => scrollToBottom('auto'), 50);
       } catch (err) {
         if (isMounted) {
           console.error('Failed to load messages for conversation:', err);
@@ -212,8 +250,6 @@ export function MessagesPage({ onNavigate }) {
           const others = prev.filter((c) => c.id !== activeConversationId);
           return [updated, ...others];
         });
-
-        setTimeout(() => scrollToBottom('smooth'), 50);
       }
     } catch (err) {
       console.error('Failed to send message:', err);
@@ -288,9 +324,7 @@ export function MessagesPage({ onNavigate }) {
             if (prev.some((m) => m.id === message.id)) {
               return prev;
             }
-            const updated = [...prev, message];
-            setTimeout(() => scrollToBottom('smooth'), 50);
-            return updated;
+            return [...prev, message];
           });
 
           // If the message came from the buddy, mark conversation as read
@@ -393,7 +427,7 @@ export function MessagesPage({ onNavigate }) {
   const activeBuddy = activeConversationData?.buddy;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 h-[calc(100vh-6rem)] flex flex-col space-y-4 animate-in fade-in duration-200">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 h-[calc(100vh-5rem)] flex flex-col space-y-3 sm:space-y-4 animate-in fade-in duration-200">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0 pb-2 border-b border-slate-800/80">
         <div>
@@ -449,18 +483,21 @@ export function MessagesPage({ onNavigate }) {
       )}
 
       {/* Main Two-Column Hub Container */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-12 gap-5 rounded-3xl bg-slate-900/50 border border-slate-800/80 backdrop-blur-xl overflow-hidden shadow-2xl">
+      <div
+        ref={hubContainerRef}
+        className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-12 md:grid-rows-1 gap-5 rounded-3xl bg-slate-900/50 border border-slate-800/80 backdrop-blur-xl overflow-hidden shadow-2xl"
+      >
         
         {/* =========================================================
             LEFT COLUMN: CONVERSATION LIST & PENDING REQUESTS
         ========================================================= */}
         <div
-          className={`md:col-span-5 lg:col-span-4 border-r border-slate-800/80 flex flex-col h-full bg-slate-950/60 ${
+          className={`md:col-span-5 lg:col-span-4 border-r border-slate-800/80 flex flex-col h-full min-h-0 bg-slate-950/60 ${
             showMobileChat ? 'hidden md:flex' : 'flex'
           }`}
         >
           {/* Search Box */}
-          <div className="p-3.5 border-b border-slate-800/80">
+          <div className="p-3.5 border-b border-slate-800/80 shrink-0">
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
@@ -475,7 +512,7 @@ export function MessagesPage({ onNavigate }) {
 
           {/* Pending Requests Banner / Card */}
           {pendingRequests.length > 0 && (
-            <div className="p-3 bg-cyan-950/20 border-b border-cyan-500/20 space-y-2">
+            <div className="p-3 bg-cyan-950/20 border-b border-cyan-500/20 space-y-2 shrink-0">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold font-mono text-cyan-400 uppercase tracking-wider flex items-center space-x-1.5">
                   <UserCheck className="w-3 h-3" />
@@ -519,7 +556,7 @@ export function MessagesPage({ onNavigate }) {
           )}
 
           {/* Conversation List Scroll Area */}
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/40">
+          <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-800/40">
             {isLoadingConversations ? (
               <div className="p-8 text-center space-y-3">
                 <Loader2 className="w-6 h-6 text-cyan-400 animate-spin mx-auto" />
@@ -626,7 +663,7 @@ export function MessagesPage({ onNavigate }) {
             RIGHT COLUMN: ACTIVE CONVERSATION
         ========================================================= */}
         <div
-          className={`md:col-span-7 lg:col-span-8 flex flex-col h-full bg-slate-950/40 ${
+          className={`md:col-span-7 lg:col-span-8 flex flex-col h-full min-h-0 bg-slate-950/40 ${
             showMobileChat ? 'flex' : 'hidden md:flex'
           }`}
         >
@@ -697,7 +734,10 @@ export function MessagesPage({ onNavigate }) {
               })()}
 
               {/* Message History Area */}
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+              <div
+                ref={messagesContainerRef}
+                className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4"
+              >
                 {isLoadingMessages ? (
                   <div className="p-8 text-center space-y-2">
                     <Loader2 className="w-5 h-5 text-cyan-400 animate-spin mx-auto" />
@@ -767,7 +807,6 @@ export function MessagesPage({ onNavigate }) {
                     );
                   })
                 )}
-                <div ref={messagesEndRef} />
               </div>
 
               {/* Quick Actions Toolbar */}
@@ -833,7 +872,7 @@ export function MessagesPage({ onNavigate }) {
               </div>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3">
+            <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-8 text-center space-y-3">
               <div className="w-14 h-14 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 shadow-xl">
                 <MessageSquare className="w-7 h-7" />
               </div>
